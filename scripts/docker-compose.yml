@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  wc2026:
+    build:
+      context: ..
+      dockerfile: scripts/Dockerfile
+    image: wc2026:latest
+    container_name: wc2026
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # 持久化 SQLite 数据库和日志
+      - wc2026_data:/app/data
+    environment:
+      - PYTHONPATH=/app
+      # 如需修改 Admin Token，取消下行注释并替换
+      # - ADMIN_TOKEN=your-secure-token
+
+volumes:
+  wc2026_data:
