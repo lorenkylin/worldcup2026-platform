@@ -139,6 +139,7 @@ def predict_match_enhanced(
     h2h_home_wins: int = 0,
     h2h_away_wins: int = 0,
     h2h_draws: int = 0,
+    source: str = "hicruben",
 ) -> Dict:
     """M2 增强预测：Elo + form + H2H 加权.
 
@@ -146,12 +147,13 @@ def predict_match_enhanced(
       - M1: 纯 Elo + Dixon-Coles
       - M2: 接受 form_points 和 H2H 数据，调整 effective_elo 后跑同一 Dixon-Coles 模型
 
+    source 参数控制基础 Elo 数据源（默认 hicruben，可选 statsbomb）。
     返回值含 v1（base）和 v2（enhanced）双套结果，方便前端对比。
 
     Returns:
         {
-            'home': {'fifa_code': str, 'elo': int},
-            'away': {'fifa_code': str, 'elo': int},
+            'home': {'fifa_code': str, 'elo': int, 'rating_source': str},
+            'away': {'fifa_code': str, 'elo': int, 'rating_source': str},
             'v1': {  # M1 纯 Elo（基准）
                 'probabilities': {...}, 'expected_goals': {...},
             },
@@ -166,19 +168,44 @@ def predict_match_enhanced(
                 'h2h_home_wins': int, 'h2h_away_wins': int, 'h2h_draws': int, 'h2h_sample': int,
             },
             'model': 'elo_dixon_coles_v2',
-            'data_source': 'hicruben/world-cup-2026-prediction-model',
+            'data_source': str,
             'data_as_of': str,
+            'rating_source': {'home': str, 'away': str},
+            'fallback_reason': {...} | None,
         }
     """
-    data = load_elo_ratings()
-    elo_home = get_team_elo(home_code)
-    elo_away = get_team_elo(away_code)
+    home_code_u = home_code.upper()
+    away_code_u = away_code.upper()
+
+    elo_home, home_source, home_reason = _get_team_elo_with_source(home_code_u, source)
+    elo_away, away_source, away_reason = _get_team_elo_with_source(away_code_u, source)
+
+    fallback_reason = {}
+    if home_reason:
+        fallback_reason['home'] = home_reason
+    if away_reason:
+        fallback_reason['away'] = away_reason
+
+    if source == "statsbomb":
+        from app.services import statsbomb_elo as sb
+        data_as_of = sb.load_statsbomb_ratings().get('generatedAt')
+        data_source = "statsbomb/open-data"
+        attribution = "StatsBomb data provided by StatsBomb. Used under open data terms."
+    else:
+        data = load_elo_ratings()
+        data_as_of = data.get('generatedAt')
+        data_source = "hicruben/world-cup-2026-prediction-model"
+        attribution = None
+
     if elo_home is None or elo_away is None:
         return {
-            'home': {'fifa_code': home_code, 'elo': elo_home},
-            'away': {'fifa_code': away_code, 'elo': elo_away},
-            'error': f'球队 {home_code} 或 {away_code} 不在 Elo 数据中',
-            'data_as_of': data.get('generatedAt'),
+            'home': {'fifa_code': home_code_u, 'elo': elo_home, 'rating_source': home_source},
+            'away': {'fifa_code': away_code_u, 'elo': elo_away, 'rating_source': away_source},
+            'error': f'球队 {home_code_u} 或 {away_code_u} 不在 Elo 数据中',
+            'data_source': data_source,
+            'data_as_of': data_as_of,
+            'rating_source': {'home': home_source, 'away': away_source},
+            'fallback_reason': fallback_reason or None,
         }
 
     # V1: M1 纯 Elo
@@ -193,9 +220,9 @@ def predict_match_enhanced(
     effective_elo_away = elo_away + fb_away - hb_home  # H2H 对主场加成对客场减成（对称）
     v2_probs = match_prob(effective_elo_home, effective_elo_away, home_bonus_a=HOME_BONUS)
 
-    return {
-        'home': {'fifa_code': home_code, 'elo': elo_home},
-        'away': {'fifa_code': away_code, 'elo': elo_away},
+    result = {
+        'home': {'fifa_code': home_code_u, 'elo': elo_home, 'rating_source': home_source},
+        'away': {'fifa_code': away_code_u, 'elo': elo_away, 'rating_source': away_source},
         'v1': {
             'probabilities': {
                 'home_win': round(v1_probs['winA'], 4),
@@ -237,8 +264,10 @@ def predict_match_enhanced(
             'h2h_sample': h2h_sample,
         },
         'model': 'elo_dixon_coles_v2',
-        'data_source': 'hicruben/world-cup-2026-prediction-model',
-        'data_as_of': data.get('generatedAt'),
+        'data_source': data_source,
+        'data_as_of': data_as_of,
+        'rating_source': {'home': home_source, 'away': away_source},
+        'fallback_reason': fallback_reason or None,
         'parameters': {
             'k_factor': K_FACTOR_WC,
             'home_bonus': HOME_BONUS,
@@ -248,6 +277,9 @@ def predict_match_enhanced(
             'h2h_min_samples': H2H_MIN_SAMPLES,
         },
     }
+    if attribution:
+        result['attribution'] = attribution
+    return result
 
 
 # === 数据加载 ===
@@ -282,7 +314,7 @@ def load_elo_ratings() -> Dict:
 
 
 def get_team_elo(fifa_code: str) -> Optional[int]:
-    """根据 FIFA 3-letter code 查 Elo 评分（不在数据里返回 None）."""
+    """根据 FIFA 3-letter code 查 Hicruben Elo 评分（不在数据里返回 None）."""
     data = load_elo_ratings()
     kebab = FIFA_TO_HICRUBEN.get(fifa_code.upper())
     if not kebab:
@@ -290,36 +322,108 @@ def get_team_elo(fifa_code: str) -> Optional[int]:
     return data.get('ratings', {}).get(kebab)
 
 
-def predict_match(home_code: str, away_code: str) -> Dict:
+def _get_team_elo_with_source(fifa_code: str, source: str = "hicruben") -> Tuple[Optional[int], str, Optional[str]]:
+    """根据指定数据源查 Elo 评分，并返回 rating 来源.
+
+    Returns:
+        (rating, rating_source, fallback_reason)
+        rating_source: "hicruben" | "statsbomb" | "hicruben_fallback"
+        fallback_reason: 仅当使用 fallback 时非空
+    """
+    code = fifa_code.upper()
+    if source == "statsbomb":
+        # 延迟导入，避免与 statsbomb_elo 循环引用
+        from app.services import statsbomb_elo as sb
+        sb_rating = sb.get_statsbomb_team_elo(code)
+        if sb_rating is not None:
+            return sb_rating, "statsbomb", None
+        # fallback 到 Hicruben
+        hicruben_rating = get_team_elo(code)
+        if hicruben_rating is not None:
+            return (
+                hicruben_rating,
+                "hicruben_fallback",
+                f"Team {code} not found in StatsBomb data; using Hicruben fallback",
+            )
+        return None, "unavailable", f"Team {code} not found in either data source"
+    # 默认 Hicruben
+    hicruben_rating = get_team_elo(code)
+    if hicruben_rating is not None:
+        return hicruben_rating, "hicruben", None
+    return None, "unavailable", f"Team {code} not found in Hicruben data"
+
+
+def predict_match(home_code: str, away_code: str, source: str = "hicruben") -> Dict:
     """预测单场比赛 1X2 + 期望进球.
+
+    Args:
+        home_code: 主队 FIFA 3-letter code
+        away_code: 客队 FIFA 3-letter code
+        source: 'hicruben'（默认）或 'statsbomb'；statsbomb 缺失球队 fallback 到 hicruben
 
     Returns:
         {
-            'home': {'fifa_code': str, 'elo': int|None},
-            'away': {'fifa_code': str, 'elo': int|None},
+            'home': {'fifa_code': str, 'elo': int|None, 'rating_source': str},
+            'away': {'fifa_code': str, 'elo': int|None, 'rating_source': str},
             'probabilities': {'home_win': float, 'draw': float, 'away_win': float},
             'expected_goals': {'home': float, 'away': float},
             'model': 'elo_dixon_coles_v1',
-            'data_source': 'hicruben/world-cup-2026-prediction-model',
+            'data_source': str,
             'data_as_of': str,
+            'rating_source': {'home': str, 'away': str},
+            'fallback_reason': {...} | None,
         }
     """
-    data = load_elo_ratings()
-    elo_home = get_team_elo(home_code)
-    elo_away = get_team_elo(away_code)
+    home_code_u = home_code.upper()
+    away_code_u = away_code.upper()
+
+    elo_home, home_source, home_reason = _get_team_elo_with_source(home_code_u, source)
+    elo_away, away_source, away_reason = _get_team_elo_with_source(away_code_u, source)
+
+    fallback_reason = {}
+    if home_reason:
+        fallback_reason['home'] = home_reason
+    if away_reason:
+        fallback_reason['away'] = away_reason
+
     if elo_home is None or elo_away is None:
+        # 加载 data_as_of
+        if source == "statsbomb":
+            from app.services import statsbomb_elo as sb
+            data_as_of = sb.load_statsbomb_ratings().get('generatedAt')
+            data_source = "statsbomb/open-data"
+        else:
+            data = load_elo_ratings()
+            data_as_of = data.get('generatedAt')
+            data_source = "hicruben/world-cup-2026-prediction-model"
         return {
-            'home': {'fifa_code': home_code, 'elo': elo_home},
-            'away': {'fifa_code': away_code, 'elo': elo_away},
+            'home': {'fifa_code': home_code_u, 'elo': elo_home, 'rating_source': home_source},
+            'away': {'fifa_code': away_code_u, 'elo': elo_away, 'rating_source': away_source},
             'probabilities': {'home_win': None, 'draw': None, 'away_win': None},
             'expected_goals': {'home': None, 'away': None},
-            'error': f'球队 {home_code} 或 {away_code} 不在 Elo 数据中',
-            'data_as_of': data.get('generatedAt'),
+            'error': f'球队 {home_code_u} 或 {away_code_u} 不在 Elo 数据中',
+            'data_source': data_source,
+            'data_as_of': data_as_of,
+            'rating_source': {'home': home_source, 'away': away_source},
+            'fallback_reason': fallback_reason or None,
         }
+
     probs = match_prob(elo_home, elo_away, home_bonus_a=HOME_BONUS)
-    return {
-        'home': {'fifa_code': home_code, 'elo': elo_home},
-        'away': {'fifa_code': away_code, 'elo': elo_away},
+
+    if source == "statsbomb":
+        from app.services import statsbomb_elo as sb
+        data_as_of = sb.load_statsbomb_ratings().get('generatedAt')
+        data_source = "statsbomb/open-data"
+        attribution = "StatsBomb data provided by StatsBomb. Used under open data terms."
+    else:
+        data = load_elo_ratings()
+        data_as_of = data.get('generatedAt')
+        data_source = "hicruben/world-cup-2026-prediction-model"
+        attribution = None
+
+    result = {
+        'home': {'fifa_code': home_code_u, 'elo': elo_home, 'rating_source': home_source},
+        'away': {'fifa_code': away_code_u, 'elo': elo_away, 'rating_source': away_source},
         'probabilities': {
             'home_win': round(probs['winA'], 4),
             'draw': round(probs['draw'], 4),
@@ -330,29 +434,84 @@ def predict_match(home_code: str, away_code: str) -> Dict:
             'away': round(probs['expectedGoalsB'], 2),
         },
         'model': 'elo_dixon_coles_v1',
-        'data_source': 'hicruben/world-cup-2026-prediction-model',
-        'data_as_of': data.get('generatedAt'),
+        'data_source': data_source,
+        'data_as_of': data_as_of,
+        'rating_source': {'home': home_source, 'away': away_source},
+        'fallback_reason': fallback_reason or None,
         'parameters': {
             'k_factor': K_FACTOR_WC,
             'home_bonus': HOME_BONUS,
             'dc_rho': DC_RHO,
         },
     }
+    if attribution:
+        result['attribution'] = attribution
+    return result
 
 
-def get_top_elo(limit: int = 10) -> List[Dict]:
-    """Top N Elo 评分（48 参赛队，按 Elo 降序）."""
-    data = load_elo_ratings()
-    ratings = data.get('ratings', {})
-    # 反向：kebab → FIFA 3-letter
-    rev_map = {v: k for k, v in FIFA_TO_HICRUBEN.items()}
-    rows = []
-    for kebab, rating in ratings.items():
-        fifa_code = rev_map.get(kebab)
-        if fifa_code:
-            rows.append({'fifa_code': fifa_code, 'kebab': kebab, 'elo': rating})
+def get_top_elo(limit: int = 10, source: str = "hicruben") -> List[Dict]:
+    """Top N Elo 评分（按 Elo 降序）.
+
+    Args:
+        limit: 返回前几名
+        source: 'hicruben'（默认）或 'statsbomb'
+    """
+    if source == "statsbomb":
+        from app.services import statsbomb_elo as sb
+        data = sb.load_statsbomb_ratings()
+        ratings = data.get('ratings', {})
+        rows = [
+            {'fifa_code': code, 'elo': rating, 'rating_source': 'statsbomb'}
+            for code, rating in ratings.items()
+        ]
+    else:
+        data = load_elo_ratings()
+        ratings = data.get('ratings', {})
+        # 反向：kebab → FIFA 3-letter
+        rev_map = {v: k for k, v in FIFA_TO_HICRUBEN.items()}
+        rows = []
+        for kebab, rating in ratings.items():
+            fifa_code = rev_map.get(kebab)
+            if fifa_code:
+                rows.append({'fifa_code': fifa_code, 'kebab': kebab, 'elo': rating, 'rating_source': 'hicruben'})
     rows.sort(key=lambda x: -x['elo'])
     return rows[:limit]
+
+
+def compare_predictions(home_code: str, away_code: str) -> Dict:
+    """同时返回 Hicruben 和 StatsBomb 两套预测结果，用于对比.
+
+    对 StatsBomb 缺失的球队会自动 fallback 到 Hicruben，并在 rating_source 中标记。
+    """
+    home_code_u = home_code.upper()
+    away_code_u = away_code.upper()
+
+    hicruben = predict_match(home_code_u, away_code_u, source="hicruben")
+    statsbomb = predict_match(home_code_u, away_code_u, source="statsbomb")
+
+    return {
+        'home': {'fifa_code': home_code_u},
+        'away': {'fifa_code': away_code_u},
+        'hicruben': {
+            'home_elo': hicruben['home']['elo'],
+            'away_elo': hicruben['away']['elo'],
+            'probabilities': hicruben['probabilities'],
+            'expected_goals': hicruben['expected_goals'],
+            'data_as_of': hicruben['data_as_of'],
+            'rating_source': hicruben['rating_source'],
+        },
+        'statsbomb': {
+            'home_elo': statsbomb['home']['elo'],
+            'away_elo': statsbomb['away']['elo'],
+            'probabilities': statsbomb['probabilities'],
+            'expected_goals': statsbomb['expected_goals'],
+            'data_as_of': statsbomb['data_as_of'],
+            'rating_source': statsbomb['rating_source'],
+            'fallback_reason': statsbomb.get('fallback_reason'),
+        },
+        'model': 'elo_dixon_coles_v1',
+        'attribution': "StatsBomb data provided by StatsBomb. Used under open data terms.",
+    }
 
 
 def get_backtest_metrics() -> Dict:

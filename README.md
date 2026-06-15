@@ -1,8 +1,8 @@
 # 2026 FIFA World Cup 赛事分析平台 · 工程交付
 
-> **文档版本**：v0.3.1（Bracket 自动重算，2026-06-15）
-> **阶段**：Phase 5 – Ship（v0.3.1 Bracket 自动重算）
-> **作用域**：48 强全量赛程 + worldcup26.ir 实时同步 + Elo-Poisson v2（含 form/H2H）+ 出线模拟器 + Bracket 淘汰赛路线图 + 手动兜底 + CSV 导出 + 历史交锋详情页
+> **文档版本**：v0.4.0（StatsBomb Elo 双数据源，2026-06-15）
+> **阶段**：Phase 5 – Ship（v0.4.0 StatsBomb Elo 双数据源）
+> **作用域**：48 强全量赛程 + worldcup26.ir 实时同步 + Elo-Poisson v2（含 form/H2H）+ **StatsBomb 双数据源对比** + 出线模拟器 + Bracket 淘汰赛路线图 + 手动兜底 + CSV 导出 + 历史交锋详情页
 
 ---
 
@@ -13,16 +13,16 @@
 | 已交付 | 范围 |
 |---|---|
 | ✅ 静态 H5 前端（中文、深色） | 首页/赛程/积分榜/球队/比赛详情/Elo 实力榜/历史交锋/出线模拟器/Bracket 晋级路线图；Tailwind + 移动优先；hash SPA |
-| ✅ 后端 API（FastAPI · 33 端点） | matches (4) / teams (4) / groups / predictions (2) / elo (6) / h2h (2) / simulator / bracket (2) / admin (12) / health |
-| ✅ Elo-Poisson v2 预测 | M1 纯 Elo + Dixon-Coles + M2 增强（form + H2H 加权因子），双返回 v1/v2 |
+| ✅ 后端 API（FastAPI · 34 端点） | matches (4) / teams (3) / groups (1) / predictions (2) / elo (7) / h2h (2) / simulator (1) / bracket (1) / admin (4) / admin_sync (7) / health |
+| ✅ Elo-Poisson v2 预测 | M1 纯 Elo + Dixon-Coles + M2 增强（form + H2H 加权因子），双返回 v1/v2；**v0.4.0 新增 StatsBomb 数据源切换 + Hicruben/StatsBomb 预测对比** |
 | ✅ 出线模拟器 | `/api/simulator/groups` + 前端交互式界面 |
 | ✅ Bracket 淘汰赛路线图 | `/api/bracket` 自动计算 32 强（12 组前 2 + 8 个最佳第三）+ 16 场 R32 对阵 + Elo 胜率预测；`#/bracket` 真实数据渲染 |
 | ✅ CSV 导出 | Elo 页 "导出 CSV" 按钮（48 队全榜 + 10 字段 + UTF-8 BOM）|
 | ✅ 历史交锋详情页 | 路由 `#/h2h/{code1}/{code2}` + 视角归一 + 9 队非参赛队 fallback |
 | ✅ 数据导入 | worldcup26.ir 实时同步（每 15min 调度 + 启动时立即同步）+ worldcupstats.football 备份 + 手动兜底 |
-| ✅ 手动管理接口 | 12 端点（比分/事件/统计/积分榜手动/同步触发/缓存失效/form 回填/team recent-form/Bracket 重建），需 `X-Admin-Token` |
+| ✅ 手动管理接口 | 11 端点（比分/事件/统计/Bracket 重建/同步触发/缓存失效/form 回填/H2H 回填/备份源调度/回测运行），需 `X-Admin-Token` |
 | ✅ 比赛详情 | events / stats / 赛后复盘卡片（B4）/ weather |
-| ✅ 自动化测试 | **130 项**单元 + 集成 + **7 项** Playwright E2E，全部通过 |
+| ✅ 自动化测试 | **152 项**单元 + 集成 + **7 项** Playwright E2E，全部通过 |
 
 ### 1.2 Non-Goals
 
@@ -109,9 +109,12 @@ worldcupstats.football (backup) ──→ scraper.py → fixtures/*.json → see
                           ↑
 API-Football (未启用)  ──→ 留 RAPIDAPI_KEY 配置位
                           ↑
+StatsBomb Open Data ──→ scripts/download_statsbomb.py / build_statsbomb_from_extracted.py
+   ↓ 309 场国际大赛 → train_statsbomb_elo() → data/seed/statsbomb/statsbomb_elo.json
+   ↓（Hicruben 保持默认主模型；StatsBomb 作为可切换对比源）
 Admin POST (X-Admin-Token) ──→ admin.py + admin_sync.py
                           ↓
-                   FastAPI API (31 端点)
+                   FastAPI API (32 router 端点 + /health)
                           ↓
                    H5 SPA (app.js · 12+ 渲染函数 · hash 路由)
                           ↑
@@ -205,7 +208,7 @@ alembic revision --autogenerate -m "改了什么"
 
 ---
 
-## 六、API 速查（v0.3.0 共 33 端点，含 /health）
+## 六、API 速查（v0.4.0 共 34 端点，含 /health）
 
 ### 6.1 核心数据 API
 
@@ -230,16 +233,17 @@ alembic revision --autogenerate -m "改了什么"
 | GET | `/api/bracket` | 完整淘汰赛对阵树（R32/R16/QF/SF/3rd/Final）+ Elo 预测概率 |
 | POST | `/api/admin/bracket/rebuild` | 手动触发 Bracket 重算并持久化到 matches 表（需 admin token）|
 
-### 6.3 Elo + 预测 API（M1 + M2）
+### 6.3 Elo + 预测 API（M1 + M2 + v0.4.0 StatsBomb）
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/elo/ratings` | 48 队 Elo 评分 |
-| GET | `/api/elo/ratings/{FIFA}` | 单队评分 |
-| GET | `/api/elo/top?limit=10` | Top N |
-| GET | `/api/elo/predict/{home}/{away}` | 1v1 预测（v1 纯 Elo + Dixon-Coles）|
-| GET | `/api/elo/predict-enhanced/{home}/{away}` | v1 + v2 双返回（form + H2H 增强）|
-| GET | `/api/elo/backtest` | 4 年 walk-forward 回测指标 |
+| GET | `/api/elo/ratings?source=hicruben\|statsbomb` | 48 队 Elo 评分（默认 hicruben）|
+| GET | `/api/elo/ratings/{FIFA}?source=...` | 单队评分 |
+| GET | `/api/elo/top?limit=10&source=...` | Top N |
+| GET | `/api/elo/predict/{home}/{away}?source=...` | 1v1 预测（v1 纯 Elo + Dixon-Coles）|
+| GET | `/api/elo/predict-enhanced/{home}/{away}?source=...` | v1 + v2 双返回（form + H2H 增强）|
+| GET | `/api/elo/compare/{home}/{away}` | **并排对比** Hicruben vs StatsBomb 预测 |
+| GET | `/api/elo/backtest` | 4 年 walk-forward 回测指标（Hicruben）|
 | GET | `/api/predictions/cache/stats` | 缓存统计（命中率/总条数）|
 
 ### 6.3 H2H + 模拟器
@@ -526,6 +530,64 @@ else:
 
 ---
 
+## 七·G、v0.4.0 StatsBomb Elo 双数据源（对比源，非替代）
+
+**背景**：评估后发现 StatsBomb Open Data 国际大赛覆盖仅 **~309 场**（世界杯 2018/2022、欧洲杯 2020/2024、美洲杯 2024、非洲杯 2023），约为 Hicruben 913 场的 34%；且缺少 2023-2026 友谊赛/预选赛/国家联赛，**至少 8 支 2026 参赛队无数据**（IRQ、UZB、JOR、NZL、BIH、CUW、HAI、NOR）。因此 StatsBomb **不替代 Hicruben**，而是作为可切换对比数据源。
+
+**实现**：
+
+1. **训练模块** `app/services/statsbomb_elo.py`
+   - 下载/解析 StatsBomb Open Data JSON（或离线 compact 格式）
+   - 球队名 → FIFA 3 字母代码映射（`Cape Verde Islands`→CPV、`Congo DR`→COD 等）
+   - 中性场地 `home_bonus=0` 训练 Elo（K=60），输出 `data/seed/statsbomb/statsbomb_elo.json`
+   - 离线构建脚本：`scripts/build_statsbomb_from_extracted.py`（309 场）
+   - 在线构建脚本：`scripts/download_statsbomb.py`（有外网环境时使用）
+
+2. **服务层 source 参数** `app/services/elo.py`
+   - `predict_match(..., source="hicruben")` / `predict_match_enhanced(..., source="hicruben")`
+   - `get_top_elo(..., source="hicruben")` / `get_elo_ratings(..., source="hicruben")`
+   - StatsBomb 缺失球队自动 fallback 到 Hicruben，并在响应中标记 `rating_source="hicruben_fallback"` 与 `fallback_reason`
+
+3. **API 层** `app/routers/elo.py`
+   - 所有 `/api/elo/*` 端点支持 `?source=hicruben|statsbomb`
+   - 新增 `GET /api/elo/compare/{home}/{away}`：同一对阵的 Hicruben vs StatsBomb 预测并排返回
+
+4. **前端** `app/static/js/app.js`
+   - Elo 页面顶部增加「Hicruben 默认」/「StatsBomb 对比」切换按钮
+   - 1v1 预测器、Top N、CSV 导出均跟随当前 source
+   - 切换 StatsBomb 时显示数据来源说明与 8 队 fallback 提示
+
+**数据基础（诚实交代）**：
+
+| 指标 | Hicruben | StatsBomb |
+|---|---|---|
+| 比赛场次 | 913 | 309 |
+| 时间跨度 | 2023-11 ~ 2026-06 | 2018 ~ 2024 |
+| 覆盖 2026 参赛队 | 48/48 | 40/48（8 队 fallback）|
+| 场地处理 | home_bonus=70 | home_bonus=0（大赛中性场地）|
+| 默认数据源 | ✅ 是 | ❌ 否（对比源）|
+
+**Top 5 对比**（2026-06-15）：
+
+| 排名 | Hicruben | StatsBomb |
+|---|---|---|
+| 1 | ESP 2010 | ESP 1733 |
+| 2 | FRA 2009 | ARG 1676 |
+| 3 | ENG 1993 | FRA 1655 |
+| 4 | ARG 1976 | ENG 1646 |
+| 5 | BRA 1955 | COL 1616 |
+
+**验证**：
+
+- `tests/test_statsbomb_elo.py`：**16/16 通过**
+- 全量 `pytest tests/`：**152 passed, 1 skipped**
+- Playwright E2E：`tests/e2e/test_spa_pages.py` **7/7 通过**
+- 许可证：`data/seed/statsbomb/attribution.md` 按要求标注 StatsBomb 版权与 logo 使用声明
+
+详见 `deliverables/v0.4.0_statsbomb_elo_completion_report.md`。
+
+---
+
 ## 八、风险与监控
 
 | 风险 | 状态 | 兜底 |
@@ -537,14 +599,14 @@ else:
 
 ---
 
-## 九、下一阶段（v0.2）
+## 九、下一阶段（v0.5+）
 
 1. **API-Football 实时层**（配置 Key 后启用）+ 配额监控
-2. **WebSocket 推送**（轻量 SSE 替代）
+2. **WebSocket / SSE 推送**（替代轮询，轻量）
 3. **PWA 离线缓存**（赛前 1h 下载比赛包）
-4. **Open-Meteo 天气集成**（按球场坐标）
-5. **球员 360° 档案**（手动 + Transfermarkt 自托管）
-6. **xG 数据接入**（StatsBomb Open Data 历史训练）
+4. **球员 360° 档案**（手动 + Transfermarkt 自托管）
+5. **xG 数据接入**（基于 StatsBomb Open Data event 数据做射门质量建模）
+6. **多模型集成预测**（Hicruben + StatsBomb + 可选第三方模型加权）
 
 ---
 
@@ -565,3 +627,4 @@ else:
 | 2026-06-15 | **v0.2.1** | **部署修复**：(1) 重启生产服务器加载 v0.2.1 代码；(2) 修复 `/health` version 硬编码问题（改为 `app.version`）；(3) SQL 修复 92 场 `status=live` 但 `time_elapsed=notstarted` 的比赛为 `scheduled`；(4) **118 项 pytest + 6 项 Playwright E2E 全绿** |
 | 2026-06-15 | **v0.3.0** | **Bracket 真实数据接入**：(1) 新增 `app/services/bracket_logic.py` — 12 组排名、8 个最佳小组第三、2026 Annex C R32 对阵生成、Elo 预测；(2) 新增 `GET /api/bracket` 返回完整对阵树（R32/R16/QF/SF/3rd/Final）；(3) 新增 `POST /api/admin/bracket/rebuild` 手动触发重算；(4) 前端 `/#/bracket` 接入 `/api/bracket` 真实数据，渲染 Elo 胜率条；(5) 新增 `tests/test_bracket.py` 12 项单元/集成测试；(6) 新增 Playwright E2E `test_bracket_page_renders`；(7) **README v0.3.0 更新**：API 端点 33 个，测试 130+7 项；**130 项 pytest + 7 项 Playwright E2E 全绿** |
 | 2026-06-15 | **v0.3.1** | **Bracket 自动重算**：(1) 新增 `bracket_logic.should_auto_rebuild()` — 无状态判断小组赛是否全部结束且 R32 尚未落位；(2) 扩展 `app/services/scheduler.py`，注册每 15 分钟一次的 `_job_bracket_auto_rebuild` 任务，满足条件时自动调用 `rebuild_bracket()`；(3) 防重复触发：R32 全部填入真实球队后不再执行；(4) 扩展 `tests/test_bracket.py`：5 项新测试覆盖 `should_auto_rebuild` 三种状态 + scheduler job 触发/跳过；(5) 版本号 bump 至 0.3.1；**136 项 pytest + 7 项 Playwright E2E 全绿** |
+| 2026-06-15 | **v0.4.0** | **StatsBomb Elo 双数据源**（对比源，Hicruben 保持默认）：(1) 新增 `app/services/statsbomb_elo.py` + `scripts/download_statsbomb.py` + `scripts/build_statsbomb_from_extracted.py`，基于 StatsBomb Open Data 309 场国际大赛训练中性场地 Elo；(2) `app/services/elo.py` 全接口支持 `source=hicruben|statsbomb`，缺失球队自动 fallback 到 Hicruben；(3) `app/routers/elo.py` 所有 Elo 端点加 source 参数，新增 `GET /api/elo/compare/{home}/{away}` 并排对比；(4) 前端 Elo 页加数据源切换按钮、StatsBomb 说明与 fallback 提示；(5) 新增 `data/seed/statsbomb/statsbomb_elo.json` + `attribution.md` 满足许可证要求；(6) 新增 `tests/test_statsbomb_elo.py` 16 项测试；(7) 版本号 bump 至 0.4.0；**152 项 pytest + 7 项 Playwright E2E 全绿** |

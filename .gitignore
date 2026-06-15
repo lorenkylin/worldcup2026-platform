@@ -74,6 +74,12 @@ data/seed/hicruben/
 !data/seed/h2h_seed.py
 !data/seed/stadium_coordinates.py
 
+# StatsBomb 原始比赛数据（可重新下载）— 只保留生成的 Elo JSON 和署名文件
+data/seed/statsbomb/raw/
+!data/seed/statsbomb/
+!data/seed/statsbomb/*.json
+!data/seed/statsbomb/*.md
+
 # 真实 DB 文件（运行时创建）— 不入库
 # 注: data/worldcup2026.db 是真实 DB，会通过 .env 配置动态生成
 # 但 fixtures/ 目录里的 raw JSON 应入库

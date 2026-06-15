@@ -353,6 +353,15 @@ function setTeamsSort(s) {
 // 缓存全量球队列表
 let _teamsCache = [];
 
+// Elo 数据源切换状态
+let _eloSource = 'hicruben'; // 'hicruben' | 'statsbomb'
+
+function setEloSource(source) {
+  if (source !== 'hicruben' && source !== 'statsbomb') return;
+  _eloSource = source;
+  renderElo();
+}
+
 async function renderTeams() {
   const teams = await apiWithRetry('/teams');
   if (!teams.length) {
@@ -1192,12 +1201,13 @@ async function renderElo() {
   app.classList.remove('max-w-2xl');
   app.classList.add('max-w-none', 'px-4');
 
+  const source = _eloSource;
   let ratings, teams, backtest;
   try {
     [ratings, teams, backtest] = await Promise.all([
-      apiWithRetry('/elo/ratings'),
+      apiWithRetry('/elo/ratings?source=' + source),
       apiWithRetry('/teams?limit=48'),
-      apiWithRetry('/elo/backtest'),
+      source === 'hicruben' ? apiWithRetry('/elo/backtest') : Promise.resolve({}),
     ]);
   } catch (err) {
     app.classList.add('max-w-2xl');
@@ -1249,10 +1259,18 @@ async function renderElo() {
         <span class="text-2xl">📈</span>
         <div>
           <div class="text-xl font-bold text-emerald-400">Elo 实力榜</div>
-          <div class="text-xs text-slate-500">基于 Hicruben 913 场 walk-forward 回测 · 截至 ${backtest.date_range ? backtest.date_range[1] : '--'}</div>
+          <div class="text-xs text-slate-500">
+            ${source === 'statsbomb'
+              ? '基于 StatsBomb Open Data · 世界杯/欧洲杯/美洲杯/非洲杯 · 缺失球队 fallback 到 Hicruben'
+              : `基于 Hicruben 913 场 walk-forward 回测 · 截至 ${backtest.date_range ? backtest.date_range[1] : '--'}`}
+          </div>
         </div>
       </div>
       <div class="flex items-center gap-2">
+        <div class="flex items-center bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+          <button onclick="setEloSource('hicruben')" class="text-xs px-3 py-1.5 transition ${source === 'hicruben' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-emerald-400'}">Hicruben</button>
+          <button onclick="setEloSource('statsbomb')" class="text-xs px-3 py-1.5 transition ${source === 'statsbomb' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-emerald-400'}">StatsBomb</button>
+        </div>
         <button onclick="exportEloToCSV()" title="导出 48 队 Elo 评级 CSV" class="text-xs text-slate-400 hover:text-emerald-400 transition flex items-center gap-1 px-2 py-1 rounded hover:bg-slate-900 border border-slate-800">
           <span>📥</span><span>导出 CSV</span>
         </button>
@@ -1318,6 +1336,18 @@ async function renderElo() {
       </div>
     </section>
 
+    ${source === 'statsbomb' ? `
+    <!-- StatsBomb 说明卡片 -->
+    <section class="cockpit-section mb-4">
+      <h2 class="cockpit-section-title">ℹ️ StatsBomb 数据说明</h2>
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs text-slate-400 space-y-2">
+        <div>📡 数据源：<b class="text-slate-200">StatsBomb Open Data</b>（世界杯 2018/2022、欧洲杯 2020/2024、美洲杯 2024、非洲杯 2023）</div>
+        <div>⚙️ 训练：K=60 · 中立场 home_bonus=0 · 按比赛日期排序更新</div>
+        <div>📝 许可：公开使用需标注 StatsBomb 并使用其 logo</div>
+        <div>⚠️ 注意：StatsBomb Open Data 缺少 2023-2026 友谊赛/预选赛，部分 2026 参赛队（伊拉克、乌兹别克斯坦等）无数据，已 fallback 到 Hicruben</div>
+      </div>
+    </section>
+    ` : `
     <!-- 回测指标卡片 -->
     <section class="cockpit-section mb-4">
       <h2 class="cockpit-section-title">📊 4 年 walk-forward 回测指标</h2>
@@ -1336,10 +1366,13 @@ async function renderElo() {
         <div class="text-slate-500 italic">${backtest.note || ''}</div>
       </div>
     </section>
+    `}
 
     <!-- 数据状态 -->
-    <div class="text-center text-xs text-slate-600 py-2">
-      Elo 评分来源 · Hicruben Elo-calibrated dataset · 共 ${rows.length} 队
+    <div class="text-center text-xs py-2 ${source === 'statsbomb' ? 'text-amber-500/80' : 'text-slate-600'}">
+      ${source === 'statsbomb'
+        ? `StatsBomb 评分来源 · StatsBomb Open Data · 共 ${rows.length} 队 · 缺失球队 fallback 到 Hicruben`
+        : `Elo 评分来源 · Hicruben Elo-calibrated dataset · 共 ${rows.length} 队`}
     </div>
   `;
 
@@ -1369,9 +1402,10 @@ async function exportEloToCSV() {
   };
   setBtn('⏳', '导出中...', 'text-amber-400 border-amber-700');
   let ratings, teams;
+  const source = _eloSource;
   try {
     [ratings, teams] = await Promise.all([
-      apiWithRetry('/elo/ratings'),
+      apiWithRetry('/elo/ratings?source=' + source),
       apiWithRetry('/teams?limit=48'),
     ]);
   } catch (err) {
@@ -1460,7 +1494,7 @@ async function _renderEloPredict(homeCode, awayCode) {
     return '<div class="text-amber-400 text-sm text-center py-4">请选择两支不同的球队</div>';
   }
   try {
-    const p = await apiWithRetry('/elo/predict/' + homeCode + '/' + awayCode);
+    const p = await apiWithRetry('/elo/predict/' + homeCode + '/' + awayCode + '?source=' + _eloSource);
     const hWin = (p.probabilities.home_win * 100).toFixed(1);
     const draw = (p.probabilities.draw * 100).toFixed(1);
     const aWin = (p.probabilities.away_win * 100).toFixed(1);
