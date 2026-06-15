@@ -1,0 +1,95 @@
+# Python 编译缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# pytest 缓存
+.pytest_cache/
+.pytest_tmp/
+.coverage
+htmlcov/
+.tox/
+.cache
+
+# 虚拟环境
+venv/
+env/
+ENV/
+.venv/
+env.bak/
+venv.bak/
+
+# 数据库（运行时生成）
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/worldcup2026.db-journal
+!data/seed/.gitkeep
+!data/fixtures/.gitkeep
+
+# 日志（运行时生成）
+logs/*.log
+logs/*.log.*
+uvicorn.log
+uvicorn.log.gz
+!logs/.gitkeep
+
+# 临时文件
+*.tmp
+*.bak
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+~$*
+
+# 编辑器
+.vscode/
+.idea/
+*.iml
+.project
+.pydevproject
+
+# 测试产物
+.pytest_cache
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+coverage.xml
+*.cover
+
+# Alembic 编译产物
+alembic/versions/__pycache__/
+
+# 数据同步临时文件
+data/screenshots/
+data/__pycache__/
+data/seed/__pycache__/
+data/seed/fifa_test.html
+data/seed/fifa_with_tbody.html
+data/seed/hicruben/
+!data/seed/.gitkeep
+!data/seed/h2h_seed.py
+!data/seed/stadium_coordinates.py
+
+# 真实 DB 文件（运行时创建）— 不入库
+# 注: data/worldcup2026.db 是真实 DB，会通过 .env 配置动态生成
+# 但 fixtures/ 目录里的 raw JSON 应入库
+!data/fixtures/
+!data/fixtures/*.json
+
+# .env (admin token)
+.env
+
+
+# node_modules（Playwright 浏览器二进制 + 项目依赖）
+node_modules/
+node_modules
+
+# 归档目录
+scripts/_archive/
+
+# 根目录的 0 字节占位 DB（v0.2.0 之前遗留）
+/worldcup2026.db

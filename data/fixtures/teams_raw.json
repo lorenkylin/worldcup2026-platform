@@ -1,0 +1,386 @@
+[
+  {
+    "fifa_code": "MEX",
+    "name_zh": "墨西哥",
+    "name_en": "Mexico",
+    "group_name": "A",
+    "flag_emoji": "🇲🇽",
+    "fifa_rank": 11
+  },
+  {
+    "fifa_code": "RSA",
+    "name_zh": "南非",
+    "name_en": "South Africa",
+    "group_name": "A",
+    "flag_emoji": "🇿🇦",
+    "fifa_rank": 44
+  },
+  {
+    "fifa_code": "KOR",
+    "name_zh": "韩国",
+    "name_en": "South Korea",
+    "group_name": "A",
+    "flag_emoji": "🇰🇷",
+    "fifa_rank": 20
+  },
+  {
+    "fifa_code": "CZE",
+    "name_zh": "捷克",
+    "name_en": "Czech Republic",
+    "group_name": "A",
+    "flag_emoji": "🇨🇿",
+    "fifa_rank": 29
+  },
+  {
+    "fifa_code": "CAN",
+    "name_zh": "加拿大",
+    "name_en": "Canada",
+    "group_name": "B",
+    "flag_emoji": "🇨🇦",
+    "fifa_rank": 22
+  },
+  {
+    "fifa_code": "BIH",
+    "name_zh": "波黑",
+    "name_en": "Bosnia & Herzegovina",
+    "group_name": "B",
+    "flag_emoji": "",
+    "fifa_rank": 42
+  },
+  {
+    "fifa_code": "USA",
+    "name_zh": "美国",
+    "name_en": "United States",
+    "group_name": "D",
+    "flag_emoji": "🇺🇸",
+    "fifa_rank": 10
+  },
+  {
+    "fifa_code": "PAR",
+    "name_zh": "巴拉圭",
+    "name_en": "Paraguay",
+    "group_name": "D",
+    "flag_emoji": "🇵🇾",
+    "fifa_rank": 32
+  },
+  {
+    "fifa_code": "QAT",
+    "name_zh": "卡塔尔",
+    "name_en": "Qatar",
+    "group_name": "B",
+    "flag_emoji": "🇶🇦",
+    "fifa_rank": 33
+  },
+  {
+    "fifa_code": "SUI",
+    "name_zh": "瑞士",
+    "name_en": "Switzerland",
+    "group_name": "B",
+    "flag_emoji": "🇨🇭",
+    "fifa_rank": 15
+  },
+  {
+    "fifa_code": "BRA",
+    "name_zh": "巴西",
+    "name_en": "Brazil",
+    "group_name": "C",
+    "flag_emoji": "🇧🇷",
+    "fifa_rank": 7
+  },
+  {
+    "fifa_code": "MAR",
+    "name_zh": "摩洛哥",
+    "name_en": "Morocco",
+    "group_name": "C",
+    "flag_emoji": "🇲🇦",
+    "fifa_rank": 14
+  },
+  {
+    "fifa_code": "HAI",
+    "name_zh": "海地",
+    "name_en": "Haiti",
+    "group_name": "C",
+    "flag_emoji": "",
+    "fifa_rank": 47
+  },
+  {
+    "fifa_code": "SCO",
+    "name_zh": "苏格兰",
+    "name_en": "Scotland",
+    "group_name": "C",
+    "flag_emoji": "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
+    "fifa_rank": 30
+  },
+  {
+    "fifa_code": "AUS",
+    "name_zh": "澳大利亚",
+    "name_en": "Australia",
+    "group_name": "D",
+    "flag_emoji": "🇦🇺",
+    "fifa_rank": 19
+  },
+  {
+    "fifa_code": "TUR",
+    "name_zh": "土耳其",
+    "name_en": "Turkey",
+    "group_name": "D",
+    "flag_emoji": "🇹🇷",
+    "fifa_rank": 25
+  },
+  {
+    "fifa_code": "GER",
+    "name_zh": "德国",
+    "name_en": "Germany",
+    "group_name": "E",
+    "flag_emoji": "🇩🇪",
+    "fifa_rank": 9
+  },
+  {
+    "fifa_code": "CUW",
+    "name_zh": "库拉索",
+    "name_en": "Curacao",
+    "group_name": "E",
+    "flag_emoji": "",
+    "fifa_rank": 48
+  },
+  {
+    "fifa_code": "NED",
+    "name_zh": "荷兰",
+    "name_en": "Netherlands",
+    "group_name": "F",
+    "flag_emoji": "🇳🇱",
+    "fifa_rank": 6
+  },
+  {
+    "fifa_code": "JPN",
+    "name_zh": "日本",
+    "name_en": "Japan",
+    "group_name": "F",
+    "flag_emoji": "🇯🇵",
+    "fifa_rank": 18
+  },
+  {
+    "fifa_code": "CIV",
+    "name_zh": "科特迪瓦",
+    "name_en": "Ivory Coast",
+    "group_name": "E",
+    "flag_emoji": "",
+    "fifa_rank": 36
+  },
+  {
+    "fifa_code": "ECU",
+    "name_zh": "厄瓜多尔",
+    "name_en": "Ecuador",
+    "group_name": "E",
+    "flag_emoji": "🇪🇨",
+    "fifa_rank": 21
+  },
+  {
+    "fifa_code": "TUN",
+    "name_zh": "突尼斯",
+    "name_en": "Tunisia",
+    "group_name": "F",
+    "flag_emoji": "🇹🇳",
+    "fifa_rank": 28
+  },
+  {
+    "fifa_code": "SWE",
+    "name_zh": "瑞典",
+    "name_en": "Sweden",
+    "group_name": "F",
+    "flag_emoji": "🇸🇪",
+    "fifa_rank": 27
+  },
+  {
+    "fifa_code": "ESP",
+    "name_zh": "西班牙",
+    "name_en": "Spain",
+    "group_name": "H",
+    "flag_emoji": "🇪🇸",
+    "fifa_rank": 1
+  },
+  {
+    "fifa_code": "CPV",
+    "name_zh": "佛得角",
+    "name_en": "Cape Verde",
+    "group_name": "H",
+    "flag_emoji": "",
+    "fifa_rank": 39
+  },
+  {
+    "fifa_code": "BEL",
+    "name_zh": "比利时",
+    "name_en": "Belgium",
+    "group_name": "G",
+    "flag_emoji": "🇧🇪",
+    "fifa_rank": 8
+  },
+  {
+    "fifa_code": "EGY",
+    "name_zh": "埃及",
+    "name_en": "Egypt",
+    "group_name": "G",
+    "flag_emoji": "🇪🇬",
+    "fifa_rank": 35
+  },
+  {
+    "fifa_code": "KSA",
+    "name_zh": "沙特阿拉伯",
+    "name_en": "Saudi Arabia",
+    "group_name": "H",
+    "flag_emoji": "🇸🇦",
+    "fifa_rank": 38
+  },
+  {
+    "fifa_code": "URU",
+    "name_zh": "乌拉圭",
+    "name_en": "Uruguay",
+    "group_name": "H",
+    "flag_emoji": "🇺🇾",
+    "fifa_rank": 12
+  },
+  {
+    "fifa_code": "IRN",
+    "name_zh": "伊朗",
+    "name_en": "Iran",
+    "group_name": "G",
+    "flag_emoji": "🇮🇷",
+    "fifa_rank": 23
+  },
+  {
+    "fifa_code": "NZL",
+    "name_zh": "新西兰",
+    "name_en": "New Zealand",
+    "group_name": "G",
+    "flag_emoji": "🇳🇿",
+    "fifa_rank": 43
+  },
+  {
+    "fifa_code": "FRA",
+    "name_zh": "法国",
+    "name_en": "France",
+    "group_name": "I",
+    "flag_emoji": "🇫🇷",
+    "fifa_rank": 3
+  },
+  {
+    "fifa_code": "SEN",
+    "name_zh": "塞内加尔",
+    "name_en": "Senegal",
+    "group_name": "I",
+    "flag_emoji": "🇸🇳",
+    "fifa_rank": 17
+  },
+  {
+    "fifa_code": "NOR",
+    "name_zh": "挪威",
+    "name_en": "Norway",
+    "group_name": "I",
+    "flag_emoji": "🇳🇴",
+    "fifa_rank": 26
+  },
+  {
+    "fifa_code": "IRQ",
+    "name_zh": "伊拉克",
+    "name_en": "Iraq",
+    "group_name": "I",
+    "flag_emoji": "🇮🇶",
+    "fifa_rank": 41
+  },
+  {
+    "fifa_code": "ARG",
+    "name_zh": "阿根廷",
+    "name_en": "Argentina",
+    "group_name": "J",
+    "flag_emoji": "🇦🇷",
+    "fifa_rank": 2
+  },
+  {
+    "fifa_code": "ALG",
+    "name_zh": "阿尔及利亚",
+    "name_en": "Algeria",
+    "group_name": "J",
+    "flag_emoji": "🇩🇿",
+    "fifa_rank": 34
+  },
+  {
+    "fifa_code": "AUT",
+    "name_zh": "奥地利",
+    "name_en": "Austria",
+    "group_name": "J",
+    "flag_emoji": "🇦🇹",
+    "fifa_rank": 24
+  },
+  {
+    "fifa_code": "JOR",
+    "name_zh": "约旦",
+    "name_en": "Jordan",
+    "group_name": "J",
+    "flag_emoji": "",
+    "fifa_rank": 37
+  },
+  {
+    "fifa_code": "POR",
+    "name_zh": "葡萄牙",
+    "name_en": "Portugal",
+    "group_name": "K",
+    "flag_emoji": "🇵🇹",
+    "fifa_rank": 5
+  },
+  {
+    "fifa_code": "COD",
+    "name_zh": "民主刚果",
+    "name_en": "DR Congo",
+    "group_name": "K",
+    "flag_emoji": "",
+    "fifa_rank": 46
+  },
+  {
+    "fifa_code": "ENG",
+    "name_zh": "英格兰",
+    "name_en": "England",
+    "group_name": "L",
+    "flag_emoji": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
+    "fifa_rank": 4
+  },
+  {
+    "fifa_code": "CRO",
+    "name_zh": "克罗地亚",
+    "name_en": "Croatia",
+    "group_name": "L",
+    "flag_emoji": "🇭🇷",
+    "fifa_rank": 16
+  },
+  {
+    "fifa_code": "GHA",
+    "name_zh": "加纳",
+    "name_en": "Ghana",
+    "group_name": "L",
+    "flag_emoji": "🇬🇭",
+    "fifa_rank": 45
+  },
+  {
+    "fifa_code": "PAN",
+    "name_zh": "巴拿马",
+    "name_en": "Panama",
+    "group_name": "L",
+    "flag_emoji": "🇵🇦",
+    "fifa_rank": 31
+  },
+  {
+    "fifa_code": "UZB",
+    "name_zh": "乌兹别克斯坦",
+    "name_en": "Uzbekistan",
+    "group_name": "K",
+    "flag_emoji": "🇺🇿",
+    "fifa_rank": 40
+  },
+  {
+    "fifa_code": "COL",
+    "name_zh": "哥伦比亚",
+    "name_en": "Colombia",
+    "group_name": "K",
+    "flag_emoji": "🇨🇴",
+    "fifa_rank": 13
+  }
+]

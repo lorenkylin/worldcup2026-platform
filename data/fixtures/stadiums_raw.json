@@ -1,0 +1,114 @@
+[
+  {
+    "name_en": "Estadio Azteca, Mexico City",
+    "name_zh": "Estadio Azteca, Mexico City",
+    "city": "Estadio Azteca",
+    "country": "USA",
+    "timezone": "America/New_York"
+  },
+  {
+    "name_en": "Estadio Akron, Guadalajara",
+    "name_zh": "Estadio Akron, Guadalajara",
+    "city": "Estadio Akron",
+    "country": "USA",
+    "timezone": "America/New_York"
+  },
+  {
+    "name_en": "BMO Field, Toronto",
+    "name_zh": "BMO Field, Toronto",
+    "city": "BMO Field",
+    "country": "USA",
+    "timezone": "America/New_York"
+  },
+  {
+    "name_en": "SoFi Stadium, Inglewood",
+    "name_zh": "SoFi Stadium, Inglewood",
+    "city": "SoFi Stadium",
+    "country": "USA",
+    "timezone": "America/New_York"
+  },
+  {
+    "name_en": "Levi's Stadium, Santa Clara",
+    "name_zh": "Levi's Stadium, Santa Clara",
+    "city": "Levi's Stadium",
+    "country": "USA",
+    "timezone": "America/New_York"
+  },
+  {
+    "name_en": "MetLife Stadium, East Rutherford",
+    "name_zh": "MetLife Stadium, East Rutherford",
+    "city": "MetLife Stadium",
+    "country": "USA",
+    "timezone": "America/New_York"
+  },
+  {
+    "name_en": "Gillette Stadium, Foxborough",
+    "name_zh": "Gillette Stadium, Foxborough",
+    "city": "Gillette Stadium",
+    "country": "USA",
+    "timezone": "America/New_York"
+  },
+  {
+    "name_en": "BC Place, Vancouver",
+    "name_zh": "BC Place, Vancouver",
+    "city": "BC Place",
+    "country": "USA",
+    "timezone": "America/New_York"
+  },
+  {
+    "name_en": "NRG Stadium, Houston",
+    "name_zh": "NRG Stadium, Houston",
+    "city": "NRG Stadium",
+    "country": "USA",
+    "timezone": "America/New_York"
+  },
+  {
+    "name_en": "AT&T Stadium, Arlington",
+    "name_zh": "AT&T Stadium, Arlington",
+    "city": "AT&T Stadium",
+    "country": "USA",
+    "timezone": "America/New_York"
+  },
+  {
+    "name_en": "Lincoln Financial Field, Philadelphia",
+    "name_zh": "Lincoln Financial Field, Philadelphia",
+    "city": "Lincoln Financial Field",
+    "country": "USA",
+    "timezone": "America/New_York"
+  },
+  {
+    "name_en": "Estadio BBVA, Monterrey",
+    "name_zh": "Estadio BBVA, Monterrey",
+    "city": "Estadio BBVA",
+    "country": "USA",
+    "timezone": "America/New_York"
+  },
+  {
+    "name_en": "Mercedes-Benz Stadium, Atlanta",
+    "name_zh": "Mercedes-Benz Stadium, Atlanta",
+    "city": "Mercedes-Benz Stadium",
+    "country": "USA",
+    "timezone": "America/New_York"
+  },
+  {
+    "name_en": "Lumen Field, Seattle",
+    "name_zh": "Lumen Field, Seattle",
+    "city": "Lumen Field",
+    "country": "USA",
+    "timezone": "America/New_York"
+  },
+  {
+    "name_en": "Hard Rock Stadium, Miami Gardens",
+    "name_zh": "Hard Rock Stadium, Miami Gardens",
+    "city": "Hard Rock Stadium",
+    "country": "USA",
+    "timezone": "America/New_York"
+  },
+  {
+    "name_en": "GEHA Field at Arrowhead, Kansas City",
+    "name_zh": "GEHA Field at Arrowhead, Kansas City",
+    "city": "GEHA Field at Arrowhead",
+    "country": "USA",
+    "timezone": "America/New_York"
+  }
+]

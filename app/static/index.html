@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="description" content="2026 美加墨世界杯赛事分析与 AI 预测">
+  <link rel="manifest" href="/static/manifest.json">
+  <link rel="icon" href="/static/icons/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+  <title>2026 世界杯赛事分析</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <!-- 顶部导航 -->
+  <header class="sticky top-0 z-50 bg-slate-950/95 backdrop-blur border-b border-slate-800">
+    <div class="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <button onclick="toggleDrawer()" aria-label="菜单" class="lg:hidden -ml-1 p-2 rounded hover:bg-slate-800 text-slate-400 hover:text-emerald-400 transition">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
+        </button>
+        <a href="#/" class="flex items-center gap-2">
+          <span class="text-2xl">⚽</span>
+          <span class="font-bold text-emerald-400">2026 WC 分析</span>
+        </a>
+      </div>
+      <div class="text-xs text-slate-500" id="data-status">数据加载中…</div>
+    </div>
+  </header>
+
+  <!-- 主内容 -->
+  <main id="app" class="max-w-2xl mx-auto px-4 pt-4 pb-24">
+    <div class="text-center py-20 text-slate-400">加载中...</div>
+  </main>
+
+  <!-- A11: 抽屉遮罩 -->
+  <div id="drawer-overlay" class="drawer-overlay" onclick="toggleDrawer()"></div>
+
+  <!-- A11: 侧滑抽屉 -->
+  <aside id="drawer" class="drawer">
+    <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+      <span class="font-bold text-emerald-400 flex items-center gap-2"><span class="text-xl">⚽</span>2026 WC 分析</span>
+      <button onclick="toggleDrawer()" class="text-slate-400 hover:text-white text-xl p-1 rounded hover:bg-slate-800">✕</button>
+    </div>
+    <nav class="py-2">
+      <div class="px-5 pt-2 pb-1 text-xs text-slate-500 uppercase tracking-wider">主页面</div>
+      <a href="#/" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">🏠</span><span>首页</span></a>
+      <a href="#/cockpit" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">🎛</span><span>总览驾驶舱</span><span class="ml-auto text-xs text-slate-500">PC 推荐</span></a>
+      <a href="#/bracket" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">🏆</span><span>晋级路线图</span><span class="ml-auto text-xs text-amber-400">NEW</span></a>
+      <a href="#/schedule" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">📅</span><span>赛程</span></a>
+      <a href="#/groups" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">📊</span><span>小组积分</span></a>
+      <a href="#/teams" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">⚽</span><span>48 支球队</span></a>
+      <a href="#/elo" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">📈</span><span>Elo 实力榜</span><span class="ml-auto text-xs text-emerald-400">M1</span></a>
+      <a href="#/h2h" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">⚔️</span><span>历史交锋</span><span class="ml-auto text-xs text-amber-400">P1.3</span></a>
+      <a href="#/simulator" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">🎲</span><span>出线模拟器</span><span class="ml-auto text-xs text-amber-400">v0</span></a>
+      <div class="px-5 pt-4 pb-1 text-xs text-slate-500 uppercase tracking-wider">其他</div>
+      <a href="#" onclick="showAbout();return false;" class="drawer-item"><span class="text-lg">ℹ️</span><span>关于本站</span></a>
+      <a href="#" onclick="showDataSource();return false;" class="drawer-item"><span class="text-lg">📡</span><span>数据来源</span></a>
+    </nav>
+    <div class="px-5 py-3 mt-auto border-t border-slate-800 text-xs text-slate-500">
+      数据更新于 <span id="drawer-update-time">--</span>
+    </div>
+  </aside>
+
+  <!-- 底部 Tab（B1 重新设计：6 按钮 64px 高） -->
+  <nav class="fixed bottom-0 left-0 right-0 z-50 bg-slate-950/95 backdrop-blur border-t border-slate-800">
+    <div class="max-w-2xl mx-auto grid grid-cols-6 tab-bar">
+      <a href="#/" class="tab-item active"><span class="tab-icon">🏠</span><span class="tab-label">首页</span></a>
+      <a href="#/cockpit" class="tab-item"><span class="tab-icon">🎛</span><span class="tab-label">总览</span></a>
+      <a href="#/bracket" class="tab-item"><span class="tab-icon">🏆</span><span class="tab-label">路线</span></a>
+      <a href="#/schedule" class="tab-item"><span class="tab-icon">📅</span><span class="tab-label">赛程</span></a>
+      <a href="#/groups" class="tab-item"><span class="tab-icon">📊</span><span class="tab-label">积分</span></a>
+      <a href="#/teams" class="tab-item"><span class="tab-icon">⚽</span><span class="tab-label">球队</span></a>
+    </div>
+  </nav>
+
+  <script src="/static/js/app.js"></script>
+  <script>
+    // 标记数据状态
+    fetch('/api/matches/today').then(r => r.ok ? r.json().then(d => {
+      document.getElementById('data-status').textContent = '已加载 ' + d.length + ' 场今日比赛';
+    }) : null).catch(() => {
+      document.getElementById('data-status').textContent = '数据源离线';
+    });
+
+    // Tab 激活态
+    function updateActiveTab() {
+      const hash = location.hash || '#/';
+      document.querySelectorAll('.tab-item').forEach(el => {
+        el.classList.toggle('active', el.getAttribute('href') === hash);
+      });
+    }
+    window.addEventListener('hashchange', updateActiveTab);
+    updateActiveTab();
+
+    // Service Worker 注册（PWA 离线缓存）
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/static/sw.js').then(reg => {
+          console.log('[SW] registered, scope:', reg.scope);
+        }).catch(err => {
+          console.warn('[SW] register failed:', err);
+        });
+      });
+    }
+  </script>
+</body>
+</html>
