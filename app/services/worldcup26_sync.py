@@ -106,7 +106,11 @@ def _extract_minute(scorer_text: str) -> int:
 
 
 def fetch_json(path: str) -> Optional[dict]:
-    """同步拉取 worldcup26.ir JSON 端点."""
+    """同步拉取 worldcup26.ir JSON 端点.
+
+    Trace (v0.2.1 audit): wc26 端点偶发 5xx + SSL EOF (api_usage_log 错误率 3.7%,
+    39/1056). scheduler 每 15min 自动重试，错误日志留作运维 trace，平台不修 wc26 端问题.
+    """
     url = f"{BASE_URL}{path}"
     try:
         with httpx.Client(timeout=TIMEOUT) as client:
@@ -195,7 +199,14 @@ def sync_stadiums(db: Session) -> int:
 
 
 def sync_matches(db: Session) -> int:
-    """同步 104 场比赛赛程与结果."""
+    """同步 104 场比赛赛程与结果.
+
+    Trace (v0.2.1 audit):
+    - B-5 H2H 9 队 fallback: 9 个 fifa_code 不在 teams 表 (DEN/POL/RUS/SRB/WAL/CMR/CRC/ISL/PER,
+      2018+2022 世界杯非参赛队) — h2h router 用 duck typing 临时对象兼容，平台不修.
+    - B-6 standings 双路径: 本函数不调 _update_standing (admin.py 独有), 改由 sync_standings
+      走独立 /get/groups 端点 (权威). 两路径不重复累加积分.
+    """
     data = fetch_json("/get/games")
     if not data:
         return 0
@@ -305,7 +316,12 @@ def sync_matches(db: Session) -> int:
 
 
 def _sync_events_for_finished_matches(db: Session, games: list[dict]) -> int:
-    """为已结束比赛同步进球事件（不覆盖人工录入）."""
+    """为已结束比赛同步进球事件（不覆盖人工录入）.
+
+    Trace (v0.2.1 audit): B-3 — wc26 id=9 (CIV-ECU 1:0) home_scorers="null" 字符串,
+    _parse_scorers('null') 正确返回 [], 该场比赛 events=0 (score 1:0 已从 home_score 写入).
+    wc26 端未记录进球者属外部数据源问题, 平台不污染事件表写 placeholder.
+    """
     count = 0
     for g in games:
         if not _to_bool(g.get("finished")):
