@@ -79,7 +79,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.2.0",
+    version="0.2.1",
     debug=settings.debug,
     docs_url="/api/docs" if settings.debug else None,
     redoc_url="/api/redoc" if settings.debug else None,
@@ -124,7 +124,7 @@ async def health_check() -> dict:
     return {
         "status": "ok",
         "app": settings.app_name,
-        "version": "0.2.0",
+        "version": app.version,
         "data_source": "worldcup26.ir (primary) + worldcupstats.football (backup) + manual (fallback)",
         "sync_interval_seconds": settings.sync_interval_seconds,
     }
