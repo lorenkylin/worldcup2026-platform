@@ -9,6 +9,7 @@ from app.config import settings
 from app.db import get_db
 from app.models import Match, MatchEvent, MatchStats, Standing, Team
 from app.schemas import ScoreUpdateIn, EventCreateIn, StatsCreateIn
+from app.services.bracket_logic import rebuild_bracket
 
 
 router = APIRouter()
@@ -130,3 +131,12 @@ def _update_standing(db: Session, match: Match) -> None:
         standing.updated_at = datetime.now(timezone.utc)
 
     db.commit()
+
+
+@router.post("/bracket/rebuild")
+def rebuild_bracket_endpoint(
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_admin_token),
+) -> dict:
+    """手动触发 Bracket 重新计算并持久化到 matches 表."""
+    return rebuild_bracket(db)

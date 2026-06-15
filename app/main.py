@@ -15,7 +15,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.config import settings
 from app.db import engine, Base, SessionLocal
-from app.routers import matches, teams, groups, predictions, admin, admin_sync, simulator, elo, h2h
+from app.routers import matches, teams, groups, predictions, admin, admin_sync, simulator, elo, h2h, bracket
 from app.services.worldcup26_sync import full_sync as worldcup26_full_sync
 from app.services.scheduler import build_default_jobs
 from app.services.stadium_geo import fill_stadium_coordinates
@@ -79,7 +79,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.2.1",
+    version="0.3.0",
     debug=settings.debug,
     docs_url="/api/docs" if settings.debug else None,
     redoc_url="/api/redoc" if settings.debug else None,
@@ -103,6 +103,7 @@ app.include_router(predictions.router, prefix="/api", tags=["预测"])
 app.include_router(simulator.router, prefix="/api", tags=["出线模拟"])
 app.include_router(elo.router, prefix="/api", tags=["Elo 评级"])
 app.include_router(h2h.router, prefix="/api", tags=["历史交锋"])
+app.include_router(bracket.router, prefix="/api", tags=["淘汰赛"])
 app.include_router(admin.router, prefix="/api/admin", tags=["管理"])
 app.include_router(admin_sync.router, prefix="/api/admin/sync", tags=["数据同步"])
 

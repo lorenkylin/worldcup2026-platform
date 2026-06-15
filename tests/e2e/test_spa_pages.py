@@ -81,6 +81,17 @@ def test_mobile_375px_layout_not_broken(browser, base_url):
         ctx.close()
 
 
+def test_bracket_page_renders(page, base_url):
+    """v0.3.0: Bracket 页加载并显示淘汰赛路线图 + R32 节点."""
+    import time
+    page.goto(f"{base_url}/#/bracket", wait_until="domcontentloaded")
+    page.wait_for_load_state("networkidle", timeout=10000)
+    time.sleep(2)  # 等待 /api/bracket 渲染
+    body_text = page.locator("body").text_content() or ""
+    assert "晋级路线图" in body_text, f"Bracket 页未渲染标题: {body_text[:300]}"
+    assert "R32" in body_text or "32 强" in body_text, f"Bracket 页未显示 32 强阶段: {body_text[:300]}"
+
+
 def test_404_page_renders(page, base_url):
     """A8: 未知 hash 路径应渲染 404 页（非空，非崩溃）."""
     page.goto(f"{base_url}/#/nonexistent-page-xyz", wait_until="domcontentloaded")

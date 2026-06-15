@@ -796,6 +796,41 @@ body {
   padding: 2px 0;
 }
 
+/* v0.3.0: 节点头部 source（如 "2A vs 2B"） */
+.bracket-node-source {
+  font-size: 9px;
+  color: rgb(100 116 139);
+  font-family: "SF Mono", "Menlo", monospace;
+  letter-spacing: 0.02em;
+}
+
+/* v0.3.0: Elo 预测概率条 */
+.bracket-prob-bar {
+  display: flex;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 6px;
+  background: rgb(30 41 59);
+}
+.bracket-prob-seg {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+.bracket-prob-home { background: rgb(16 185 129); }
+.bracket-prob-draw { background: rgb(100 116 139); }
+.bracket-prob-away { background: rgb(59 130 246); }
+.bracket-prob-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.bracket-prob-home-text { color: rgb(16 185 129); }
+.bracket-prob-draw-text { color: rgb(148 163 184); }
+.bracket-prob-away-text { color: rgb(96 165 250); }
+
 /* 状态徽标 */
 .bracket-status-badge {
   display: inline-block;

@@ -1995,29 +1995,22 @@ async function renderBracket() {
   }
 
   // 2. 并发拉数据
-  const [matches, teams, groups] = await Promise.all([
-    apiWithRetry('/matches'),
+  // v0.3.0: 淘汰赛真实数据来自 /api/bracket，小组赛仍来自 /api/groups
+  const [bracket, teams, groups, matches] = await Promise.all([
+    apiWithRetry('/bracket'),
     apiWithRetry('/teams'),
     apiWithRetry('/groups'),
+    apiWithRetry('/matches'),
   ]);
 
-  // 3. 按阶段分类
-  //    DB 中所有淘汰赛占位都被错标为 stage='小组赛' 且 group_name IS NULL
-  //    实际按 ID 段分布：73-88 R32 (16) / 89-96 R16 (8) / 97-100 QF (4)
-  //                  / 101-102 SF (2) / 103 3rd / 104 F
-  //    真实 2026: 72 小组赛 + 16 R32 + 8 R16 + 4 QF + 2 SF + 1 3rd + 1 F = 104
+  // 3. 小组赛信息
   const groupMatches = matches.filter(m => m.stage === '小组赛' && m.group_name);
-  const knockoutPlaceholders = matches.filter(m => m.stage === '小组赛' && !m.group_name);
-  const r32Matches = knockoutPlaceholders.filter(m => m.id >= 73 && m.id <= 88);
-  const r16Matches = knockoutPlaceholders.filter(m => m.id >= 89 && m.id <= 96);
-  const qfMatches = knockoutPlaceholders.filter(m => m.id >= 97 && m.id <= 100);
-  const sfMatches = knockoutPlaceholders.filter(m => m.id >= 101 && m.id <= 102);
-  const thirdPlaceMatch = knockoutPlaceholders.find(m => m.id === 103);
-  const finalMatch = knockoutPlaceholders.find(m => m.id === 104);
+  const rounds = bracket && bracket.rounds ? bracket.rounds : {};
 
   // 4. 进度统计
   const finished = matches.filter(m => m.status === 'finished').length;
   const live = matches.filter(m => m.status === 'live').length;
+  const groupStageFinished = bracket && bracket.group_stage_finished;
 
   // 5. 渲染
   $('#app').innerHTML = `
@@ -2033,6 +2026,7 @@ async function renderBracket() {
             ${matches.length} 场赛事 · ${teams.length} 支球队 · ${Object.keys(groups).length} 小组
             ${live > 0 ? ` · <span class="text-rose-400">● ${live} 场进行中</span>` : ''}
             ${finished > 0 ? ` · <span class="text-emerald-400">✓ ${finished} 场已完赛</span>` : ''}
+            ${groupStageFinished ? ' · <span class="text-emerald-400">32 强已出炉</span>' : ' · <span class="text-amber-400">32 强推演中</span>'}
           </p>
         </div>
         <div class="flex gap-2">
@@ -2064,25 +2058,25 @@ async function renderBracket() {
           阶段二 · 淘汰赛路线图
         </h2>
         <p class="bracket-section-hint">
-          ▎ ${r32Matches.length + r16Matches.length + qfMatches.length + sfMatches.length + (thirdPlaceMatch ? 1 : 0) + (finalMatch ? 1 : 0)} / 32 场已确定
-          · 共 32 强 → 16 强 → 8 强 → 半决赛 → 决赛 → 冠军
+          ▎ 32 强 → 16 强 → 8 强 → 半决赛 → 决赛 → 冠军
+          ${groupStageFinished ? '' : ' · 当前为基于积分榜的推演对阵'}
         </p>
 
         <div class="bracket-flow">
-          ${renderBracketColumn('R32 · 32 强', r32Matches, 16, '等待小组赛结束（6/26 出 32 强）')}
+          ${renderBracketColumnReal('R32 · 32 强', rounds.r32, 16, '等待小组赛结束（6/26 出 32 强）')}
           <div class="bracket-arrow">→</div>
-          ${renderBracketColumn('R16 · 16 强', r16Matches, 8, '等待 32 强结果')}
+          ${renderBracketColumnReal('R16 · 16 强', rounds.r16, 8, '等待 32 强结果')}
           <div class="bracket-arrow">→</div>
-          ${renderBracketColumn('QF · 8 强', qfMatches, 4, '等待 16 强结果')}
+          ${renderBracketColumnReal('QF · 8 强', rounds.qf, 4, '等待 16 强结果')}
           <div class="bracket-arrow">→</div>
-          ${renderBracketColumn('SF · 半决赛', sfMatches, 2, '等待 8 强结果')}
+          ${renderBracketColumnReal('SF · 半决赛', rounds.sf, 2, '等待 8 强结果')}
           <div class="bracket-arrow">→</div>
-          ${renderBracketColumn('F · 决赛', finalMatch ? [finalMatch] : [], 1, '等待半决赛结果')}
+          ${renderBracketColumnReal('F · 决赛', rounds.final ? [rounds.final] : [], 1, '等待半决赛结果')}
         </div>
 
         <!-- 季军赛 + 冠军（独立行） -->
         <div class="bracket-extras">
-          ${thirdPlaceMatch ? renderBracketNode(thirdPlaceMatch, '3rd · 季军赛') :
+          ${rounds.third_place ? renderBracketNodeReal(rounds.third_place, '3rd · 季军赛') :
             renderBracketPlaceholder('3rd · 季军赛', '半决赛结束后')}
           <div class="bracket-trophy-card">
             <div class="trophy-icon">🏆</div>
@@ -2320,6 +2314,116 @@ function renderBracketNode(m, positionLabel) {
         </div>
       </div>
       ${nodeFoot}
+    </a>
+  `;
+}
+
+/** v0.3.0: 渲染基于 /api/bracket 真实数据的整列 */
+function renderBracketColumnReal(label, matches, expectedCount, placeholderHint) {
+  const safeMatches = matches || [];
+  // 检测：本列是否有"真实球队"的比赛（bracket API 中 team 非空）
+  const realMatches = safeMatches.filter(m =>
+    m && (m.home?.team?.name_zh || m.away?.team?.name_zh)
+  );
+
+  // 整列无真实数据 → 汇总卡片
+  if (realMatches.length === 0) {
+    return renderBracketColumnSummary(label, safeMatches, expectedCount, placeholderHint);
+  }
+
+  // 有真实数据 → 逐个渲染节点，空槽用 placeholder 补齐
+  const slots = [];
+  for (let i = 0; i < expectedCount; i++) {
+    const m = safeMatches[i];
+    if (m) {
+      slots.push(renderBracketNodeReal(m, `${label.split(' ')[0]} #${i + 1}`));
+    } else {
+      slots.push(renderBracketPlaceholder(`${label.split(' ')[0]} #${i + 1}`, placeholderHint));
+    }
+  }
+  return `
+    <div class="bracket-col">
+      <div class="bracket-col-header">${label}</div>
+      <div class="bracket-col-nodes bracket-col-count-${expectedCount}">
+        ${slots.join('')}
+      </div>
+    </div>
+  `;
+}
+
+/** v0.3.0: 渲染基于 /api/bracket 真实数据的单个节点 */
+function renderBracketNodeReal(m, positionLabel) {
+  const home = m.home?.team || { name_zh: m.home?.placeholder || 'TBD', flag_emoji: '🏳️' };
+  const away = m.away?.team || { name_zh: m.away?.placeholder || 'TBD', flag_emoji: '🏳️' };
+  const homeSource = m.home?.source || '';
+  const awaySource = m.away?.source || '';
+  const isDetermined = m.home?.team && m.away?.team;
+  const isFinished = m.status === 'finished' || (m.home_score !== null && m.away_score !== null);
+  const homeWin = isFinished && m.home_score > m.away_score;
+  const awayWin = isFinished && m.away_score > m.home_score;
+
+  let timeText = '';
+  if (m.kickoff_at) {
+    try {
+      timeText = new Date(m.kickoff_at).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
+    } catch (e) {
+      timeText = '';
+    }
+  }
+
+  // 状态色边框
+  let statusBorder = 'border-slate-800';
+  let statusBg = 'bg-slate-900';
+  if (isFinished) {
+    statusBorder = 'border-slate-700';
+  } else if (!isDetermined) {
+    statusBorder = 'border-amber-700/60 border-dashed';
+    statusBg = 'bg-slate-900/60';
+  }
+
+  // Elo 预测概率条（仅双方球队都确定时显示）
+  let probBar = '';
+  const p = m.prediction;
+  if (isDetermined && p && (p.home_win > 0 || p.draw > 0 || p.away_win > 0)) {
+    const homePct = Math.round(p.home_win * 100);
+    const drawPct = Math.round(p.draw * 100);
+    const awayPct = 100 - homePct - drawPct;
+    probBar = `
+      <div class="bracket-prob-bar">
+        <div class="bracket-prob-seg bracket-prob-home" style="width:${homePct}%"></div>
+        <div class="bracket-prob-seg bracket-prob-draw" style="width:${drawPct}%"></div>
+        <div class="bracket-prob-seg bracket-prob-away" style="width:${awayPct}%"></div>
+      </div>
+      <div class="bracket-prob-labels">
+        <span class="bracket-prob-home-text">${homePct}%</span>
+        <span class="bracket-prob-draw-text">平 ${drawPct}%</span>
+        <span class="bracket-prob-away-text">${awayPct}%</span>
+      </div>
+    `;
+  }
+
+  const linkHref = isDetermined && m.match_number ? `#/match/${m.match_number}` : '#/bracket';
+
+  return `
+    <a href="${linkHref}" class="bracket-node ${statusBorder} ${statusBg}" title="${escapeHtml(positionLabel)} · ${escapeHtml(home.name_zh)} vs ${escapeHtml(away.name_zh)}">
+      <div class="bracket-node-head">
+        <span class="bracket-node-pos">${escapeHtml(positionLabel)}</span>
+        <span class="bracket-node-source">${escapeHtml(homeSource)} vs ${escapeHtml(awaySource)}</span>
+      </div>
+      <div class="bracket-node-body">
+        <div class="bracket-node-team ${homeWin ? 'bracket-node-winner' : ''} ${isFinished && !homeWin ? 'bracket-node-loser' : ''}">
+          <span class="team-flag text-base">${home.flag_emoji || '🏳️'}</span>
+          <span class="bracket-node-team-name">${escapeHtml(home.name_zh)}</span>
+          <span class="bracket-node-score">${isFinished ? m.home_score : ''}</span>
+        </div>
+        <div class="bracket-node-team ${awayWin ? 'bracket-node-winner' : ''} ${isFinished && !awayWin ? 'bracket-node-loser' : ''}">
+          <span class="team-flag text-base">${away.flag_emoji || '🏳️'}</span>
+          <span class="bracket-node-team-name">${escapeHtml(away.name_zh)}</span>
+          <span class="bracket-node-score">${isFinished ? m.away_score : ''}</span>
+        </div>
+      </div>
+      ${probBar}
+      ${timeText ? `<div class="bracket-node-foot-scheduled">📅 ${escapeHtml(timeText)}</div>` : ''}
     </a>
   `;
 }

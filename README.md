@@ -1,27 +1,28 @@
 # 2026 FIFA World Cup 赛事分析平台 · 工程交付
 
-> **文档版本**：v0.2.0（数据完整性 + 时区现代化 audit 修复，2026-06-15 08:20）
-> **阶段**：Phase 5 – Ship（v0.2 收尾 + 全量 audit）
-> **作用域**：48 强全量赛程 + worldcup26.ir 实时同步 + Elo-Poisson v2（含 form/H2H）+ 出线模拟器 + 手动兜底 + CSV 导出 + 历史交锋详情页
+> **文档版本**：v0.3.0（Bracket 真实数据接入，2026-06-15）
+> **阶段**：Phase 5 – Ship（v0.3.0 Bracket 真实数据）
+> **作用域**：48 强全量赛程 + worldcup26.ir 实时同步 + Elo-Poisson v2（含 form/H2H）+ 出线模拟器 + Bracket 淘汰赛路线图 + 手动兜底 + CSV 导出 + 历史交锋详情页
 
 ---
 
 ## 一、范围与定位
 
-### 1.1 范围（v0.2 已交付）
+### 1.1 范围（v0.3.0 已交付）
 
 | 已交付 | 范围 |
 |---|---|
-| ✅ 静态 H5 前端（中文、深色） | 首页/赛程/积分榜/球队/比赛详情/Elo 实力榜/历史交锋/出线模拟器；Tailwind + 移动优先；hash SPA |
-| ✅ 后端 API（FastAPI · 31 端点） | matches (4) / teams (4) / groups / predictions (2) / elo (6) / h2h (2) / simulator / admin (11) / health |
+| ✅ 静态 H5 前端（中文、深色） | 首页/赛程/积分榜/球队/比赛详情/Elo 实力榜/历史交锋/出线模拟器/Bracket 晋级路线图；Tailwind + 移动优先；hash SPA |
+| ✅ 后端 API（FastAPI · 33 端点） | matches (4) / teams (4) / groups / predictions (2) / elo (6) / h2h (2) / simulator / bracket (2) / admin (12) / health |
 | ✅ Elo-Poisson v2 预测 | M1 纯 Elo + Dixon-Coles + M2 增强（form + H2H 加权因子），双返回 v1/v2 |
-| ✅ 出线模拟器 | `/api/simulator/groups` + 前端交互式界面（v0.2 提前交付，原计划 v0.3+）|
+| ✅ 出线模拟器 | `/api/simulator/groups` + 前端交互式界面 |
+| ✅ Bracket 淘汰赛路线图 | `/api/bracket` 自动计算 32 强（12 组前 2 + 8 个最佳第三）+ 16 场 R32 对阵 + Elo 胜率预测；`#/bracket` 真实数据渲染 |
 | ✅ CSV 导出 | Elo 页 "导出 CSV" 按钮（48 队全榜 + 10 字段 + UTF-8 BOM）|
 | ✅ 历史交锋详情页 | 路由 `#/h2h/{code1}/{code2}` + 视角归一 + 9 队非参赛队 fallback |
 | ✅ 数据导入 | worldcup26.ir 实时同步（每 15min 调度 + 启动时立即同步）+ worldcupstats.football 备份 + 手动兜底 |
-| ✅ 手动管理接口 | 8 端点（比分/事件/统计/积分榜手动/同步触发/缓存失效/form 回填/team recent-form），需 `X-Admin-Token` |
+| ✅ 手动管理接口 | 12 端点（比分/事件/统计/积分榜手动/同步触发/缓存失效/form 回填/team recent-form/Bracket 重建），需 `X-Admin-Token` |
 | ✅ 比赛详情 | events / stats / 赛后复盘卡片（B4）/ weather |
-| ✅ 自动化测试 | **95 项**单元 + 集成测试，全部通过 |
+| ✅ 自动化测试 | **130 项**单元 + 集成 + **7 项** Playwright E2E，全部通过 |
 
 ### 1.2 Non-Goals
 
@@ -50,9 +51,11 @@ worldcup2026-platform/
 │   │   ├── elo.py           # 6 端点（ratings/top/predict/predict-enhanced/backtest）
 │   │   ├── h2h.py           # 2 端点（对决详情 + 队所有对手）
 │   │   ├── simulator.py     # 1 端点（出线模拟）
-│   │   ├── admin.py         # 4 端点（比分/事件/统计/积分榜手动）
+│   │   ├── bracket.py       # 1 端点（GET /api/bracket）
+│   │   ├── admin.py         # 5 端点（比分/事件/统计/积分榜手动/Bracket 重建）
 │   │   └── admin_sync.py    # 4 端点（同步状态/触发/缓存失效/form 回填）
 │   ├── services/
+│   │   ├── bracket_logic.py # 2026 淘汰赛对阵生成（小组排名/最佳第三/R32 对阵/Elo 预测）
 │   │   ├── prediction.py    # Elo-Poisson v1 基础
 │   │   ├── prediction_cache.py  # F2 缓存层
 │   │   ├── backtest.py      # M1 4 年 walk-forward 回测
@@ -202,7 +205,7 @@ alembic revision --autogenerate -m "改了什么"
 
 ---
 
-## 六、API 速查（v0.2 共 31 端点，含 /health）
+## 六、API 速查（v0.3.0 共 33 端点，含 /health）
 
 ### 6.1 核心数据 API
 
@@ -220,7 +223,14 @@ alembic revision --autogenerate -m "改了什么"
 | GET | `/api/teams/{team_code}/h2h-opponents` | 该队所有历史交锋对手（P2 用）|
 | GET | `/api/groups` | 12 小组积分榜（wc26.ir 同步，已比赛自动汇总）|
 
-### 6.2 Elo + 预测 API（M1 + M2）
+### 6.2 Bracket 淘汰赛 API（v0.3.0）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/bracket` | 完整淘汰赛对阵树（R32/R16/QF/SF/3rd/Final）+ Elo 预测概率 |
+| POST | `/api/admin/bracket/rebuild` | 手动触发 Bracket 重算并持久化到 matches 表（需 admin token）|
+
+### 6.3 Elo + 预测 API（M1 + M2）
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -249,6 +259,7 @@ alembic revision --autogenerate -m "改了什么"
 | POST | `/api/admin/matches/{id}/events` | 手动录入事件 |
 | POST | `/api/admin/matches/{id}/stats` | 手动录入赛后统计 |
 | POST | `/api/admin/standings/{group_name}` | 手动录入积分榜 |
+| POST | `/api/admin/bracket/rebuild` | 手动触发 Bracket 重算（v0.3.0）|
 
 **6.4.2 数据同步 + 缓存**（前缀 `/api/admin/sync/`）
 
@@ -551,3 +562,5 @@ else:
 | 2026-06-13 | v0.1.7 | **数据同步链路修复**：(1) `full_sync()` 接受 db 参数（修复 scheduler 5 次连续 fail 的 `takes 0 positional arguments` bug）；(2) `sync_matches` 改用 `wc26_id → fifa_code` 映射（修复 4/6 场主客队错位）+ `wc26_id → stadium_name` 映射（修复 4/5 球场错位）；(3) `app.main.lifespan` 启动时立即跑一次 `worldcup26_full_sync(db)` 避免 15min 调度窗口期内数据 stale。**修复影响**：6/12 CAN 1-1 BIH / USA 4-1 PAR；6/13 QAT vs SUI / BRA vs MAR / HAI vs SCO / AUS vs TUR 全部主客队 + 球场显示正确，95/95 测试无破坏 |
 | 2026-06-14 | v0.1.8 | **P1.2 CSV 导出收尾 + P1.3 H2H 主页**：(1) `exportEloToCSV()` 加 `_has_team` 过滤，只导 48 队（按钮 title "48 队" 与实际一致）；(2) 新增 `renderH2H()` 主页（选队 select + 对手卡片网格，PC 3 列 / 移动单列）；(3) 抽屉菜单加 "⚔️ 历史交锋" 入口；(4) 路由表 + skeletonTypeForHash + showSkeleton 注册 `'/h2h'`；(5) **修 h2h 路由 9 队非参赛队 fallback**（CMR/CRC/DEN/ISL/PER/POL/RUS/SRB/WAL，未晋级 2026 但有 2018+2022 种子），用 type() duck typing 构造 fallback dict。**Playwright 端到端验证**：49 行 CSV（含 UTF-8 BOM）+ 默认 BRA 9 对手 + 切换 MEX 7 对手 + 详情页跳转 BRA vs SRB（2 场 + 🏳️ SRB fallback 显示）+ 移动端 375px；4 张截图 `docs/screenshots/P1.2_P1.3/01-05_*.png`；95/95 测试无破坏 |
 | 2026-06-15 | **v0.2.0** | **全面 audit + 数据完整性 + 时区现代化**：(1) **P0-1 standings 错位修复** — `sync_standings` 复用 `wc26_id → fifa_code` 映射（与 sync_matches 一致），清 18 条错位（id 49-66），重启 lifespan 同步后 12 组 × 4 队 = 48 条全对齐，7 个关键错位队（USA/QAT/ESP/FRA/ENG/GER/BRA）standing.group_name = team.group_name；(2) **P0-3 datetime.utcnow 21 处替换** — 7 个文件 + models.py 6 处 Column default（`default=lambda: datetime.now(timezone.utc)`），跑测试时 136 个 DeprecationWarning 全消；附带修 `prediction_cache.py` 的 naive/aware datetime 比较 bug（DB 存的 DateTime 是 naive，比较时 `replace(tzinfo=utc)`）；(3) **P1-1 API team_id 改 path** — `team_id: int` 改 `team_code: str`，自动兼容 int ID（`/api/teams/11`）和 FIFA 3 字母代码（`/api/teams/BRA` 或 `mex`），加 `_resolve_team()` helper；(4) **README v0.2.0 重写** — §1.1 扩 API 列表到 31 端点，§1.2 删已实现 Non-Goals（出线模拟/WebSocket），§2 目录树扩到 9 routers + 9 services，§2.1 数据流图加 worldcup26.ir 链路，§6 API 速查分 4 子表（核心数据 10 + Elo+H2H+模拟器 9 + 管理 11）含 weather 等补端点，§10 加 v0.2.0 一条；**95/95 测试零回归**；**P1-1 端到端验证**：`/api/teams/11` → 巴西（ID 兼容），`/api/teams/BRA` → 巴西（fifa_code），`/api/teams/mex` → 墨西哥（大小写不敏感），`/api/teams/BRA/matches` → 3 场，`/api/teams/XXX` → 404 |
+| 2026-06-15 | **v0.2.1** | **部署修复**：(1) 重启生产服务器加载 v0.2.1 代码；(2) 修复 `/health` version 硬编码问题（改为 `app.version`）；(3) SQL 修复 92 场 `status=live` 但 `time_elapsed=notstarted` 的比赛为 `scheduled`；(4) **118 项 pytest + 6 项 Playwright E2E 全绿** |
+| 2026-06-15 | **v0.3.0** | **Bracket 真实数据接入**：(1) 新增 `app/services/bracket_logic.py` — 12 组排名、8 个最佳小组第三、2026 Annex C R32 对阵生成、Elo 预测；(2) 新增 `GET /api/bracket` 返回完整对阵树（R32/R16/QF/SF/3rd/Final）；(3) 新增 `POST /api/admin/bracket/rebuild` 手动触发重算；(4) 前端 `/#/bracket` 接入 `/api/bracket` 真实数据，渲染 Elo 胜率条；(5) 新增 `tests/test_bracket.py` 12 项单元/集成测试；(6) 新增 Playwright E2E `test_bracket_page_renders`；(7) **README v0.3.0 更新**：API 端点 33 个，测试 130+7 项；**130 项 pytest + 7 项 Playwright E2E 全绿** |
