@@ -15,6 +15,7 @@ from app.services.bracket_logic import (
     update_knockout_matches,
     rebuild_bracket,
     build_bracket,
+    should_auto_rebuild,
     R32_MATCHUPS,
 )
 
@@ -309,6 +310,123 @@ def test_api_admin_bracket_rebuild_with_token(db_session, client):
     data = response.json()
     assert data["ok"] is True
     assert data["updated_matches"] == 16
+
+
+# === 自动 rebuild 测试 ===
+
+
+def test_should_auto_rebuild_false_when_group_stage_not_finished(db_session):
+    """小组赛未结束时，不应自动 rebuild."""
+    _full_seed(db_session, {
+        "A": [(9, 3, 0), (6, 2, 1), (3, 1, 2), (0, 0, 3)],
+    })
+    assert should_auto_rebuild(db_session) is False
+
+
+def test_should_auto_rebuild_true_when_finished_but_r32_empty(db_session):
+    """小组赛结束且 R32 尚未落位时，应自动 rebuild."""
+    _full_seed(db_session, {
+        "A": [(9, 3, 0), (6, 2, 1), (3, 1, 2), (0, 0, 3)],
+        "B": [(9, 3, 0), (6, 2, 1), (3, 1, 2), (0, 0, 3)],
+    })
+    _seed_group_matches_finished(db_session)
+    assert should_auto_rebuild(db_session) is True
+
+
+def test_should_auto_rebuild_false_after_rebuild(db_session):
+    """R32 全部落位后，不应再自动 rebuild."""
+    # 构造 12 组积分，让最佳 8 个第三为 A/B/C/D/E/F/I/J（与 2026 Annex C 槽位兼容），
+    # 确保简化贪心策略能填满 8 个第三槽位。
+    config = {
+        "A": [(9, 3, 0), (6, 2, 1), (3, 1, 2), (0, 0, 3)],
+        "B": [(9, 3, 0), (6, 2, 1), (3, 1, 2), (0, 0, 3)],
+        "C": [(9, 3, 0), (6, 2, 1), (3, 1, 2), (0, 0, 3)],
+        "D": [(9, 3, 0), (6, 2, 1), (3, 1, 2), (0, 0, 3)],
+        "E": [(9, 3, 0), (6, 2, 1), (3, 1, 2), (0, 0, 3)],
+        "F": [(9, 3, 0), (6, 2, 1), (3, 1, 2), (0, 0, 3)],
+        # G/H 第三 2 分，排不进前 8
+        "G": [(9, 3, 0), (6, 2, 1), (2, 1, 2), (0, 0, 3)],
+        "H": [(9, 3, 0), (6, 2, 1), (2, 1, 2), (0, 0, 3)],
+        "I": [(9, 3, 0), (6, 2, 1), (3, 1, 2), (0, 0, 3)],
+        "J": [(9, 3, 0), (6, 2, 1), (3, 1, 2), (0, 0, 3)],
+        # K/L 第三 0 分
+        "K": [(9, 3, 0), (6, 2, 1), (0, 0, 2), (0, 0, 3)],
+        "L": [(9, 3, 0), (6, 2, 1), (0, 0, 2), (0, 0, 3)],
+    }
+    _full_seed(db_session, config)
+    _seed_group_matches_finished(db_session)
+    result = rebuild_bracket(db_session)
+    assert result["updated_matches"] == 16
+    # 确认 16 场 R32 全部落位
+    r32 = db_session.query(Match).filter(Match.match_number >= 73, Match.match_number <= 88).all()
+    assert all(m.home_team_id is not None and m.away_team_id is not None for m in r32)
+    assert should_auto_rebuild(db_session) is False
+
+
+def test_job_bracket_auto_rebuild_triggers_when_ready(db_session):
+    """调度任务在条件满足时应执行 rebuild."""
+    from app.services.scheduler import _job_bracket_auto_rebuild
+
+    _full_seed(db_session, {
+        "A": [(9, 3, 0), (6, 2, 1), (3, 1, 2), (0, 0, 3)],
+        "B": [(9, 3, 0), (6, 2, 1), (3, 1, 2), (0, 0, 3)],
+    })
+    _seed_group_matches_finished(db_session)
+
+    calls = []
+    original_rebuild = rebuild_bracket
+
+    def _mock_rebuild(db):
+        calls.append("rebuild")
+        return original_rebuild(db)
+
+    # 通过 monkeypatch 方式替换局部引用
+    import app.services.scheduler as scheduler_mod
+    import app.services.bracket_logic as bracket_mod
+
+    old_should = bracket_mod.should_auto_rebuild
+    old_rebuild = bracket_mod.rebuild_bracket
+    try:
+        bracket_mod.should_auto_rebuild = should_auto_rebuild
+        bracket_mod.rebuild_bracket = _mock_rebuild
+        scheduler_mod._job_bracket_auto_rebuild(lambda: db_session)
+    finally:
+        bracket_mod.should_auto_rebuild = old_should
+        bracket_mod.rebuild_bracket = old_rebuild
+
+    assert len(calls) == 1
+
+
+def test_job_bracket_auto_rebuild_skips_when_not_ready(db_session):
+    """调度任务在条件不满足时不应执行 rebuild."""
+    from app.services.scheduler import _job_bracket_auto_rebuild
+
+    _full_seed(db_session, {
+        "A": [(9, 3, 0), (6, 2, 1), (3, 1, 2), (0, 0, 3)],
+    })
+    # 小组赛未结束
+
+    calls = []
+    original_rebuild = rebuild_bracket
+
+    def _mock_rebuild(db):
+        calls.append("rebuild")
+        return original_rebuild(db)
+
+    import app.services.scheduler as scheduler_mod
+    import app.services.bracket_logic as bracket_mod
+
+    old_should = bracket_mod.should_auto_rebuild
+    old_rebuild = bracket_mod.rebuild_bracket
+    try:
+        bracket_mod.should_auto_rebuild = should_auto_rebuild
+        bracket_mod.rebuild_bracket = _mock_rebuild
+        scheduler_mod._job_bracket_auto_rebuild(lambda: db_session)
+    finally:
+        bracket_mod.should_auto_rebuild = old_should
+        bracket_mod.rebuild_bracket = old_rebuild
+
+    assert len(calls) == 0
 
 
 # 需要一个 client fixture（如果 conftest 没有提供）

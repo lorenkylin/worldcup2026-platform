@@ -1,7 +1,7 @@
 # 2026 FIFA World Cup 赛事分析平台 · 工程交付
 
-> **文档版本**：v0.3.0（Bracket 真实数据接入，2026-06-15）
-> **阶段**：Phase 5 – Ship（v0.3.0 Bracket 真实数据）
+> **文档版本**：v0.3.1（Bracket 自动重算，2026-06-15）
+> **阶段**：Phase 5 – Ship（v0.3.1 Bracket 自动重算）
 > **作用域**：48 强全量赛程 + worldcup26.ir 实时同步 + Elo-Poisson v2（含 form/H2H）+ 出线模拟器 + Bracket 淘汰赛路线图 + 手动兜底 + CSV 导出 + 历史交锋详情页
 
 ---
@@ -564,3 +564,4 @@ else:
 | 2026-06-15 | **v0.2.0** | **全面 audit + 数据完整性 + 时区现代化**：(1) **P0-1 standings 错位修复** — `sync_standings` 复用 `wc26_id → fifa_code` 映射（与 sync_matches 一致），清 18 条错位（id 49-66），重启 lifespan 同步后 12 组 × 4 队 = 48 条全对齐，7 个关键错位队（USA/QAT/ESP/FRA/ENG/GER/BRA）standing.group_name = team.group_name；(2) **P0-3 datetime.utcnow 21 处替换** — 7 个文件 + models.py 6 处 Column default（`default=lambda: datetime.now(timezone.utc)`），跑测试时 136 个 DeprecationWarning 全消；附带修 `prediction_cache.py` 的 naive/aware datetime 比较 bug（DB 存的 DateTime 是 naive，比较时 `replace(tzinfo=utc)`）；(3) **P1-1 API team_id 改 path** — `team_id: int` 改 `team_code: str`，自动兼容 int ID（`/api/teams/11`）和 FIFA 3 字母代码（`/api/teams/BRA` 或 `mex`），加 `_resolve_team()` helper；(4) **README v0.2.0 重写** — §1.1 扩 API 列表到 31 端点，§1.2 删已实现 Non-Goals（出线模拟/WebSocket），§2 目录树扩到 9 routers + 9 services，§2.1 数据流图加 worldcup26.ir 链路，§6 API 速查分 4 子表（核心数据 10 + Elo+H2H+模拟器 9 + 管理 11）含 weather 等补端点，§10 加 v0.2.0 一条；**95/95 测试零回归**；**P1-1 端到端验证**：`/api/teams/11` → 巴西（ID 兼容），`/api/teams/BRA` → 巴西（fifa_code），`/api/teams/mex` → 墨西哥（大小写不敏感），`/api/teams/BRA/matches` → 3 场，`/api/teams/XXX` → 404 |
 | 2026-06-15 | **v0.2.1** | **部署修复**：(1) 重启生产服务器加载 v0.2.1 代码；(2) 修复 `/health` version 硬编码问题（改为 `app.version`）；(3) SQL 修复 92 场 `status=live` 但 `time_elapsed=notstarted` 的比赛为 `scheduled`；(4) **118 项 pytest + 6 项 Playwright E2E 全绿** |
 | 2026-06-15 | **v0.3.0** | **Bracket 真实数据接入**：(1) 新增 `app/services/bracket_logic.py` — 12 组排名、8 个最佳小组第三、2026 Annex C R32 对阵生成、Elo 预测；(2) 新增 `GET /api/bracket` 返回完整对阵树（R32/R16/QF/SF/3rd/Final）；(3) 新增 `POST /api/admin/bracket/rebuild` 手动触发重算；(4) 前端 `/#/bracket` 接入 `/api/bracket` 真实数据，渲染 Elo 胜率条；(5) 新增 `tests/test_bracket.py` 12 项单元/集成测试；(6) 新增 Playwright E2E `test_bracket_page_renders`；(7) **README v0.3.0 更新**：API 端点 33 个，测试 130+7 项；**130 项 pytest + 7 项 Playwright E2E 全绿** |
+| 2026-06-15 | **v0.3.1** | **Bracket 自动重算**：(1) 新增 `bracket_logic.should_auto_rebuild()` — 无状态判断小组赛是否全部结束且 R32 尚未落位；(2) 扩展 `app/services/scheduler.py`，注册每 15 分钟一次的 `_job_bracket_auto_rebuild` 任务，满足条件时自动调用 `rebuild_bracket()`；(3) 防重复触发：R32 全部填入真实球队后不再执行；(4) 扩展 `tests/test_bracket.py`：5 项新测试覆盖 `should_auto_rebuild` 三种状态 + scheduler job 触发/跳过；(5) 版本号 bump 至 0.3.1；**136 项 pytest + 7 项 Playwright E2E 全绿** |

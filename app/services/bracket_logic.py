@@ -332,6 +332,23 @@ def _group_stage_finished(db: Session) -> bool:
     return all(m.status == "finished" for m in group_matches)
 
 
+def should_auto_rebuild(db: Session) -> bool:
+    """判断当前是否满足自动 rebuild 条件.
+
+    条件：
+    1. 小组赛全部结束；
+    2. R32（match_number 73-88）至少还有一场未填入真实球队（home/away_team_id 为 None）。
+
+    该函数无状态、幂等，依赖 DB 当前状态，因此服务器重启后也能正确判断。
+    """
+    if not _group_stage_finished(db):
+        return False
+    r32_matches = db.query(Match).filter(Match.match_number >= 73, Match.match_number <= 88).all()
+    if not r32_matches:
+        return False
+    return any(m.home_team_id is None or m.away_team_id is None for m in r32_matches)
+
+
 def build_bracket(db: Session) -> Dict:
     """构建完整淘汰赛对阵树（核心 API 用）.
 

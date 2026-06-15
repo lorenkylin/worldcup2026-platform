@@ -66,6 +66,19 @@ def build_default_jobs(
     )
     print("[scheduler] 已注册 B2 recent_form 回填任务，间隔 30 分钟")
 
+    # B3: 小组赛结束后自动重算 Bracket（R32 对阵落位）
+    scheduler.add_job(
+        _job_bracket_auto_rebuild,
+        trigger=IntervalTrigger(minutes=15),
+        args=[session_factory],
+        id="bracket_auto_rebuild",
+        name="Bracket 自动重算（每 15 分钟，小组赛结束后）",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    print("[scheduler] 已注册 Bracket 自动重算任务，间隔 15 分钟")
+
 
 def _job_recent_form_backfill(session_factory: Callable) -> None:
     """定时回填 B2 近期状态因子."""
@@ -80,5 +93,28 @@ def _job_recent_form_backfill(session_factory: Callable) -> None:
         )
     except Exception as exc:  # noqa: BLE001
         print(f"[{datetime.now().isoformat()}] B2 recent_form 回填失败: {exc}")
+    finally:
+        db.close()
+
+
+def _job_bracket_auto_rebuild(session_factory: Callable) -> None:
+    """定时检测小组赛是否结束，结束后自动重算 Bracket.
+
+    依赖 bracket_logic.should_auto_rebuild 做无状态判断，避免重复触发。
+    """
+    from app.services.bracket_logic import rebuild_bracket, should_auto_rebuild  # 避免循环 import
+
+    db: Session = session_factory()
+    try:
+        if not should_auto_rebuild(db):
+            return
+        result = rebuild_bracket(db)
+        print(
+            f"[{datetime.now().isoformat()}] Bracket 自动重算: "
+            f"updated_matches={result['updated_matches']}, "
+            f"group_stage_finished={result['group_stage_finished']}"
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"[{datetime.now().isoformat()}] Bracket 自动重算失败: {exc}")
     finally:
         db.close()
