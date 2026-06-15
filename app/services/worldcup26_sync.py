@@ -275,7 +275,7 @@ def sync_matches(db: Session) -> int:
         if match.data_source != "manual":
             if is_finished:
                 match.status = "finished"
-            elif time_elapsed and time_elapsed not in ("", "scheduled"):
+            elif time_elapsed and time_elapsed not in ("", "scheduled", "notstarted"):
                 match.status = "live"
             else:
                 match.status = "scheduled"
