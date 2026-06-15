@@ -141,9 +141,20 @@ python data/seed.py           # 写入 SQLite
 
 ### 3.3 启动 API
 
+**推荐（Windows，避免 cwd 导致 SQLite 路径跑偏）**：
+
 ```bash
+python scripts/start_server.py
+```
+
+或手动启动（务必先 `cd` 到项目根目录）：
+
+```bash
+cd worldcup2026-platform
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
+
+> ⚠️ `--app-dir` 只改 `sys.path`，**不会改进程 cwd**。若从项目外启动，相对路径 `data/worldcup2026.db` 会指向错误位置。
 
 访问：
 
