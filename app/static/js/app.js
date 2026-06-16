@@ -10,6 +10,11 @@ const API_BASE = '/api';
 function $(sel) { return document.querySelector(sel); }
 
 async function api(path) {
+  // 测试钩子: 记录所有 API 调用路径,供 v0.7.2.1 单测验证
+  if (typeof window !== 'undefined') {
+    if (!window._api_calls) window._api_calls = [];
+    window._api_calls.push(path);
+  }
   const res = await fetch(API_BASE + path);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
@@ -1296,10 +1301,14 @@ function countdownText(isoWallClock, tz) {
 }
 
 // ---------- M3 赔率页面 ----------
+// v0.7.2.1: 当前选中的模型(默认 blend),影响赔率卡概率 + 按模型价值投注 section
+let _oddsSelectedModel = 'blend';
+
 async function renderOdds() {
-  const [data, latest] = await Promise.all([
+  const [data, latest, serviceStatus] = await Promise.all([
     apiWithRetry('/odds/compare?limit=30'),
     apiWithRetry('/odds/latest').catch(() => null),
+    apiWithRetry('/odds/service-status').catch(() => null),
   ]);
   if (!data || !data.items || !data.items.length) {
     $('#app').innerHTML = renderEmpty('💰', '暂无赔率数据', '管理员尚未录入任何比赛赔率', '#/schedule', '查看赛程');
@@ -1319,7 +1328,10 @@ async function renderOdds() {
     数据更新于 ${freshness}${latest ? ` · 共 ${latest.snapshot_count} 个快照` : ''}
   </div>`;
 
-  // 顶部 value bet 提醒卡片
+  // v0.7.2.1: 顶部"服务状态"小卡 (data-testid 用于 E2E 验证)
+  const statusBarHtml = renderOddsServiceStatusBar(serviceStatus);
+
+  // 顶部 value bet 提醒卡片 (v0.5.1 老功能,保留)
   const valueBets = data.items.filter(it => it.best_value && it.best_value_rate >= 0.05);
   const valueBetsHtml = valueBets.length > 0 ? `
     <div class="bg-gradient-to-br from-amber-900/30 to-slate-900 rounded-xl p-4 border border-amber-700/50 mb-4">
@@ -1346,20 +1358,196 @@ async function renderOdds() {
     </div>
   ` : '';
 
-  const itemsHtml = data.items.map(it => {
-    const vbHome = it.value_bet.home;
-    const vbDraw = it.value_bet.draw;
-    const vbAway = it.value_bet.away;
+  // v0.7.2.1: 按模型筛选价值投注 section (data-testid 用于 E2E 验证)
+  const modelValueBetsHtml = await renderModelValueBetsSection(_oddsSelectedModel);
+
+  // 赔率卡(model=elo/glicko2/blend 可切换)
+  const itemsHtml = await renderOddsCardsWithModel(data.items, _oddsSelectedModel);
+
+  $('#app').innerHTML = `
+    <h2 class="text-lg font-bold mb-2 flex items-center gap-2">
+      <span class="text-xl">💰</span><span>赔率分析</span>
+      <span class="text-xs text-slate-500 font-normal ml-auto">${data.count} 场</span>
+    </h2>
+    <div class="mb-2">${freshnessHtml}</div>
+    ${statusBarHtml}
+    <div class="text-xs text-slate-400 mb-4">市场预期 vs Elo/Glicko-2/Blend 模型对比，识别市场定价偏离</div>
+    ${valueBetsHtml}
+    ${modelValueBetsHtml}
+    ${itemsHtml}
+    <div class="text-[10px] text-slate-500 mt-2 text-center">赔率为各家共识平均，仅供分析参考，不构成投注建议。</div>
+  `;
+}
+
+// v0.7.2.1: 渲染"服务状态"小卡
+function renderOddsServiceStatusBar(status) {
+  if (!status) {
+    return `<div data-testid="odds-status-bar" class="mb-3 text-xs text-amber-400 bg-amber-900/20 border border-amber-700/50 rounded-lg px-3 py-2 flex items-center gap-2">
+      <span>⚠️</span><span>赔率服务状态不可用</span>
+    </div>`;
+  }
+  const provider = status.provider || 'unknown';
+  const rate = status.rate_limit_remaining;
+  const lastFetch = status.last_fetch_at
+    ? new Date(status.last_fetch_at).toLocaleString('zh-CN', { hour12: false })
+    : '未拉取';
+  const rateStr = rate != null ? `· 限速剩余 <span class="font-mono text-emerald-400">${rate}</span>` : '';
+  return `<div data-testid="odds-status-bar" class="mb-3 text-xs text-slate-300 bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 flex items-center gap-3">
+    <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+    <span>赔率服务: <span class="text-cyan-400 font-medium">${escapeHtml(provider)}</span></span>
+    <span class="text-slate-500">${rateStr}</span>
+    <span class="text-slate-500 ml-auto">最近拉取: ${lastFetch}</span>
+  </div>`;
+}
+
+// v0.7.2.1: 渲染"按模型筛选价值投注"section
+async function renderModelValueBetsSection(model) {
+  try {
+    const data = await apiWithRetry(`/odds/value-bets-model?model=${model}&min_tier=edge`);
+    const items = data.items || data.value_bets || [];
+    const tiers = ['edge', 'fair', 'all'];
+    const tierLabels = { edge: '高价值 (≥5%)', fair: '中价值 (≥2%)', all: '任意' };
+    return `<div data-testid="odds-model-value-bets" class="bg-slate-900 rounded-xl p-4 mb-4 border border-slate-800">
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <h3 class="font-bold text-cyan-400 flex items-center gap-2">
+          <span>🎯</span><span>按模型筛选价值投注</span>
+        </h3>
+        <div class="flex items-center gap-2 text-xs">
+          <span class="text-slate-400">模型:</span>
+          <select id="mvb-model-select" class="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs" onchange="onModelValueBetsChange('model', this.value)">
+            <option value="elo" ${model === 'elo' ? 'selected' : ''}>Elo</option>
+            <option value="glicko2" ${model === 'glicko2' ? 'selected' : ''}>Glicko-2</option>
+            <option value="blend" ${model === 'blend' ? 'selected' : ''}>Blend</option>
+          </select>
+          <span class="text-slate-400">最低价值:</span>
+          <select id="mvb-tier-select" class="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs" onchange="onModelValueBetsChange('tier', this.value)">
+            ${tiers.map(t => `<option value="${t}">${tierLabels[t]}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      ${items.length === 0
+        ? `<div class="text-xs text-slate-500 py-3 text-center">暂无 ${tierLabels.edge} 的价值投注</div>`
+        : `<div class="space-y-2">${items.slice(0, 5).map(it => {
+            const modelProb = it.model_prob || 0;
+            const marketProb = it.market_prob || 0;
+            const edge = (modelProb - marketProb) * 100;
+            const pick = it.recommendation || (edge > 0 ? '主胜' : '客胜');
+            return `<a href="#/match/${it.match_id}" class="block bg-slate-950 rounded-lg p-3 hover:bg-slate-800 transition">
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-sm font-medium">${escapeHtml(it.home_team?.name_zh || '')} <span class="text-slate-500">vs</span> ${escapeHtml(it.away_team?.name_zh || '')}</span>
+                <span class="${edge >= 5 ? 'text-emerald-400' : 'text-amber-400'} font-mono text-sm">+${edge.toFixed(1)}%</span>
+              </div>
+              <div class="text-xs text-slate-400">
+                ${escapeHtml(model)} 模型看 <span class="text-cyan-400">${pick}</span>:
+                模型 <span class="text-cyan-400">${(modelProb * 100).toFixed(1)}%</span>
+                · 市场 <span class="text-slate-300">${(marketProb * 100).toFixed(1)}%</span>
+              </div>
+            </a>`;
+          }).join('')}</div>`
+      }
+    </div>`;
+  } catch (e) {
+    return `<div data-testid="odds-model-value-bets" class="mb-4 text-xs text-amber-400">⚠️ 模型价值投注加载失败: ${escapeHtml(String(e))}</div>`;
+  }
+}
+
+// v0.7.2.1: 模型/价值切换回调
+async function onModelValueBetsChange(kind, value) {
+  if (kind === 'model') {
+    _oddsSelectedModel = value;
+    await renderOdds();
+  } else if (kind === 'tier') {
+    const model = document.getElementById('mvb-model-select')?.value || 'blend';
+    const mvbEl = document.querySelector('[data-testid="odds-model-value-bets"]');
+    if (mvbEl) {
+      const newHtml = await renderModelValueBetsTier(model, value);
+      mvbEl.outerHTML = newHtml;
+    }
+  }
+}
+
+async function renderModelValueBetsTier(model, tier) {
+  try {
+    const data = await apiWithRetry(`/odds/value-bets-model?model=${model}&min_tier=${tier}`);
+    const items = data.items || data.value_bets || [];
+    const tierLabels = { edge: '高价值 (≥5%)', fair: '中价值 (≥2%)', all: '任意' };
+    return `<div data-testid="odds-model-value-bets" class="bg-slate-900 rounded-xl p-4 mb-4 border border-slate-800">
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <h3 class="font-bold text-cyan-400 flex items-center gap-2">
+          <span>🎯</span><span>按模型筛选价值投注</span>
+        </h3>
+        <div class="flex items-center gap-2 text-xs">
+          <span class="text-slate-400">模型:</span>
+          <select id="mvb-model-select" class="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs" onchange="onModelValueBetsChange('model', this.value)">
+            <option value="elo" ${model === 'elo' ? 'selected' : ''}>Elo</option>
+            <option value="glicko2" ${model === 'glicko2' ? 'selected' : ''}>Glicko-2</option>
+            <option value="blend" ${model === 'blend' ? 'selected' : ''}>Blend</option>
+          </select>
+          <span class="text-slate-400">最低价值:</span>
+          <select id="mvb-tier-select" class="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs" onchange="onModelValueBetsChange('tier', this.value)">
+            ${['edge', 'fair', 'all'].map(t => `<option value="${t}" ${t === tier ? 'selected' : ''}>${tierLabels[t]}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      ${items.length === 0
+        ? `<div class="text-xs text-slate-500 py-3 text-center">暂无 ${tierLabels[tier]} 的价值投注</div>`
+        : `<div class="space-y-2">${items.slice(0, 5).map(it => {
+            const modelProb = it.model_prob || 0;
+            const marketProb = it.market_prob || 0;
+            const edge = (modelProb - marketProb) * 100;
+            const pick = it.recommendation || (edge > 0 ? '主胜' : '客胜');
+            return `<a href="#/match/${it.match_id}" class="block bg-slate-950 rounded-lg p-3 hover:bg-slate-800 transition">
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-sm font-medium">${escapeHtml(it.home_team?.name_zh || '')} <span class="text-slate-500">vs</span> ${escapeHtml(it.away_team?.name_zh || '')}</span>
+                <span class="${edge >= 5 ? 'text-emerald-400' : 'text-amber-400'} font-mono text-sm">+${edge.toFixed(1)}%</span>
+              </div>
+              <div class="text-xs text-slate-400">
+                ${escapeHtml(model)} 模型看 <span class="text-cyan-400">${pick}</span>:
+                模型 <span class="text-cyan-400">${(modelProb * 100).toFixed(1)}%</span>
+                · 市场 <span class="text-slate-300">${(marketProb * 100).toFixed(1)}%</span>
+              </div>
+            </a>`;
+          }).join('')}</div>`
+      }
+    </div>`;
+  } catch (e) {
+    return `<div data-testid="odds-model-value-bets" class="mb-4 text-xs text-amber-400">⚠️ 模型价值投注加载失败: ${escapeHtml(String(e))}</div>`;
+  }
+}
+
+// v0.7.2.1: 赔率卡(model 可切换),保留 v0.5.1 主结构 + 模型下拉
+async function renderOddsCardsWithModel(items, model) {
+  // 一次拉所有需要的 compare-model
+  const promises = items.slice(0, 20).map(it =>
+    apiWithRetry(`/odds/compare-model?match_id=${it.match_id}&model=${model}`).catch(() => null)
+  );
+  const modelResults = await Promise.all(promises);
+
+  const cardsHtml = items.slice(0, 20).map((it, idx) => {
+    const mr = modelResults[idx];
+    const modelProb = mr && mr.model_probabilities
+      ? mr.model_probabilities
+      : (it.elo || { home_prob: 0, draw_prob: 0, away_prob: 0 });
+    const modelSource = mr ? mr.model || model : 'elo';
+
+    const vbHome = (modelProb.home_prob || 0) - (it.market.home_prob || 0);
+    const vbDraw = (modelProb.draw_prob || 0) - (it.market.draw_prob || 0);
+    const vbAway = (modelProb.away_prob || 0) - (it.market.away_prob || 0);
     const fmtVb = (v) => {
       if (v >= 0.05) return `<span class="text-emerald-400 font-mono">+${(v * 100).toFixed(1)}%</span>`;
       if (v >= 0) return `<span class="text-slate-400 font-mono">+${(v * 100).toFixed(1)}%</span>`;
       return `<span class="text-rose-400 font-mono">${(v * 100).toFixed(1)}%</span>`;
     };
+
     return `
-      <a href="#/match/${it.match_id}" class="block bg-slate-900 rounded-xl p-4 mb-3 border border-slate-800 hover:border-cyan-700 transition">
+      <div class="bg-slate-900 rounded-xl p-4 mb-3 border border-slate-800 hover:border-cyan-700 transition">
         <div class="flex items-center justify-between mb-2">
-          <span class="text-xs text-slate-500">${escapeHtml(it.stage)}${it.group_name ? ' · ' + it.group_name + '组' : ''}</span>
-          ${it.best_value && it.best_value_rate >= 0.05 ? '<span class="text-xs bg-amber-900/50 text-amber-300 px-2 py-0.5 rounded">💎 VALUE BET</span>' : ''}
+          <a href="#/match/${it.match_id}" class="text-xs text-slate-500 hover:text-cyan-400">${escapeHtml(it.stage)}${it.group_name ? ' · ' + it.group_name + '组' : ''}</a>
+          <select class="bg-slate-950 border border-slate-700 rounded text-[10px] px-1.5 py-0.5" onchange="onOddsCardModelChange(this, ${it.match_id})">
+            <option value="elo" ${modelSource === 'elo' ? 'selected' : ''}>Elo</option>
+            <option value="glicko2" ${modelSource === 'glicko2' ? 'selected' : ''}>Glicko-2</option>
+            <option value="blend" ${modelSource === 'blend' ? 'selected' : ''}>Blend</option>
+          </select>
         </div>
         <div class="flex items-center justify-between mb-2">
           <span class="font-medium text-sm">${escapeHtml(it.home_team.name_zh)}</span>
@@ -1383,22 +1571,40 @@ async function renderOdds() {
             <div class="text-cyan-400">${fmtVb(vbAway)}</div>
           </div>
         </div>
-        <div class="mt-2 text-[10px] text-slate-500 text-center">蓝=Elo vs 市场偏离值（蓝正=模型低估此结果=价值）</div>
-      </a>
+        <div class="mt-2 text-[10px] text-slate-500 text-center">${escapeHtml(modelSource)} 模型 vs 市场偏离值（绿正=模型低估此结果=价值）</div>
+      </div>
     `;
   }).join('');
+  return cardsHtml;
+}
 
-  $('#app').innerHTML = `
-    <h2 class="text-lg font-bold mb-2 flex items-center gap-2">
-      <span class="text-xl">💰</span><span>赔率分析</span>
-      <span class="text-xs text-slate-500 font-normal ml-auto">${data.count} 场</span>
-    </h2>
-    <div class="mb-4">${freshnessHtml}</div>
-    <div class="text-xs text-slate-400 mb-4">市场预期 vs Elo 模型对比，识别市场定价偏离</div>
-    ${valueBetsHtml}
-    ${itemsHtml}
-    <div class="text-[10px] text-slate-500 mt-2 text-center">赔率为各家共识平均，仅供分析参考，不构成投注建议。</div>
-  `;
+// v0.7.2.1: 单卡模型切换回调 - 只重渲该卡
+async function onOddsCardModelChange(selectEl, matchId) {
+  const newModel = selectEl.value;
+  const card = selectEl.closest('.bg-slate-900');
+  if (!card) return;
+  try {
+    const data = await apiWithRetry(`/odds/compare-model?match_id=${matchId}&model=${newModel}`);
+    if (!data || !data.model_probabilities) return;
+    const mp = data.model_probabilities;
+    const market = data.market || { home_prob: 0, draw_prob: 0, away_prob: 0 };
+    // 重新计算 value bet
+    const fmtVb = (v) => {
+      if (v >= 0.05) return `<span class="text-emerald-400 font-mono">+${(v * 100).toFixed(1)}%</span>`;
+      if (v >= 0) return `<span class="text-slate-400 font-mono">+${(v * 100).toFixed(1)}%</span>`;
+      return `<span class="text-rose-400 font-mono">${(v * 100).toFixed(1)}%</span>`;
+    };
+    const cells = card.querySelectorAll('.grid .text-cyan-400');
+    if (cells.length === 3) {
+      cells[0].innerHTML = fmtVb((mp.home_prob || 0) - market.home_prob);
+      cells[1].innerHTML = fmtVb((mp.draw_prob || 0) - market.draw_prob);
+      cells[2].innerHTML = fmtVb((mp.away_prob || 0) - market.away_prob);
+    }
+    const footer = card.querySelector('.text-\\[10px\\].text-center');
+    if (footer) footer.textContent = `${newModel} 模型 vs 市场偏离值（绿正=模型低估此结果=价值）`;
+  } catch (e) {
+    console.warn('onOddsCardModelChange failed', e);
+  }
 }
 
 async function renderCockpit() {
