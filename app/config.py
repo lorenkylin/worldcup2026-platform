@@ -49,6 +49,18 @@ class Settings(BaseSettings):
     # v0.5.1: 6h 周期刷新配置(odds 快照打点 + fb-data 元数据)
     periodic_refresh_interval_hours: int = 6
 
+    # v0.7.2: 赔率 API 接入（零预算路线 + Mock 兜底）
+    odds_api_enabled: bool = False  # 默认关闭,避免无 key 时所有调用 401
+    odds_api_provider: str = "mock"  # mock | the_odds_api | pinnacle
+    odds_api_key: str = ""  # 主人在 .env 填 ODDS_API_KEY=<token>
+    odds_api_base_url: str = "https://api.the-odds-api.com/v4"
+    odds_api_timeout_seconds: int = 20
+    odds_api_rate_limit_per_min: int = 30
+    # v0.7.2: 缓存 + 价值投注阈值
+    odds_cache_ttl_seconds: int = 900  # 15min
+    odds_value_bet_threshold: float = 0.05  # value_bet > 5% 视为强价值
+    odds_default_bookmaker: str = "betpawa"  # 业界数据丰富 + 非洲市场覆盖好
+
     # 已下线配置（保留为占位字段，便于 .env 兼容）
     rapidapi_key: str = ""
     rapidapi_host: str = ""

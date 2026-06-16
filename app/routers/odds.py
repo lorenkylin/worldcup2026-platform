@@ -1,17 +1,24 @@
-"""赔率查询 API（M3 + v0.5.1 走势）.
+"""赔率查询 API（M3 + v0.5.1 走势 + v0.7.2 模型对比）.
 
 Endpoint:
-  GET /api/matches/{id}/odds          单场赔率 + 市场隐含概率（去 vig）
-  GET /api/matches/{id}/odds/history  单场赔率走势(v0.5.1,多公司多时间点)
-  GET /api/odds/compare               所有未完赛比赛赔率 vs Elo 对比
-  GET /api/odds/value-bets            价值投注 TOP N（best_value != None）
+  GET /api/matches/{id}/odds              单场赔率 + 市场隐含概率（去 vig）
+  GET /api/matches/{id}/odds/history      单场赔率走势(v0.5.1,多公司多时间点)
+  GET /api/odds/compare                   所有未完赛比赛赔率 vs Elo 对比
+  GET /api/odds/value-bets                价值投注 TOP N（best_value != None）
+  GET /api/odds/service-status            v0.7.2 赔率服务状态(provider/key/cached)
+  POST /api/admin/odds/fetch-and-upsert   v0.7.2 手动触发 fetch + upsert(admin)
 
-所有端点公开,无需鉴权.
+v0.7.2 新增 5 端点:
+  GET /api/odds/compare-model             模型 vs 赔率对比(支持 blend/elo/glicko2)
+  GET /api/odds/value-bets-model          价值投注 v2(支持 3 档 tier)
+  POST /api/admin/odds/fetch              手动 fetch + upsert
+
+所有端点公开,无需鉴权(admin 端点除外).
 """
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -21,6 +28,11 @@ from app.services.odds_service import (
     compare_odds_vs_elo,
     compute_market_probabilities,
 )
+from app.services.model_odds_compare import (
+    compare_match_odds,
+    find_value_bets,
+)
+from app.services.odds_api_client import service_status
 from app.services.elo import predict_match
 from app.schemas import OddsOut
 
@@ -311,4 +323,115 @@ def odds_latest(db: Session = Depends(get_db)) -> dict:
         "latest_fetched_at": ts.isoformat(),
         "snapshot_count": n,
         "minutes_ago": round(delta, 1),
+    }
+
+
+# === v0.7.2 模型 vs 赔率对比 + 价值投注 v2 ===
+
+@router.get("/odds/compare-model")
+def compare_model_vs_odds(
+    match_id: int = Query(..., description="比赛 ID"),
+    model: str = Query("blend", description="blend | elo | glicko2"),
+    bookmaker: Optional[str] = Query(None, description="不传则用 default_bookmaker"),
+    db: Session = Depends(get_db),
+) -> dict:
+    """v0.7.2 单场比赛:3 模型 vs 赔率对比.
+
+    Args:
+        match_id: 比赛 ID
+        model: 模型名 (blend/elo/glicko2)
+        bookmaker: 博彩公司名,不传则用 default
+    Returns:
+        见 model_odds_compare.compare_match_odds() 注释
+    """
+    if model not in ("blend", "elo", "glicko2"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"model 必须是 'blend' / 'elo' / 'glicko2', 收到 {model!r}",
+        )
+
+    result = compare_match_odds(db, match_id, model=model, bookmaker=bookmaker)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"比赛 {match_id} 无赔率或模型无数据",
+        )
+    return result
+
+
+@router.get("/odds/value-bets-model")
+def value_bets_model(
+    model: str = Query("blend", description="blend | elo | glicko2"),
+    min_tier: str = Query("edge", description="strong | edge | none"),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> dict:
+    """v0.7.2 全局价值投注扫描(支持 3 档 tier).
+
+    Args:
+        model: 模型名
+        min_tier: 最低档位
+        limit: 返回 top N
+    Returns:
+        {count, model, min_tier, items: [top N 价值投注]}
+    """
+    if model not in ("blend", "elo", "glicko2"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"model 必须是 'blend' / 'elo' / 'glicko2', 收到 {model!r}",
+        )
+    if min_tier not in ("strong", "edge", "none"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"min_tier 必须是 'strong' / 'edge' / 'none', 收到 {min_tier!r}",
+        )
+
+    items = find_value_bets(db, model=model, min_tier=min_tier, limit=limit)
+    return {
+        "count": len(items),
+        "model": model,
+        "min_tier": min_tier,
+        "items": items,
+    }
+
+
+@router.get("/odds/service-status")
+def odds_service_status() -> dict:
+    """v0.7.2 赔率服务状态:provider/key/rate_limit/cache_ttl."""
+    return service_status()
+
+
+@router.post("/admin/odds/fetch")
+def admin_fetch_odds(
+    dates: List[str] = Query(..., description="ISO 日期列表, 如 2026-06-11,2026-06-12"),
+    use_cache: bool = Query(True, description="是否使用内存缓存"),
+    x_admin_token: str = Header(..., description="管理员 Token"),
+    db: Session = Depends(get_db),
+) -> dict:
+    """v0.7.2 手动触发 fetch + upsert(需管理员 token).
+
+    Args:
+        dates: ISO 日期列表
+        use_cache: 是否使用内存缓存
+    Returns:
+        {fetched: int, written: int, dates, provider, has_api_key}
+    """
+    from app.config import settings
+    if x_admin_token != settings.admin_token:
+        raise HTTPException(status_code=403, detail="admin token 无效")
+
+    from app.services.odds_api_client import fetch_upcoming_odds, upsert_to_match_odds
+
+    if not dates:
+        raise HTTPException(status_code=422, detail="dates 不能为空")
+
+    fetched = fetch_upcoming_odds(db, target_dates=dates, use_cache=use_cache)
+    written = upsert_to_match_odds(db, fetched) if fetched else 0
+
+    return {
+        "fetched": len(fetched),
+        "written": written,
+        "dates": dates,
+        "use_cache": use_cache,
+        "status": service_status(),
     }

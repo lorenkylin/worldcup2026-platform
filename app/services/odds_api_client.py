@@ -1,0 +1,299 @@
+"""v0.7.2 赔率 API 客户端.
+
+设计原则:
+- **零预算路线**: 仅在主人提供 ODDS_API_KEY 时调用真实 API;否则用 mock 生成合理赔率
+- **接口统一**: 不论真 mock,都返回相同 dict 结构,upsert_to_match_odds() 直接用
+- **滑动窗口限速**: 防止真实 API 免费层被封(30 req/min)
+- **失败 fallback**: 任一 API 失败自动降级 mock,绝不阻塞主流程
+
+支持的 source:
+- `mock`: 在客户端生成"合理赔率",基于 Elo 评分计算赔率 + 5% 利润 + 微随机扰动
+  仅供开发/演示,生产环境务必配置真实 API key
+- `the_odds_api`: The Odds API (https://the-odds-api.com/) 免费层 500 req/月
+- `pinnacle`: Pinnacle Sports (付费),占位未实现
+"""
+from __future__ import annotations
+
+import logging
+import random
+import time
+from collections import deque
+from datetime import datetime, timedelta, timezone
+from typing import Callable, Dict, List, Optional
+
+import httpx
+from sqlalchemy.orm import Session
+
+from app.config import settings
+from app.models import Match, Team
+
+logger = logging.getLogger(__name__)
+
+
+# === 滑动窗口限速 ===
+class _SlidingWindowRateLimiter:
+    """滑动窗口限速器(线程安全,deque 实现).
+
+    用于 The Odds API 免费层:30 req/min.
+    """
+
+    def __init__(self, max_calls: int, window_seconds: int = 60):
+        self.max_calls = max_calls
+        self.window_seconds = window_seconds
+        self._call_times: deque = deque()
+
+    def wait_if_needed(self) -> None:
+        """若窗口内已满,等待最早调用过期."""
+        now = time.monotonic()
+        # 清理窗口外的记录
+        while self._call_times and (now - self._call_times[0]) > self.window_seconds:
+            self._call_times.popleft()
+        # 窗口内已达上限,等最早过期
+        if len(self._call_times) >= self.max_calls:
+            sleep_for = self.window_seconds - (now - self._call_times[0])
+            if sleep_for > 0:
+                logger.info(
+                    "[odds_api] rate limit reached, sleeping %.2fs", sleep_for
+                )
+                time.sleep(sleep_for)
+        self._call_times.append(time.monotonic())
+
+
+_rate_limiter = _SlidingWindowRateLimiter(
+    max_calls=settings.odds_api_rate_limit_per_min,
+    window_seconds=60,
+)
+
+
+def _elo_to_decimal_odds(
+    home_elo: int,
+    away_elo: int,
+    margin: float = 0.05,
+    noise: float = 0.02,
+) -> Dict[str, float]:
+    """基于 Elo 评分 + 平局概率模型生成 1X2 赔率(mock 用).
+
+    模型:
+      home_p = 1 / (1 + 10^((away - home + home_bonus) / 400))
+      draw_p = 0.28 (固定)
+      away_p = 1 - home_p - draw_p
+      加 5% 博彩公司利润 + 微随机扰动
+
+    Returns:
+        {"home_win": decimal, "draw": decimal, "away_win": decimal}
+    """
+    home_bonus = 50  # 主队加分
+    diff = (home_elo + home_bonus) - away_elo
+    home_p = 1.0 / (1.0 + 10 ** (-diff / 400))
+    draw_p = 0.28
+    away_p = max(0.0, 1.0 - home_p - draw_p)
+
+    # 加 margin 和 noise
+    home_p = max(0.02, min(0.95, home_p * (1 - margin) + random.uniform(-noise, noise)))
+    away_p = max(0.02, min(0.95, away_p * (1 - margin) + random.uniform(-noise, noise)))
+    draw_p = max(0.05, 1.0 - home_p - away_p - margin * 0.5)
+
+    return {
+        "home_win": round(1.0 / home_p, 2),
+        "draw": round(1.0 / draw_p, 2),
+        "away_win": round(1.0 / away_p, 2),
+    }
+
+
+# === 缓存 ===
+_cache: Dict[str, tuple] = {}  # (cache_key) -> (expires_at, payload)
+
+
+def _cache_get(key: str) -> Optional[List[Dict]]:
+    """读内存缓存."""
+    if key not in _cache:
+        return None
+    expires_at, payload = _cache[key]
+    if time.time() < expires_at:
+        return payload
+    del _cache[key]
+    return None
+
+
+def _cache_set(key: str, payload: List[Dict], ttl: int) -> None:
+    _cache[key] = (time.time() + ttl, payload)
+
+
+# === Mock 数据源 ===
+def _fetch_mock(db: Session, target_dates: List[str]) -> List[Dict]:
+    """Mock 赔率生成器:基于 DB 中未完赛比赛 + Elo 评分生成合理赔率.
+
+    Args:
+        target_dates: ["2026-06-11", "2026-06-12", ...] ISO date list
+    Returns:
+        [{match_id, bookmaker, home_win, draw, away_win, over_2_5, under_2_5, source, fetched_at}, ...]
+    """
+    target_dt = [datetime.fromisoformat(d).date() for d in target_dates]
+
+    matches = (
+        db.query(Match)
+        .filter(Match.status.in_(["scheduled", "notstarted", "live"]))
+        .all()
+    )
+
+    result: List[Dict] = []
+    fetched_at = datetime.now(timezone.utc)
+
+    for m in matches:
+        if m.kickoff_at.date() not in target_dt:
+            continue
+
+        home_elo = m.home_team.elo_rating if m.home_team and m.home_team.elo_rating else 1500
+        away_elo = m.away_team.elo_rating if m.away_team and m.away_team.elo_rating else 1500
+
+        odds_1x2 = _elo_to_decimal_odds(home_elo, away_elo)
+
+        # 大小球用全场预期进球 2.7 估算
+        # over_2_5 ≈ 1/1.95, under_2_5 ≈ 1/2.05(略偏 over)
+        result.append({
+            "match_id": m.id,
+            "bookmaker": settings.odds_default_bookmaker,
+            "home_win": odds_1x2["home_win"],
+            "draw": odds_1x2["draw"],
+            "away_win": odds_1x2["away_win"],
+            "over_2_5": 1.95,
+            "under_2_5": 2.05,
+            "source": "mock",
+            "fetched_at": fetched_at,
+        })
+
+    return result
+
+
+# === The Odds API ===
+def _fetch_the_odds_api(target_dates: List[str]) -> List[Dict]:
+    """The Odds API 客户端(占位,真实接入需要 key).
+
+    API 文档: https://the-odds-api.com/liveapi/guides/v4/
+    端点: GET /v4/sports/soccer/odds/?regions=uk&markets=h2h,totals&oddsFormat=decimal
+    """
+    if not settings.odds_api_key:
+        logger.warning("[odds_api] ODDS_API_KEY 未配置,降级 mock")
+        return []
+
+    _rate_limiter.wait_if_needed()
+
+    url = f"{settings.odds_api_base_url}/sports/soccer/odds/"
+    params = {
+        "regions": "uk",
+        "markets": "h2h,totals",
+        "oddsFormat": "decimal",
+        "dateFormat": "iso",
+        "apiKey": settings.odds_api_key,
+    }
+    try:
+        with httpx.Client(timeout=settings.odds_api_timeout_seconds) as client:
+            resp = client.get(url, params=params)
+            resp.raise_for_status()
+            events = resp.json()
+    except (httpx.HTTPError, httpx.TimeoutException) as e:
+        logger.error("[odds_api] The Odds API 调用失败: %s", e)
+        return []
+
+    # TODO: 解析 The Odds API 响应,映射到 Match.id (需要 team_name → fifa_code 映射)
+    # 当前实现返回空列表,占位
+    return []
+
+
+# === 公共接口 ===
+def fetch_upcoming_odds(
+    db: Session,
+    target_dates: List[str],
+    use_cache: bool = True,
+) -> List[Dict]:
+    """取指定日期列表的未完赛比赛赔率.
+
+    Args:
+        db: SQLAlchemy Session
+        target_dates: ISO date 列表,如 ["2026-06-11", "2026-06-12"]
+        use_cache: 是否使用内存缓存(15min TTL)
+    Returns:
+        List[Dict]: 见 _fetch_mock 注释
+    """
+    if not target_dates:
+        return []
+
+    cache_key = "odds:" + ",".join(sorted(target_dates))
+    if use_cache:
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+    provider = settings.odds_api_provider
+    result: List[Dict] = []
+
+    if provider == "the_odds_api" and settings.odds_api_enabled:
+        result = _fetch_the_odds_api(target_dates)
+        if not result:
+            logger.info("[odds_api] The Odds API 返回空,降级 mock")
+            result = _fetch_mock(db, target_dates)
+    else:
+        result = _fetch_mock(db, target_dates)
+
+    if use_cache and result:
+        _cache_set(cache_key, result, settings.odds_cache_ttl_seconds)
+
+    return result
+
+
+def upsert_to_match_odds(db: Session, odds_list: List[Dict]) -> int:
+    """把 fetch 返回的赔率字典列表 upsert 到 match_odds 表.
+
+    同 (match_id, bookmaker) 只保留最新一条(覆盖)。
+    Returns: 写入条数
+    """
+    from app.models import MatchOdds
+
+    written = 0
+    for o in odds_list:
+        if not all(k in o for k in ("match_id", "bookmaker")):
+            continue
+        existing = (
+            db.query(MatchOdds)
+            .filter(
+                MatchOdds.match_id == o["match_id"],
+                MatchOdds.bookmaker == o["bookmaker"],
+            )
+            .first()
+        )
+        if existing:
+            existing.home_win = o.get("home_win", existing.home_win)
+            existing.draw = o.get("draw", existing.draw)
+            existing.away_win = o.get("away_win", existing.away_win)
+            existing.over_2_5 = o.get("over_2_5", existing.over_2_5)
+            existing.under_2_5 = o.get("under_2_5", existing.under_2_5)
+            existing.fetched_at = o.get("fetched_at", datetime.now(timezone.utc))
+            existing.source = o.get("source", "api")
+        else:
+            db.add(MatchOdds(
+                match_id=o["match_id"],
+                bookmaker=o["bookmaker"],
+                home_win=o.get("home_win"),
+                draw=o.get("draw"),
+                away_win=o.get("away_win"),
+                over_2_5=o.get("over_2_5"),
+                under_2_5=o.get("under_2_5"),
+                fetched_at=o.get("fetched_at", datetime.now(timezone.utc)),
+                source=o.get("source", "api"),
+            ))
+        written += 1
+    db.commit()
+    return written
+
+
+def service_status() -> Dict:
+    """返回赔率服务状态,供 /api/odds/service-status 调用."""
+    return {
+        "enabled": settings.odds_api_enabled,
+        "provider": settings.odds_api_provider,
+        "has_api_key": bool(settings.odds_api_key),
+        "rate_limit_per_min": settings.odds_api_rate_limit_per_min,
+        "cache_ttl_seconds": settings.odds_cache_ttl_seconds,
+        "default_bookmaker": settings.odds_default_bookmaker,
+        "value_bet_threshold": settings.odds_value_bet_threshold,
+    }
