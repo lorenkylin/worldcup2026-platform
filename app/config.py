@@ -37,6 +37,18 @@ class Settings(BaseSettings):
     worldcup26_base_url: str = "https://worldcup26.ir"
     worldcup26_timeout_seconds: int = 20
 
+    # v0.5.1: football-data.co 元数据接入（免费层，需注册 token）
+    # 注册: https://www.football-data.org/  →  邮件激活 → 控制台取 token
+    # 免费层限制: 10 req/min, 无赔率端点
+    football_data_enabled: bool = False  # 默认关闭，避免无 key 时所有调用 401
+    football_data_api_key: str = ""  # 主人需在 .env 填 FOOTBALL_DATA_API_KEY=<token>
+    football_data_base_url: str = "https://api.football-data.org/v4"
+    football_data_rate_limit_per_min: int = 10  # 免费层硬限制
+    football_data_cache_ttl_seconds: int = 900  # 15min 内存缓存
+    football_data_timeout_seconds: int = 20
+    # v0.5.1: 6h 周期刷新配置(odds 快照打点 + fb-data 元数据)
+    periodic_refresh_interval_hours: int = 6
+
     # 已下线配置（保留为占位字段，便于 .env 兼容）
     rapidapi_key: str = ""
     rapidapi_host: str = ""

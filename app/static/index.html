@@ -11,6 +11,8 @@
   <title>2026 世界杯赛事分析</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="/static/css/styles.css">
+  <!-- v0.5.1: Chart.js 用于赔率走势图 -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen">
   <!-- 顶部导航 -->
@@ -54,6 +56,9 @@
       <a href="#/elo" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">📈</span><span>Elo 实力榜</span><span class="ml-auto text-xs text-emerald-400">M1</span></a>
       <a href="#/h2h" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">⚔️</span><span>历史交锋</span><span class="ml-auto text-xs text-amber-400">P1.3</span></a>
       <a href="#/simulator" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">🎲</span><span>出线模拟器</span><span class="ml-auto text-xs text-amber-400">v0</span></a>
+      <a href="#/odds" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">💰</span><span>赔率分析</span><span class="ml-auto text-xs text-amber-400">M3</span></a>
+      <a href="#/accuracy" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">📊</span><span>准确率 Dashboard</span><span class="ml-auto text-xs text-emerald-400">v0.6</span></a>
+      <a href="#/health" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">🔌</span><span>数据源健康</span><span class="ml-auto text-xs text-emerald-400">v0.6</span></a>
       <div class="px-5 pt-4 pb-1 text-xs text-slate-500 uppercase tracking-wider">其他</div>
       <a href="#" onclick="showAbout();return false;" class="drawer-item"><span class="text-lg">ℹ️</span><span>关于本站</span></a>
       <a href="#" onclick="showDataSource();return false;" class="drawer-item"><span class="text-lg">📡</span><span>数据来源</span></a>

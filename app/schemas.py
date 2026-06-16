@@ -163,3 +163,52 @@ class StatsCreateIn(BaseModel):
     corners: Optional[int] = None
     yellow_cards: Optional[int] = None
     red_cards: Optional[int] = None
+
+
+class OddsCreateIn(BaseModel):
+    """手动录入赔率输入模型（单条）.
+
+    赔率为 decimal 格式, 如 2.10 表示 1 元本金回报 2.10 元（含本金）。
+    范围 1.01 ~ 1000.0, 默认 None 表示该项未录入。
+    """
+
+    match_id: int
+    bookmaker: str = "avg_market"  # bet365 / pinnacle / avg_market / manual
+    home_win: Optional[float] = None
+    draw: Optional[float] = None
+    away_win: Optional[float] = None
+    over_2_5: Optional[float] = None
+    under_2_5: Optional[float] = None
+    source: str = "manual"  # manual / history / api
+
+
+class OddsBatchCreateIn(BaseModel):
+    """批量录入赔率."""
+
+    items: list[OddsCreateIn]
+
+
+class OddsOut(BaseModel):
+    """赔率输出模型."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    match_id: int
+    bookmaker: str
+    home_win: Optional[float] = None
+    draw: Optional[float] = None
+    away_win: Optional[float] = None
+    over_2_5: Optional[float] = None
+    under_2_5: Optional[float] = None
+    fetched_at: datetime
+    source: str
+
+
+class MarketProbabilitiesOut(BaseModel):
+    """市场隐含概率输出（去 vig）."""
+
+    home_prob: float
+    draw_prob: float
+    away_prob: float
+    total_vig: float  # 总博彩公司利润（>0 表示含 vig）

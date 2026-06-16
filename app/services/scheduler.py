@@ -79,6 +79,33 @@ def build_default_jobs(
     )
     print("[scheduler] 已注册 Bracket 自动重算任务，间隔 15 分钟")
 
+    # v0.5.1: 6h 周期刷新 — odds 快照打点 + 可选 football-data.co 元数据更新
+    hours = max(settings.periodic_refresh_interval_hours, 1)
+    scheduler.add_job(
+        _job_periodic_refresh,
+        trigger=IntervalTrigger(hours=hours),
+        args=[session_factory],
+        id="periodic_6h_refresh",
+        name=f"6h 周期刷新（每 {hours}h：odds 快照 + fb-data 元数据）",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    print(f"[scheduler] 已注册 6h 周期刷新任务，间隔 {hours}h")
+
+    # v0.6.0: 预测日志自动结算 - 每 15 分钟扫描已完赛比赛, 写实际结果到 prediction_log
+    scheduler.add_job(
+        _job_settle_predictions,
+        trigger=IntervalTrigger(minutes=15),
+        args=[session_factory],
+        id="settle_predictions",
+        name="预测日志自动结算（每 15 分钟）",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    print("[scheduler] 已注册 预测日志自动结算 任务，间隔 15 分钟")
+
 
 def _job_recent_form_backfill(session_factory: Callable) -> None:
     """定时回填 B2 近期状态因子."""
@@ -116,5 +143,39 @@ def _job_bracket_auto_rebuild(session_factory: Callable) -> None:
         )
     except Exception as exc:  # noqa: BLE001
         print(f"[{datetime.now().isoformat()}] Bracket 自动重算失败: {exc}")
+    finally:
+        db.close()
+
+
+def _job_periodic_refresh(session_factory: Callable) -> None:
+    """v0.5.1 6h 周期刷新任务:odds 快照打点 + 可选 fb-data 元数据更新."""
+    from app.services.periodic_refresh import run_periodic_refresh  # 避免循环 import
+
+    db: Session = session_factory()
+    try:
+        result = run_periodic_refresh(db)
+        print(
+            f"[{datetime.now().isoformat()}] 6h 周期刷新: "
+            f"snapshots_added={result.get('snapshots_added', 0)}, "
+            f"fb_status={result.get('fb_status', 'unknown')}, "
+            f"fb_matches_updated={result.get('fb_matches_updated', 0)}"
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"[{datetime.now().isoformat()}] 6h 周期刷新失败: {exc}")
+    finally:
+        db.close()
+
+
+def _job_settle_predictions(session_factory: Callable) -> None:
+    """v0.6.0 预测日志自动结算 - 扫描已完赛比赛, 写 actual_outcome / brier / log_loss."""
+    from app.services.prediction_log import settle_pending_predictions  # 避免循环 import
+
+    db: Session = session_factory()
+    try:
+        count = settle_pending_predictions(db)
+        if count > 0:
+            print(f"[{datetime.now().isoformat()}] 预测日志结算: {count} 条")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[{datetime.now().isoformat()}] 预测日志结算失败: {exc}")
     finally:
         db.close()

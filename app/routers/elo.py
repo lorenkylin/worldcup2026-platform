@@ -1,4 +1,4 @@
-"""Elo 评分 + 预测 API (M1).
+"""Elo 评分 + 预测 API (M1 + M2 + Glicko-2 v0.6.0).
 
 Endpoints:
   GET /api/elo/ratings            - 48 队 Elo 评分（按降序）
@@ -7,8 +7,10 @@ Endpoints:
   GET /api/elo/predict-enhanced/{home}/{away} - 1v1 增强预测 (M2 Elo + form + h2h)
   GET /api/elo/top                - Top N
   GET /api/elo/backtest           - 4 年回测指标
+  GET /api/elo/predict-glicko2/{home}/{away} - 1v1 预测 (Glicko-2 v0.6.0+)
+  GET /api/elo/glicko2-ratings    - Glicko-2 全队评分
 """
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Depends
 from sqlalchemy.orm import Session
@@ -24,7 +26,9 @@ from app.services.elo import (
     compare_predictions,
     load_elo_ratings,
     FIFA_TO_HICRUBEN,
+    HOME_BONUS,
 )
+from app.services import glicko2 as g2_service
 
 router = APIRouter()
 
@@ -196,13 +200,36 @@ def predict(
     home_code: str,
     away_code: str,
     source: str = Query("hicruben", description="Elo 数据源: hicruben 或 statsbomb"),
+    match_id: Optional[int] = Query(None, description="比赛 ID (v0.6.0+ 用于自动记录 prediction_log)"),
+    db: Session = Depends(get_db),
 ) -> Dict:
-    """预测单场比赛 1X2 + 期望进球."""
+    """预测单场比赛 1X2 + 期望进球. v0.6.0+ 支持传 match_id 自动写 prediction_log."""
     if source not in ("hicruben", "statsbomb"):
         raise HTTPException(status_code=400, detail="source 必须是 'hicruben' 或 'statsbomb'")
     result = predict_match(home_code, away_code, source=source)
     if result.get('error'):
         raise HTTPException(status_code=400, detail=result['error'])
+
+    # v0.6.0: 自动写 prediction_log
+    if match_id is not None:
+        try:
+            from app.services.prediction_log import record_prediction
+            model_version = "v1_elo" if source == "hicruben" else "v1_elo_statsbomb"
+            record_prediction(
+                db=db,
+                match_id=match_id,
+                model_version=model_version,
+                pred_home_win=result.get("probabilities", {}).get("home_win", 0),
+                pred_draw=result.get("probabilities", {}).get("draw", 0),
+                pred_away_win=result.get("probabilities", {}).get("away_win", 0),
+                elo_home=result.get("home", {}).get("elo"),
+                elo_away=result.get("away", {}).get("elo"),
+                source=source,
+            )
+        except Exception as e:
+            # 不影响主流程
+            print(f"[prediction_log] 写入失败: {e}")
+
     return result
 
 
@@ -228,3 +255,121 @@ def compare(home_code: str, away_code: str) -> Dict:
 def backtest() -> Dict:
     """4 年回测指标（913 场 walk-forward）."""
     return get_backtest_metrics()
+
+
+# === Glicko-2 (v0.6.0+) ===
+
+@router.get("/elo/predict-glicko2/{home_code}/{away_code}")
+def predict_glicko2(
+    home_code: str,
+    away_code: str,
+    match_id: Optional[int] = Query(None, description="比赛 ID (v0.6.0+ 用于自动记录 prediction_log)"),
+    db: Session = Depends(get_db),
+) -> Dict:
+    """Glicko-2 预测 - 比 Elo 准确率高 4-5 pp (62.7% vs 58.3%).
+
+    训练数据: Hicruben 913 场国际赛 (2023-11 ~ 2026-06) walk-forward.
+    """
+    home = home_code.upper()
+    away = away_code.upper()
+    rh = g2_service.lookup_glicko2_rating(home)
+    ra = g2_service.lookup_glicko2_rating(away)
+    if rh is None or ra is None:
+        missing = home if rh is None else away
+        raise HTTPException(status_code=404, detail=f"球队 {missing} 不在 Glicko-2 数据中")
+    pred = g2_service.predict_outcome(
+        rh["rating"], rh["rd"],
+        ra["rating"], ra["rd"],
+        home_bonus=HOME_BONUS,
+    )
+    data = g2_service.load_glicko2_ratings()
+    result = {
+        "home": {"fifa_code": home, "rating": rh["rating"], "rd": rh["rd"], "volatility": rh["volatility"]},
+        "away": {"fifa_code": away, "rating": ra["rating"], "rd": ra["rd"], "volatility": ra["volatility"]},
+        "probabilities": {
+            "home_win": pred["win_a"],
+            "draw": pred["draw"],
+            "away_win": pred["win_b"],
+        },
+        "expected_score": pred["expected_score"],
+        "uncertainty": pred["uncertainty"],
+        "model": "glicko2_v1",
+        "data_source": "hicruben/world-cup-2026-prediction-model (913 matches walk-forward)",
+        "data_as_of": data.get("generatedAt"),
+        "metrics": data.get("metrics", {}),
+    }
+    # v0.6.0: 自动写 prediction_log
+    if match_id is not None:
+        try:
+            from app.services.prediction_log import record_prediction
+            record_prediction(
+                db=db,
+                match_id=match_id,
+                model_version="v3_glicko2",
+                pred_home_win=pred["win_a"],
+                pred_draw=pred["draw"],
+                pred_away_win=pred["win_b"],
+                elo_home=int(rh["rating"]),
+                elo_away=int(ra["rating"]),
+                source="glicko2",
+            )
+        except Exception as e:
+            print(f"[prediction_log] Glicko-2 写入失败: {e}")
+    return result
+
+
+@router.get("/elo/glicko2-ratings")
+def glicko2_ratings(limit: Optional[int] = Query(None, ge=1, le=300)) -> List[Dict]:
+    """Glicko-2 全队评分 (按 rating 降序)."""
+    data = g2_service.load_glicko2_ratings()
+    items = []
+    for team, r in data.get("ratings", {}).items():
+        items.append({
+            "team_name": team,
+            "rating": r["rating"],
+            "rd": r["rd"],
+            "volatility": r["volatility"],
+        })
+    items.sort(key=lambda x: -x["rating"])
+    if limit:
+        items = items[:limit]
+    return items
+
+
+@router.get("/elo/glicko2-metrics")
+def glicko2_metrics() -> Dict:
+    """Glicko-2 训练指标 (accuracy/RPS/Brier/LogLoss)."""
+    data = g2_service.load_glicko2_ratings()
+    return {
+        "metrics": data.get("metrics", {}),
+        "byYear": data.get("byYear", {}),
+        "matchesApplied": data.get("matchesApplied", 0),
+        "method": data.get("method", ""),
+        "systemConstant": data.get("systemConstant", 0.5),
+        "homeBonus": data.get("homeBonus", 70),
+        "data_as_of": data.get("generatedAt"),
+    }
+
+
+# === 准确率 dashboard (v0.6.0+) ===
+
+@router.get("/elo/accuracy-stats")
+def accuracy_stats(
+    model_version: Optional[str] = Query(None, description="模型版本 (v1_elo/v2_elo_enhanced/v3_glicko2), 默认全部"),
+    days: Optional[int] = Query(None, ge=1, description="限定最近 N 天"),
+    db: Session = Depends(get_db),
+) -> Dict:
+    """准确率统计 - 实时/历史 (从 prediction_log 表)."""
+    from app.services.prediction_log import compute_accuracy_stats
+    return compute_accuracy_stats(db, model_version=model_version, days=days)
+
+
+@router.get("/elo/top-bias")
+def top_bias(
+    model_version: str = Query("v3_glicko2"),
+    n: int = Query(10, ge=1, le=50),
+    db: Session = Depends(get_db),
+) -> List[Dict]:
+    """Top N 偏差场次 (模型说某结果 80% 但实际相反 - 用于复盘)."""
+    from app.services.prediction_log import get_top_prediction_bias
+    return get_top_prediction_bias(db, model_version=model_version, n=n)

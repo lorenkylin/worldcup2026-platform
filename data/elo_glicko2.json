@@ -1,0 +1,969 @@
+{
+  "generatedAt": "2026-06-15T16:03:36.397574Z",
+  "method": "Glicko-2 walk-forward on Hicruben 913 matches",
+  "systemConstant": 0.5,
+  "homeBonus": 70.0,
+  "matchesApplied": 913,
+  "metrics": {
+    "n_matches": 913,
+    "accuracy": 0.6265,
+    "rps": 0.17,
+    "brier": 0.512,
+    "log_loss": 0.884
+  },
+  "byYear": {
+    "2023": {
+      "n": 3,
+      "accuracy": 0.6667
+    },
+    "2024": {
+      "n": 296,
+      "accuracy": 0.5912
+    },
+    "2025": {
+      "n": 471,
+      "accuracy": 0.6391
+    },
+    "2026": {
+      "n": 143,
+      "accuracy": 0.6573
+    }
+  },
+  "ratings": {
+    "Mauritius": {
+      "rating": 1409.0,
+      "rd": 149.0,
+      "volatility": 0.06
+    },
+    "Mexico": {
+      "rating": 1885.1,
+      "rd": 67.1,
+      "volatility": 0.06
+    },
+    "Italy": {
+      "rating": 1857.4,
+      "rd": 71.1,
+      "volatility": 0.06
+    },
+    "Germany": {
+      "rating": 1954.9,
+      "rd": 71.7,
+      "volatility": 0.06
+    },
+    "Türkiye": {
+      "rating": 1832.9,
+      "rd": 84.9,
+      "volatility": 0.06
+    },
+    "North Korea": {
+      "rating": 1372.2,
+      "rd": 133.3,
+      "volatility": 0.06
+    },
+    "Saudi Arabia": {
+      "rating": 1659.0,
+      "rd": 67.5,
+      "volatility": 0.06
+    },
+    "Guadeloupe": {
+      "rating": 1440.4,
+      "rd": 176.8,
+      "volatility": 0.06
+    },
+    "Angola": {
+      "rating": 1553.7,
+      "rd": 115.4,
+      "volatility": 0.06
+    },
+    "Israel": {
+      "rating": 1608.6,
+      "rd": 145.3,
+      "volatility": 0.06
+    },
+    "China": {
+      "rating": 1491.3,
+      "rd": 134.6,
+      "volatility": 0.06
+    },
+    "Colombia": {
+      "rating": 1871.9,
+      "rd": 68.4,
+      "volatility": 0.06
+    },
+    "Malawi": {
+      "rating": 1451.8,
+      "rd": 179.5,
+      "volatility": 0.06
+    },
+    "Turkmenistan": {
+      "rating": 1448.7,
+      "rd": 178.5,
+      "volatility": 0.06
+    },
+    "Guinea-Bissau": {
+      "rating": 1463.0,
+      "rd": 182.9,
+      "volatility": 0.06
+    },
+    "Estonia": {
+      "rating": 1391.2,
+      "rd": 153.7,
+      "volatility": 0.06
+    },
+    "Gabon": {
+      "rating": 1471.6,
+      "rd": 152.9,
+      "volatility": 0.06
+    },
+    "Ethiopia": {
+      "rating": 1425.8,
+      "rd": 168.2,
+      "volatility": 0.06
+    },
+    "Guatemala": {
+      "rating": 1402.9,
+      "rd": 77.4,
+      "volatility": 0.06
+    },
+    "Egypt": {
+      "rating": 1752.7,
+      "rd": 68.5,
+      "volatility": 0.06
+    },
+    "French Guyana": {
+      "rating": 1508.8,
+      "rd": 175.1,
+      "volatility": 0.06
+    },
+    "Switzerland": {
+      "rating": 1831.8,
+      "rd": 67.6,
+      "volatility": 0.06
+    },
+    "Poland": {
+      "rating": 1710.3,
+      "rd": 71.1,
+      "volatility": 0.06
+    },
+    "Burkina Faso": {
+      "rating": 1429.7,
+      "rd": 143.9,
+      "volatility": 0.06
+    },
+    "Hong Kong": {
+      "rating": 1402.1,
+      "rd": 159.9,
+      "volatility": 0.06
+    },
+    "Canada": {
+      "rating": 1802.0,
+      "rd": 69.3,
+      "volatility": 0.06
+    },
+    "Russia": {
+      "rating": 1634.0,
+      "rd": 136.3,
+      "volatility": 0.06
+    },
+    "Sao Tome and Principe": {
+      "rating": 1450.7,
+      "rd": 179.1,
+      "volatility": 0.06
+    },
+    "Netherlands": {
+      "rating": 1869.6,
+      "rd": 71.6,
+      "volatility": 0.06
+    },
+    "Liberia": {
+      "rating": 1453.0,
+      "rd": 179.8,
+      "volatility": 0.06
+    },
+    "Uzbekistan": {
+      "rating": 1679.0,
+      "rd": 69.3,
+      "volatility": 0.06
+    },
+    "Sweden": {
+      "rating": 1715.4,
+      "rd": 68.4,
+      "volatility": 0.06
+    },
+    "Ghana": {
+      "rating": 1601.8,
+      "rd": 69.0,
+      "volatility": 0.06
+    },
+    "Iraq": {
+      "rating": 1631.7,
+      "rd": 67.5,
+      "volatility": 0.06
+    },
+    "Czech Republic": {
+      "rating": 1705.9,
+      "rd": 70.3,
+      "volatility": 0.06
+    },
+    "United Arab Emirates": {
+      "rating": 1464.6,
+      "rd": 103.8,
+      "volatility": 0.06
+    },
+    "Costa Rica": {
+      "rating": 1525.8,
+      "rd": 103.2,
+      "volatility": 0.06
+    },
+    "France": {
+      "rating": 1977.6,
+      "rd": 72.4,
+      "volatility": 0.06
+    },
+    "Mozambique": {
+      "rating": 1490.2,
+      "rd": 143.8,
+      "volatility": 0.06
+    },
+    "Central African Republic": {
+      "rating": 1407.0,
+      "rd": 163.2,
+      "volatility": 0.06
+    },
+    "Fiji": {
+      "rating": 1449.1,
+      "rd": 178.7,
+      "volatility": 0.06
+    },
+    "Burundi": {
+      "rating": 1416.9,
+      "rd": 164.5,
+      "volatility": 0.06
+    },
+    "Luxembourg": {
+      "rating": 1586.0,
+      "rd": 134.8,
+      "volatility": 0.06
+    },
+    "Kenya": {
+      "rating": 1548.4,
+      "rd": 154.2,
+      "volatility": 0.06
+    },
+    "Syria": {
+      "rating": 1569.8,
+      "rd": 149.6,
+      "volatility": 0.06
+    },
+    "Qatar": {
+      "rating": 1500.9,
+      "rd": 68.5,
+      "volatility": 0.06
+    },
+    "Malaysia": {
+      "rating": 1422.3,
+      "rd": 148.8,
+      "volatility": 0.06
+    },
+    "Niger": {
+      "rating": 1674.0,
+      "rd": 75.0,
+      "volatility": 0.06
+    },
+    "Iran": {
+      "rating": 1747.4,
+      "rd": 72.2,
+      "volatility": 0.06
+    },
+    "Algeria": {
+      "rating": 1773.8,
+      "rd": 69.5,
+      "volatility": 0.06
+    },
+    "Japan": {
+      "rating": 1903.8,
+      "rd": 70.2,
+      "volatility": 0.06
+    },
+    "Palestine": {
+      "rating": 1583.9,
+      "rd": 117.3,
+      "volatility": 0.06
+    },
+    "Venezuela": {
+      "rating": 1642.7,
+      "rd": 71.7,
+      "volatility": 0.06
+    },
+    "Jamaica": {
+      "rating": 1487.1,
+      "rd": 75.3,
+      "volatility": 0.06
+    },
+    "Rwanda": {
+      "rating": 1438.3,
+      "rd": 176.4,
+      "volatility": 0.06
+    },
+    "Greece": {
+      "rating": 1650.9,
+      "rd": 115.2,
+      "volatility": 0.06
+    },
+    "Nicaragua": {
+      "rating": 1385.5,
+      "rd": 138.5,
+      "volatility": 0.06
+    },
+    "St. Lucia": {
+      "rating": 1442.7,
+      "rd": 140.5,
+      "volatility": 0.06
+    },
+    "Finland": {
+      "rating": 1538.7,
+      "rd": 137.1,
+      "volatility": 0.06
+    },
+    "Romania": {
+      "rating": 1399.7,
+      "rd": 135.3,
+      "volatility": 0.06
+    },
+    "Uruguay": {
+      "rating": 1800.0,
+      "rd": 68.1,
+      "volatility": 0.06
+    },
+    "Slovakia": {
+      "rating": 1732.9,
+      "rd": 123.2,
+      "volatility": 0.06
+    },
+    "Faroe Islands": {
+      "rating": 1536.0,
+      "rd": 154.3,
+      "volatility": 0.06
+    },
+    "Australia": {
+      "rating": 1792.6,
+      "rd": 68.6,
+      "volatility": 0.06
+    },
+    "Denmark": {
+      "rating": 1809.7,
+      "rd": 71.4,
+      "volatility": 0.06
+    },
+    "Ukraine": {
+      "rating": 1599.0,
+      "rd": 107.4,
+      "volatility": 0.06
+    },
+    "Curaçao": {
+      "rating": 1580.0,
+      "rd": 82.0,
+      "volatility": 0.06
+    },
+    "USA": {
+      "rating": 1791.2,
+      "rd": 66.0,
+      "volatility": 0.06
+    },
+    "Guyana": {
+      "rating": 1421.2,
+      "rd": 180.1,
+      "volatility": 0.06
+    },
+    "Iceland": {
+      "rating": 1571.9,
+      "rd": 122.6,
+      "volatility": 0.06
+    },
+    "Liechtenstein": {
+      "rating": 1409.2,
+      "rd": 162.1,
+      "volatility": 0.06
+    },
+    "Chile": {
+      "rating": 1644.3,
+      "rd": 72.1,
+      "volatility": 0.06
+    },
+    "Lebanon": {
+      "rating": 1533.7,
+      "rd": 157.6,
+      "volatility": 0.06
+    },
+    "Cameroon": {
+      "rating": 1624.5,
+      "rd": 74.1,
+      "volatility": 0.06
+    },
+    "South Korea": {
+      "rating": 1787.6,
+      "rd": 69.9,
+      "volatility": 0.06
+    },
+    "Ghana B": {
+      "rating": 1640.1,
+      "rd": 78.7,
+      "volatility": 0.06
+    },
+    "Paraguay": {
+      "rating": 1755.3,
+      "rd": 67.4,
+      "volatility": 0.06
+    },
+    "South Africa": {
+      "rating": 1611.4,
+      "rd": 67.2,
+      "volatility": 0.06
+    },
+    "Serbia": {
+      "rating": 1737.2,
+      "rd": 71.4,
+      "volatility": 0.06
+    },
+    "San Marino": {
+      "rating": 1310.6,
+      "rd": 144.6,
+      "volatility": 0.06
+    },
+    "Norway": {
+      "rating": 1874.8,
+      "rd": 70.2,
+      "volatility": 0.06
+    },
+    "Dominican Republic": {
+      "rating": 1372.9,
+      "rd": 152.0,
+      "volatility": 0.06
+    },
+    "Ivory Coast": {
+      "rating": 1773.7,
+      "rd": 70.1,
+      "volatility": 0.06
+    },
+    "Barbados": {
+      "rating": 1371.7,
+      "rd": 162.4,
+      "volatility": 0.06
+    },
+    "Aruba": {
+      "rating": 1312.9,
+      "rd": 137.8,
+      "volatility": 0.06
+    },
+    "Latvia": {
+      "rating": 1474.0,
+      "rd": 186.9,
+      "volatility": 0.06
+    },
+    "Samoa": {
+      "rating": 1447.5,
+      "rd": 178.3,
+      "volatility": 0.06
+    },
+    "Madagascar": {
+      "rating": 1399.4,
+      "rd": 161.8,
+      "volatility": 0.06
+    },
+    "Wales": {
+      "rating": 1649.2,
+      "rd": 74.0,
+      "volatility": 0.06
+    },
+    "Hungary": {
+      "rating": 1559.3,
+      "rd": 111.2,
+      "volatility": 0.06
+    },
+    "Comoros": {
+      "rating": 1365.0,
+      "rd": 149.9,
+      "volatility": 0.06
+    },
+    "Argentina": {
+      "rating": 1968.7,
+      "rd": 75.1,
+      "volatility": 0.06
+    },
+    "Cyprus": {
+      "rating": 1378.0,
+      "rd": 148.9,
+      "volatility": 0.06
+    },
+    "Cape Verde Islands": {
+      "rating": 1643.9,
+      "rd": 84.2,
+      "volatility": 0.06
+    },
+    "Namibia": {
+      "rating": 1452.1,
+      "rd": 179.5,
+      "volatility": 0.06
+    },
+    "Lesotho": {
+      "rating": 1436.9,
+      "rd": 176.2,
+      "volatility": 0.06
+    },
+    "Bangladesh": {
+      "rating": 1467.6,
+      "rd": 184.6,
+      "volatility": 0.06
+    },
+    "Singapore": {
+      "rating": 1464.4,
+      "rd": 183.4,
+      "volatility": 0.06
+    },
+    "Sint Maarten": {
+      "rating": 1390.5,
+      "rd": 160.9,
+      "volatility": 0.06
+    },
+    "Trinidad and Tobago": {
+      "rating": 1444.6,
+      "rd": 76.2,
+      "volatility": 0.06
+    },
+    "Philadelphia Union II": {
+      "rating": 1465.6,
+      "rd": 183.8,
+      "volatility": 0.06
+    },
+    "Portugal": {
+      "rating": 1926.2,
+      "rd": 72.3,
+      "volatility": 0.06
+    },
+    "Azerbaijan": {
+      "rating": 1387.0,
+      "rd": 153.9,
+      "volatility": 0.06
+    },
+    "Armenia": {
+      "rating": 1466.8,
+      "rd": 183.5,
+      "volatility": 0.06
+    },
+    "Belgium": {
+      "rating": 1832.5,
+      "rd": 69.8,
+      "volatility": 0.06
+    },
+    "Belarus": {
+      "rating": 1418.3,
+      "rd": 166.0,
+      "volatility": 0.06
+    },
+    "Myanmar": {
+      "rating": 1472.7,
+      "rd": 186.7,
+      "volatility": 0.06
+    },
+    "Kuwait": {
+      "rating": 1462.1,
+      "rd": 117.1,
+      "volatility": 0.06
+    },
+    "Grenada": {
+      "rating": 1457.9,
+      "rd": 161.4,
+      "volatility": 0.06
+    },
+    "Suriname": {
+      "rating": 1490.8,
+      "rd": 145.4,
+      "volatility": 0.06
+    },
+    "Georgia": {
+      "rating": 1556.4,
+      "rd": 115.0,
+      "volatility": 0.06
+    },
+    "Thailand": {
+      "rating": 1434.0,
+      "rd": 175.8,
+      "volatility": 0.06
+    },
+    "Bermuda": {
+      "rating": 1359.7,
+      "rd": 148.5,
+      "volatility": 0.06
+    },
+    "Senegal": {
+      "rating": 1862.2,
+      "rd": 72.4,
+      "volatility": 0.06
+    },
+    "Bolivia": {
+      "rating": 1583.4,
+      "rd": 94.7,
+      "volatility": 0.06
+    },
+    "Zambia": {
+      "rating": 1466.2,
+      "rd": 132.7,
+      "volatility": 0.06
+    },
+    "Alanyaspor": {
+      "rating": 1500.0,
+      "rd": 180.1,
+      "volatility": 0.06
+    },
+    "Scotland": {
+      "rating": 1700.9,
+      "rd": 68.4,
+      "volatility": 0.06
+    },
+    "Congo DR": {
+      "rating": 1753.5,
+      "rd": 86.3,
+      "volatility": 0.06
+    },
+    "Guinea": {
+      "rating": 1517.5,
+      "rd": 153.6,
+      "volatility": 0.06
+    },
+    "Kyrgyzstan": {
+      "rating": 1411.8,
+      "rd": 130.0,
+      "volatility": 0.06
+    },
+    "India": {
+      "rating": 1464.0,
+      "rd": 183.2,
+      "volatility": 0.06
+    },
+    "Zimbabwe": {
+      "rating": 1459.6,
+      "rd": 126.8,
+      "volatility": 0.06
+    },
+    "Mali": {
+      "rating": 1425.5,
+      "rd": 133.5,
+      "volatility": 0.06
+    },
+    "Tanzania": {
+      "rating": 1599.1,
+      "rd": 135.9,
+      "volatility": 0.06
+    },
+    "Sierra Leone": {
+      "rating": 1547.2,
+      "rd": 155.2,
+      "volatility": 0.06
+    },
+    "Tahiti": {
+      "rating": 1402.1,
+      "rd": 162.6,
+      "volatility": 0.06
+    },
+    "Belize": {
+      "rating": 1436.5,
+      "rd": 176.2,
+      "volatility": 0.06
+    },
+    "Morocco": {
+      "rating": 1934.9,
+      "rd": 75.4,
+      "volatility": 0.06
+    },
+    "South Sudan": {
+      "rating": 1388.8,
+      "rd": 162.5,
+      "volatility": 0.06
+    },
+    "Tajikistan": {
+      "rating": 1559.2,
+      "rd": 183.5,
+      "volatility": 0.06
+    },
+    "Panama": {
+      "rating": 1648.1,
+      "rd": 68.2,
+      "volatility": 0.06
+    },
+    "Equatorial Guinea": {
+      "rating": 1385.9,
+      "rd": 159.9,
+      "volatility": 0.06
+    },
+    "Malta": {
+      "rating": 1368.3,
+      "rd": 152.4,
+      "volatility": 0.06
+    },
+    "Mauritania": {
+      "rating": 1488.0,
+      "rd": 135.9,
+      "volatility": 0.06
+    },
+    "Puerto Rico": {
+      "rating": 1360.2,
+      "rd": 150.4,
+      "volatility": 0.06
+    },
+    "Eswatini": {
+      "rating": 1439.8,
+      "rd": 177.1,
+      "volatility": 0.06
+    },
+    "El Salvador": {
+      "rating": 1425.4,
+      "rd": 76.5,
+      "volatility": 0.06
+    },
+    "Brazil": {
+      "rating": 1918.4,
+      "rd": 68.5,
+      "volatility": 0.06
+    },
+    "Gambia": {
+      "rating": 1419.2,
+      "rd": 164.7,
+      "volatility": 0.06
+    },
+    "Croatia": {
+      "rating": 1869.0,
+      "rd": 70.4,
+      "volatility": 0.06
+    },
+    "Honduras": {
+      "rating": 1524.3,
+      "rd": 76.4,
+      "volatility": 0.06
+    },
+    "Somalia": {
+      "rating": 1453.8,
+      "rd": 179.9,
+      "volatility": 0.06
+    },
+    "Togo": {
+      "rating": 1451.4,
+      "rd": 180.0,
+      "volatility": 0.06
+    },
+    "Haiti": {
+      "rating": 1589.2,
+      "rd": 67.6,
+      "volatility": 0.06
+    },
+    "Gibraltar": {
+      "rating": 1375.2,
+      "rd": 149.8,
+      "volatility": 0.06
+    },
+    "England": {
+      "rating": 1964.2,
+      "rd": 75.7,
+      "volatility": 0.06
+    },
+    "Austria": {
+      "rating": 1766.0,
+      "rd": 70.2,
+      "volatility": 0.06
+    },
+    "FYR Macedonia": {
+      "rating": 1492.3,
+      "rd": 131.8,
+      "volatility": 0.06
+    },
+    "Sudan": {
+      "rating": 1541.3,
+      "rd": 111.9,
+      "volatility": 0.06
+    },
+    "Congo": {
+      "rating": 1652.3,
+      "rd": 78.7,
+      "volatility": 0.06
+    },
+    "Bulgaria": {
+      "rating": 1429.8,
+      "rd": 168.7,
+      "volatility": 0.06
+    },
+    "Moldova": {
+      "rating": 1454.5,
+      "rd": 178.2,
+      "volatility": 0.06
+    },
+    "Djibouti": {
+      "rating": 1462.1,
+      "rd": 182.5,
+      "volatility": 0.06
+    },
+    "FC Urartu": {
+      "rating": 1452.2,
+      "rd": 179.4,
+      "volatility": 0.06
+    },
+    "Oman": {
+      "rating": 1511.4,
+      "rd": 111.4,
+      "volatility": 0.06
+    },
+    "Afghanistan": {
+      "rating": 1463.1,
+      "rd": 182.9,
+      "volatility": 0.06
+    },
+    "Slovenia": {
+      "rating": 1632.0,
+      "rd": 108.1,
+      "volatility": 0.06
+    },
+    "Uganda": {
+      "rating": 1442.4,
+      "rd": 128.3,
+      "volatility": 0.06
+    },
+    "Vanuatu": {
+      "rating": 1373.4,
+      "rd": 152.8,
+      "volatility": 0.06
+    },
+    "Indonesia": {
+      "rating": 1423.6,
+      "rd": 135.4,
+      "volatility": 0.06
+    },
+    "Andorra": {
+      "rating": 1425.9,
+      "rd": 168.4,
+      "volatility": 0.06
+    },
+    "Benin": {
+      "rating": 1445.6,
+      "rd": 175.4,
+      "volatility": 0.06
+    },
+    "Bosnia & Herzegovina": {
+      "rating": 1538.5,
+      "rd": 91.7,
+      "volatility": 0.06
+    },
+    "Albania": {
+      "rating": 1554.1,
+      "rd": 132.5,
+      "volatility": 0.06
+    },
+    "Kosovo": {
+      "rating": 1623.8,
+      "rd": 126.0,
+      "volatility": 0.06
+    },
+    "Peru": {
+      "rating": 1630.9,
+      "rd": 73.0,
+      "volatility": 0.06
+    },
+    "Ecuador": {
+      "rating": 1858.5,
+      "rd": 67.9,
+      "volatility": 0.06
+    },
+    "Libya": {
+      "rating": 1468.2,
+      "rd": 163.9,
+      "volatility": 0.06
+    },
+    "Lithuania": {
+      "rating": 1458.1,
+      "rd": 179.6,
+      "volatility": 0.06
+    },
+    "New Caledonia": {
+      "rating": 1450.6,
+      "rd": 179.0,
+      "volatility": 0.06
+    },
+    "Kazakhstan": {
+      "rating": 1561.2,
+      "rd": 130.1,
+      "volatility": 0.06
+    },
+    "Chad": {
+      "rating": 1409.2,
+      "rd": 137.0,
+      "volatility": 0.06
+    },
+    "Yemen": {
+      "rating": 1438.6,
+      "rd": 176.6,
+      "volatility": 0.06
+    },
+    "Tunisia": {
+      "rating": 1669.5,
+      "rd": 68.8,
+      "volatility": 0.06
+    },
+    "Botswana": {
+      "rating": 1562.0,
+      "rd": 132.7,
+      "volatility": 0.06
+    },
+    "Rep. Of Ireland": {
+      "rating": 1694.0,
+      "rd": 147.1,
+      "volatility": 0.06
+    },
+    "Montenegro": {
+      "rating": 1479.2,
+      "rd": 136.7,
+      "volatility": 0.06
+    },
+    "Northern Ireland": {
+      "rating": 1484.6,
+      "rd": 153.6,
+      "volatility": 0.06
+    },
+    "Jordan": {
+      "rating": 1590.2,
+      "rd": 67.5,
+      "volatility": 0.06
+    },
+    "Seychelles": {
+      "rating": 1456.1,
+      "rd": 180.6,
+      "volatility": 0.06
+    },
+    "Bahrain": {
+      "rating": 1551.7,
+      "rd": 107.3,
+      "volatility": 0.06
+    },
+    "Spain": {
+      "rating": 2059.7,
+      "rd": 75.3,
+      "volatility": 0.06
+    },
+    "New Zealand": {
+      "rating": 1620.3,
+      "rd": 69.0,
+      "volatility": 0.06
+    },
+    "Saint Martin": {
+      "rating": 1385.9,
+      "rd": 163.7,
+      "volatility": 0.06
+    },
+    "Solomon Islands": {
+      "rating": 1435.0,
+      "rd": 176.1,
+      "volatility": 0.06
+    },
+    "Nigeria": {
+      "rating": 1707.0,
+      "rd": 70.8,
+      "volatility": 0.06
+    }
+  }
+}

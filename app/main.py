@@ -15,12 +15,13 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.config import settings
 from app.db import engine, Base, SessionLocal
-from app.routers import matches, teams, groups, predictions, admin, admin_sync, simulator, elo, h2h, bracket
+from app.routers import matches, teams, groups, predictions, admin, admin_sync, admin_odds, simulator, elo, h2h, bracket, odds, health
 from app.services.worldcup26_sync import full_sync as worldcup26_full_sync
 from app.services.scheduler import build_default_jobs
 from app.services.stadium_geo import fill_stadium_coordinates
 from app.services.recent_form import compute_and_persist_recent_form
 from app.services.h2h_backfill import backfill_h2h_history
+from app.services.periodic_refresh import run_periodic_refresh as periodic_6h_refresh
 
 
 # 创建数据表（首次启动时）
@@ -71,6 +72,20 @@ async def lifespan(app: FastAPI):
                 db.close()
         except Exception as exc:  # noqa: BLE001
             print(f"[lifespan] B3 H2H 启动回填失败: {exc}")
+        # v0.5.1: 启动时立即跑一次 6h 周期刷新（odds 快照 + 可选 fb-data）
+        try:
+            db = SessionLocal()
+            try:
+                pr_result = periodic_6h_refresh(db)
+                print(
+                    f"[lifespan] 6h 周期刷新启动: "
+                    f"snapshots_added={pr_result.get('snapshots_added', 0)}, "
+                    f"fb_status={pr_result.get('fb_status', 'unknown')}"
+                )
+            finally:
+                db.close()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[lifespan] 6h 周期刷新启动失败: {exc}")
     yield
     # 关闭时
     if scheduler.running:
@@ -79,7 +94,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.4.0",
+    version="0.6.0",
     debug=settings.debug,
     docs_url="/api/docs" if settings.debug else None,
     redoc_url="/api/redoc" if settings.debug else None,
@@ -104,8 +119,11 @@ app.include_router(simulator.router, prefix="/api", tags=["出线模拟"])
 app.include_router(elo.router, prefix="/api", tags=["Elo 评级"])
 app.include_router(h2h.router, prefix="/api", tags=["历史交锋"])
 app.include_router(bracket.router, prefix="/api", tags=["淘汰赛"])
+app.include_router(odds.router, prefix="/api", tags=["赔率"])
+app.include_router(health.router, prefix="/api", tags=["健康检查"])
 app.include_router(admin.router, prefix="/api/admin", tags=["管理"])
 app.include_router(admin_sync.router, prefix="/api/admin/sync", tags=["数据同步"])
+app.include_router(admin_odds.router, prefix="/api/admin", tags=["赔率管理"])
 
 
 # 静态前端文件

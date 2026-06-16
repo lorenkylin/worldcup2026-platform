@@ -63,7 +63,82 @@ function matchCard(m) {
         </div>
       </div>
       <div class="mt-2 text-xs text-slate-500 truncate">${m.stadium ? escapeHtml(m.stadium.name_en) : ''} · ${m.group_name ? m.group_name + '组' : m.stage}</div>
+      ${m._odds ? renderOddsBadge(m._odds) : ''}
     </a>
+  `;
+}
+
+// M3: 赔率角标（在 matchCard 底部显示 1X2 赔率）
+function renderOddsBadge(odds) {
+  if (!odds || !odds.home_win || !odds.draw || !odds.away_win) return '';
+  return `
+    <div class="mt-2 pt-2 border-t border-slate-800 flex items-center gap-3 text-xs">
+      <span class="text-slate-500">赔率</span>
+      <span class="text-emerald-400 font-mono"><span class="text-slate-500 text-[10px] mr-1">主</span>${odds.home_win.toFixed(2)}</span>
+      <span class="text-slate-400 font-mono"><span class="text-slate-500 text-[10px] mr-1">平</span>${odds.draw.toFixed(2)}</span>
+      <span class="text-slate-400 font-mono"><span class="text-slate-500 text-[10px] mr-1">客</span>${odds.away_win.toFixed(2)}</span>
+    </div>
+  `;
+}
+
+// M3: 比赛详情赔率卡 + value bet 高亮
+function renderOddsDetail(oddsData, homeName, awayName) {
+  if (!oddsData || !oddsData.has_odds) {
+    return `
+      <div class="bg-slate-900 rounded-xl p-4 border border-slate-800 mb-4">
+        <h3 class="font-bold text-cyan-400 mb-2">💰 市场赔率</h3>
+        <div class="text-sm text-slate-500">该比赛暂无赔率（管理员可在后台录入）</div>
+      </div>
+    `;
+  }
+  const consensus = oddsData.consensus;
+  const cmpHtml = consensus ? `
+    <div class="grid grid-cols-3 gap-2 mt-3 text-center text-xs">
+      <div class="bg-slate-950 rounded p-2">
+        <div class="text-slate-500">主胜概率</div>
+        <div class="text-base font-bold ${consensus.market_prob.home_prob > 0.5 ? 'text-emerald-400' : 'text-white'}">${(consensus.market_prob.home_prob * 100).toFixed(1)}%</div>
+        <div class="text-slate-500 text-[10px]">赔率 ${consensus.odds.home_win.toFixed(2)}</div>
+      </div>
+      <div class="bg-slate-950 rounded p-2">
+        <div class="text-slate-500">平局概率</div>
+        <div class="text-base font-bold ${consensus.market_prob.draw_prob > 0.3 ? 'text-emerald-400' : 'text-white'}">${(consensus.market_prob.draw_prob * 100).toFixed(1)}%</div>
+        <div class="text-slate-500 text-[10px]">赔率 ${consensus.odds.draw.toFixed(2)}</div>
+      </div>
+      <div class="bg-slate-950 rounded p-2">
+        <div class="text-slate-500">客胜概率</div>
+        <div class="text-base font-bold ${consensus.market_prob.away_prob > 0.5 ? 'text-emerald-400' : 'text-white'}">${(consensus.market_prob.away_prob * 100).toFixed(1)}%</div>
+        <div class="text-slate-500 text-[10px]">赔率 ${consensus.odds.away_win.toFixed(2)}</div>
+      </div>
+    </div>
+    <div class="text-xs text-slate-500 text-right mt-1">博彩公司利润 (vig) ${(consensus.market_prob.total_vig * 100).toFixed(1)}%</div>
+  ` : '';
+
+  // 列出各家赔率
+  const bookmakersHtml = oddsData.bookmakers.length > 1 ? `
+    <div class="mt-3 pt-3 border-t border-slate-800">
+      <div class="text-xs text-slate-500 mb-1">各博彩公司</div>
+      <div class="space-y-1">
+        ${oddsData.bookmakers.map(b => `
+          <div class="flex items-center justify-between text-xs">
+            <span class="text-slate-400">${escapeHtml(b.bookmaker)}</span>
+            <span class="font-mono text-slate-300">
+              ${b.odds.home_win ? b.odds.home_win.toFixed(2) : '-'} /
+              ${b.odds.draw ? b.odds.draw.toFixed(2) : '-'} /
+              ${b.odds.away_win ? b.odds.away_win.toFixed(2) : '-'}
+            </span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  ` : '';
+
+  return `
+    <div class="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-4 border border-slate-700 mb-4">
+      <h3 class="font-bold text-cyan-400 mb-2">💰 市场赔率 · 多家公司共识</h3>
+      ${cmpHtml}
+      ${bookmakersHtml}
+      <div class="text-[10px] text-slate-500 mt-2">赔率为 decimal 欧式赔率，市场概率已去除博彩公司利润(vig)。仅供分析，不构成投注建议。</div>
+    </div>
   `;
 }
 
@@ -579,13 +654,140 @@ async function renderTeamDetail(id) {
   `;
 }
 
+// ============ v0.5.1: 赔率走势图表 ============
+// Chart.js instance cache (single chart at a time)
+let _oddsTrendChart = null;
+
+async function loadOddsTrend(matchId) {
+  // v0.5.1 加载赔率走势(Chart.js 折线图)
+  // matchId: 比赛 ID
+  // Side effects:
+  //   - 在 #odds-trend-chart canvas 渲染 Chart.js line chart
+  //   - 三个 tab(主胜/平/客胜)切换 dataset
+  try {
+    const data = await api(`/matches/${matchId}/odds/history`);
+    if (!data || !data.has_history) {
+      document.getElementById('odds-trend-empty').classList.remove('hidden');
+      document.getElementById('odds-trend-chart-wrapper').classList.add('hidden');
+      return;
+    }
+    document.getElementById('odds-trend-empty').classList.add('hidden');
+    document.getElementById('odds-trend-chart-wrapper').classList.remove('hidden');
+
+    // 配色:每个 bookmaker 一种颜色
+    const palette = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4'];
+    const bookmakers = data.bookmakers;
+    const labels = [];  // X 轴:所有时间戳(去重排序)
+    const labelSet = new Set();
+    for (const bm of bookmakers) {
+      for (const pt of (data.series[bm] || [])) {
+        if (pt.t) labelSet.add(pt.t);
+      }
+    }
+    labels.push(...Array.from(labelSet).sort());
+    const labelFmt = labels.map(t => {
+      const d = new Date(t);
+      return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+    });
+
+    // 三种 metric 的 datasets(主胜 / 平 / 客胜)
+    const buildDatasets = (metric) => bookmakers.map((bm, idx) => {
+      const pts = data.series[bm] || [];
+      const byT = {};
+      pts.forEach(p => { byT[p.t] = p[metric]; });
+      return {
+        label: bm,
+        data: labels.map(t => byT[t] ?? null),
+        borderColor: palette[idx % palette.length],
+        backgroundColor: palette[idx % palette.length] + '22',
+        tension: 0.25,
+        spanGaps: true,
+        pointRadius: 3,
+        pointHoverRadius: 5,
+      };
+    });
+
+    // 销毁旧 chart
+    if (_oddsTrendChart) _oddsTrendChart.destroy();
+
+    const ctx = document.getElementById('odds-trend-chart').getContext('2d');
+    _oddsTrendChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labelFmt,
+        datasets: buildDatasets('home_win'),
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {mode: 'index', intersect: false},
+        plugins: {
+          legend: {position: 'bottom', labels: {color: '#cbd5e1', boxWidth: 12}},
+          tooltip: {callbacks: {label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(2) : '-'}`}},
+        },
+        scales: {
+          y: {title: {display: true, text: '赔率(decimal)', color: '#94a3b8'}, ticks: {color: '#94a3b8'}, grid: {color: '#1e293b'}},
+          x: {ticks: {color: '#94a3b8', maxRotation: 45, minRotation: 0}, grid: {color: '#1e293b'}},
+        },
+      },
+    });
+
+    // 切换 tab
+    document.querySelectorAll('.odds-trend-tab').forEach(tab => {
+      tab.onclick = () => {
+        document.querySelectorAll('.odds-trend-tab').forEach(t => {
+          t.classList.remove('bg-cyan-500', 'text-white');
+          t.classList.add('bg-slate-800', 'text-slate-400');
+        });
+        tab.classList.remove('bg-slate-800', 'text-slate-400');
+        tab.classList.add('bg-cyan-500', 'text-white');
+        const metric = tab.dataset.metric;
+        const metricLabel = {home_win: '主胜', draw: '平', away_win: '客胜'}[metric];
+        _oddsTrendChart.data.datasets = buildDatasets(metric);
+        _oddsTrendChart.options.scales.y.title.text = `赔率(decimal) · ${metricLabel}`;
+        _oddsTrendChart.update();
+      };
+    });
+  } catch (err) {
+    console.error('[odds-trend] 加载失败:', err);
+    document.getElementById('odds-trend-empty').classList.remove('hidden');
+    document.getElementById('odds-trend-empty').textContent = '加载赔率走势失败: ' + (err.message || err);
+  }
+}
+
+function renderOddsTrendCard() {
+  // v0.5.1 返回赔率走势卡片 HTML(主胜/平/客胜 tab + canvas)
+  // 占位符,渲染后由 loadOddsTrend(matchId) 填充
+  return `
+    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800 mb-4">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-bold text-cyan-400">📈 赔率走势 · 多公司时序</h3>
+        <div class="text-xs text-slate-500">v0.5.1</div>
+      </div>
+      <div id="odds-trend-empty" class="text-sm text-slate-500 hidden">暂无赔率快照(可能尚未录入赔率或 6h 调度器尚未运行)</div>
+      <div id="odds-trend-chart-wrapper" class="hidden">
+        <div class="flex gap-1 mb-3">
+          <button class="odds-trend-tab px-3 py-1 text-xs rounded bg-cyan-500 text-white" data-metric="home_win">主胜</button>
+          <button class="odds-trend-tab px-3 py-1 text-xs rounded bg-slate-800 text-slate-400" data-metric="draw">平</button>
+          <button class="odds-trend-tab px-3 py-1 text-xs rounded bg-slate-800 text-slate-400" data-metric="away_win">客胜</button>
+        </div>
+        <div style="position: relative; height: 240px;">
+          <canvas id="odds-trend-chart"></canvas>
+        </div>
+        <div class="text-[10px] text-slate-500 mt-2">数据来源:OddsSnapshot(每 6h 自动打点 + 管理员录入时记录)</div>
+      </div>
+    </div>
+  `;
+}
+
 async function renderMatchDetail(id) {
   // A7: 同时拉全部比赛列表算上一场/下一场
-  const [m, prediction, weather, allMatches] = await Promise.all([
+  const [m, prediction, weather, allMatches, oddsData] = await Promise.all([
     apiWithRetry('/matches/' + id).catch(err => { throw err; }),
     api('/matches/' + id + '/prediction').catch(() => null),
     api('/matches/' + id + '/weather').catch(() => null),
     api('/matches?limit=200').catch(() => []),
+    api('/matches/' + id + '/odds').catch(() => null),
   ]);
   // 算邻居（按 match_number 排序）
   const sorted = (allMatches || []).slice().sort((a, b) => (a.match_number || 0) - (b.match_number || 0));
@@ -691,6 +893,8 @@ async function renderMatchDetail(id) {
 
     ${predHtml}
     ${weatherHtml}
+    ${renderOddsDetail(oddsData, home.name_zh, away.name_zh)}
+    ${renderOddsTrendCard()}
     ${reviewHtml}
 
     <div class="bg-slate-900 rounded-xl p-4 border border-slate-800 mb-4">
@@ -733,6 +937,9 @@ async function renderMatchDetail(id) {
       matchId: id,
     });
   }
+
+  // v0.5.1: 加载赔率走势图(异步,Chart.js 渲染)
+  loadOddsTrend(id);
 }
 
 
@@ -978,19 +1185,126 @@ function countdownText(isoWallClock, tz) {
   }
 }
 
+// ---------- M3 赔率页面 ----------
+async function renderOdds() {
+  const [data, latest] = await Promise.all([
+    apiWithRetry('/odds/compare?limit=30'),
+    apiWithRetry('/odds/latest').catch(() => null),
+  ]);
+  if (!data || !data.items || !data.items.length) {
+    $('#app').innerHTML = renderEmpty('💰', '暂无赔率数据', '管理员尚未录入任何比赛赔率', '#/schedule', '查看赛程');
+    return;
+  }
+
+  // 数据更新提示 (v0.6.0)
+  const freshness = latest && latest.minutes_ago != null ? (() => {
+    const m = latest.minutes_ago;
+    if (m < 1) return '<span class="text-emerald-400">刚刚</span>';
+    if (m < 60) return `<span class="text-emerald-400">${Math.round(m)} 分钟前</span>`;
+    if (m < 60 * 6) return `<span class="text-amber-400">${(m / 60).toFixed(1)} 小时前</span>`;
+    return `<span class="text-rose-400">${(m / 60).toFixed(1)} 小时前</span>`;
+  })() : '<span class="text-slate-500">未知</span>';
+  const freshnessHtml = `<div class="text-xs text-slate-400 flex items-center gap-1">
+    <span class="inline-block w-1.5 h-1.5 rounded-full ${latest && latest.minutes_ago != null && latest.minutes_ago < 360 ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}"></span>
+    数据更新于 ${freshness}${latest ? ` · 共 ${latest.snapshot_count} 个快照` : ''}
+  </div>`;
+
+  // 顶部 value bet 提醒卡片
+  const valueBets = data.items.filter(it => it.best_value && it.best_value_rate >= 0.05);
+  const valueBetsHtml = valueBets.length > 0 ? `
+    <div class="bg-gradient-to-br from-amber-900/30 to-slate-900 rounded-xl p-4 border border-amber-700/50 mb-4">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-2xl">💎</span>
+        <h3 class="font-bold text-amber-400">价值投注 TOP ${valueBets.length}</h3>
+      </div>
+      <div class="text-xs text-slate-400 mb-2">Elo 模型 vs 市场隐含概率,差异 ≥ 5%</div>
+      <div class="space-y-2">
+        ${valueBets.slice(0, 5).map(it => `
+          <a href="#/match/${it.match_id}" class="block bg-slate-900 rounded-lg p-3 hover:bg-slate-800 transition">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-sm font-medium">${escapeHtml(it.home_team.name_zh)} <span class="text-slate-500">vs</span> ${escapeHtml(it.away_team.name_zh)}</span>
+              <span class="text-emerald-400 font-mono text-sm">+${(it.best_value_rate * 100).toFixed(1)}%</span>
+            </div>
+            <div class="text-xs text-slate-400">
+              模型看 <span class="text-amber-400">${it.best_value === 'home' ? '主胜' : it.best_value === 'draw' ? '平局' : '客胜'}</span>
+              ${(it.elo[it.best_value + '_prob'] * 100).toFixed(1)}%
+              · 市场 ${(it.market[it.best_value + '_prob'] * 100).toFixed(1)}%
+            </div>
+          </a>
+        `).join('')}
+      </div>
+    </div>
+  ` : '';
+
+  const itemsHtml = data.items.map(it => {
+    const vbHome = it.value_bet.home;
+    const vbDraw = it.value_bet.draw;
+    const vbAway = it.value_bet.away;
+    const fmtVb = (v) => {
+      if (v >= 0.05) return `<span class="text-emerald-400 font-mono">+${(v * 100).toFixed(1)}%</span>`;
+      if (v >= 0) return `<span class="text-slate-400 font-mono">+${(v * 100).toFixed(1)}%</span>`;
+      return `<span class="text-rose-400 font-mono">${(v * 100).toFixed(1)}%</span>`;
+    };
+    return `
+      <a href="#/match/${it.match_id}" class="block bg-slate-900 rounded-xl p-4 mb-3 border border-slate-800 hover:border-cyan-700 transition">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs text-slate-500">${escapeHtml(it.stage)}${it.group_name ? ' · ' + it.group_name + '组' : ''}</span>
+          ${it.best_value && it.best_value_rate >= 0.05 ? '<span class="text-xs bg-amber-900/50 text-amber-300 px-2 py-0.5 rounded">💎 VALUE BET</span>' : ''}
+        </div>
+        <div class="flex items-center justify-between mb-2">
+          <span class="font-medium text-sm">${escapeHtml(it.home_team.name_zh)}</span>
+          <span class="text-xs text-slate-500">VS</span>
+          <span class="font-medium text-sm">${escapeHtml(it.away_team.name_zh)}</span>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-xs">
+          <div class="bg-slate-950 rounded p-2">
+            <div class="text-slate-500">主胜</div>
+            <div class="text-slate-300">${(it.market.home_prob * 100).toFixed(0)}%</div>
+            <div class="text-cyan-400">${fmtVb(vbHome)}</div>
+          </div>
+          <div class="bg-slate-950 rounded p-2">
+            <div class="text-slate-500">平</div>
+            <div class="text-slate-300">${(it.market.draw_prob * 100).toFixed(0)}%</div>
+            <div class="text-cyan-400">${fmtVb(vbDraw)}</div>
+          </div>
+          <div class="bg-slate-950 rounded p-2">
+            <div class="text-slate-500">客胜</div>
+            <div class="text-slate-300">${(it.market.away_prob * 100).toFixed(0)}%</div>
+            <div class="text-cyan-400">${fmtVb(vbAway)}</div>
+          </div>
+        </div>
+        <div class="mt-2 text-[10px] text-slate-500 text-center">蓝=Elo vs 市场偏离值（蓝正=模型低估此结果=价值）</div>
+      </a>
+    `;
+  }).join('');
+
+  $('#app').innerHTML = `
+    <h2 class="text-lg font-bold mb-2 flex items-center gap-2">
+      <span class="text-xl">💰</span><span>赔率分析</span>
+      <span class="text-xs text-slate-500 font-normal ml-auto">${data.count} 场</span>
+    </h2>
+    <div class="mb-4">${freshnessHtml}</div>
+    <div class="text-xs text-slate-400 mb-4">市场预期 vs Elo 模型对比，识别市场定价偏离</div>
+    ${valueBetsHtml}
+    ${itemsHtml}
+    <div class="text-[10px] text-slate-500 mt-2 text-center">赔率为各家共识平均，仅供分析参考，不构成投注建议。</div>
+  `;
+}
+
 async function renderCockpit() {
   // 切换为宽布局
   const app = $('#app');
   app.classList.remove('max-w-2xl');
   app.classList.add('max-w-none', 'px-4');
 
-  let today, allMatches, groups, teams;
+  let today, allMatches, groups, teams, accuracy;
   try {
-    [today, allMatches, groups, teams] = await Promise.all([
+    [today, allMatches, groups, teams, accuracy] = await Promise.all([
       apiWithRetry('/matches/today'),
       apiWithRetry('/matches?limit=200'),
       apiWithRetry('/groups'),
       apiWithRetry('/teams'),
+      apiWithRetry('/elo/accuracy-stats?days=180').catch(() => null),
     ]);
   } catch (err) {
     app.classList.add('max-w-2xl');
@@ -1115,13 +1429,36 @@ async function renderCockpit() {
     </div>
 
     <!-- KPI 卡片 -->
-    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
       ${kpiCard('✅', '已完赛', finished.length, '场', 'emerald')}
       ${kpiCard('📅', '今日', today.length, '场', 'amber')}
       ${kpiCard('⏰', '24h 内', in24h.length, '场', 'blue')}
       ${kpiCard('⚽', '场均进球', avgGoals, '', 'rose')}
       ${kpiCard('🏆', '热门第 1', topTeam ? topTeam.flag_emoji + ' ' + topTeam.name_zh : '-', '', 'violet', topTeam ? 'Elo ' + topTeam.elo_rating : '')}
+      ${kpiCard('🎯', '模型胜率', accuracy && accuracy.n_settled > 0 ? (accuracy.accuracy * 100).toFixed(1) + '%' : '—', accuracy ? `n=${accuracy.n_settled}` : '暂无', 'cyan', accuracy && accuracy.by_model ? `🏅 ${bestModelLabel(accuracy.by_model)}` : '—')}
     </div>
+
+    <!-- 模型准确率 mini-card: 3 模型横评 -->
+    ${accuracy && accuracy.n_settled > 0 ? `
+    <section class="cockpit-section mb-4">
+      <h2 class="cockpit-section-title">🎯 3 模型横评（最近 ${accuracy.n_settled} 场已结算）</h2>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        ${accuracyMiniCard('🧠 全部模型汇总', accuracy, '')}
+        ${accuracyMiniCard('⚡ Glicko-2 v3', accuracy.by_model['v3_glicko2'], 'cyan')}
+        ${accuracyMiniCard('📊 Elo M1 v1', accuracy.by_model['v1_elo'], 'violet')}
+      </div>
+      <div class="mt-2 text-xs text-slate-500">
+        ▎ 准确率 ≥ 60% 绿 / 55-60% 橙 / &lt;55% 红 · 详情见 <a href="#/accuracy" class="text-blue-600 hover:underline">#/accuracy</a>
+      </div>
+    </section>
+    ` : `
+    <section class="cockpit-section mb-4">
+      <h2 class="cockpit-section-title">🎯 3 模型横评</h2>
+      <div class="text-slate-500 text-sm py-4 text-center">
+        ⏳ 暂无已结算预测 · 预测日志正在积累中,预计 15 分钟内首批结算入库
+      </div>
+    </section>
+    `}
 
     <!-- 焦点战 -->
     <section class="cockpit-section mb-4">
@@ -1599,6 +1936,7 @@ function kpiCard(icon, label, value, unit, color, sub) {
     blue: 'from-blue-500/20 to-blue-600/10 text-blue-400 border-blue-500/30',
     rose: 'from-rose-500/20 to-rose-600/10 text-rose-400 border-rose-500/30',
     violet: 'from-violet-500/20 to-violet-600/10 text-violet-400 border-violet-500/30',
+    cyan: 'from-cyan-500/20 to-cyan-600/10 text-cyan-400 border-cyan-500/30',
   };
   return `
     <div class="cockpit-kpi bg-gradient-to-br ${colorMap[color]} border rounded-xl p-3">
@@ -1613,6 +1951,69 @@ function kpiCard(icon, label, value, unit, color, sub) {
       ${sub ? `<div class="text-xs text-slate-500 mt-1">${sub}</div>` : ''}
     </div>
   `;
+}
+
+// v0.6.0: 模型准确率 mini-card (Cockpit 用)
+function accuracyMiniCard(label, m, color) {
+  if (!m) {
+    return `<div class="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center text-slate-500 text-xs">
+      <div class="mb-1">${label}</div>
+      <div>暂无数据</div>
+    </div>`;
+  }
+  const acc = m.accuracy == null ? null : (m.accuracy * 100).toFixed(1) + '%';
+  const colorCls = acc == null ? 'text-slate-500'
+    : parseFloat(acc) >= 60 ? 'text-emerald-400'
+    : parseFloat(acc) >= 55 ? 'text-amber-400'
+    : 'text-rose-400';
+  const accent = color === 'cyan' ? 'border-cyan-500/30'
+    : color === 'violet' ? 'border-violet-500/30'
+    : 'border-slate-700';
+  return `
+    <div class="bg-slate-900/50 border ${accent} rounded-xl p-4">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-sm text-slate-300 font-semibold">${label}</span>
+        <span class="text-xs text-slate-500">n=${m.n}</span>
+      </div>
+      <div class="flex items-baseline gap-2 mb-3">
+        <span class="text-3xl font-bold ${colorCls}">${acc ?? '—'}</span>
+        <span class="text-xs text-slate-500">准确率</span>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-xs">
+        <div>
+          <div class="text-slate-500">RPS</div>
+          <div class="font-mono ${m.rps == null ? 'text-slate-600' : 'text-slate-200'}">${m.rps == null ? '—' : m.rps.toFixed(4)}</div>
+        </div>
+        <div>
+          <div class="text-slate-500">Brier</div>
+          <div class="font-mono ${m.brier == null ? 'text-slate-600' : 'text-slate-200'}">${m.brier == null ? '—' : m.brier.toFixed(4)}</div>
+        </div>
+        <div>
+          <div class="text-slate-500">LogLoss</div>
+          <div class="font-mono ${m.log_loss == null ? 'text-slate-600' : 'text-slate-200'}">${m.log_loss == null ? '—' : m.log_loss.toFixed(4)}</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// v0.6.0: 找出胜率最高的模型
+function bestModelLabel(byModel) {
+  if (!byModel) return '—';
+  let bestKey = null, bestAcc = -1;
+  Object.entries(byModel).forEach(([k, v]) => {
+    if (v.accuracy != null && v.accuracy > bestAcc) {
+      bestAcc = v.accuracy;
+      bestKey = k;
+    }
+  });
+  if (!bestKey) return '—';
+  const labelMap = {
+    v1_elo: 'Elo M1',
+    v2_enhanced: 'Elo v2',
+    v3_glicko2: 'Glicko-2',
+  };
+  return `${labelMap[bestKey] || bestKey} ${(bestAcc * 100).toFixed(0)}%`;
 }
 
 function focusCard(m) {
@@ -2775,6 +3176,7 @@ function toggleGroupsCollapse() {
 const routes = {
   '/': renderHome,
   '/cockpit': renderCockpit,
+  '/dashboard': renderCockpit,  // v0.6.0: 新别名, 同 cockpit
   '/bracket': renderBracket,
   '/schedule': renderSchedule,
   '/groups': renderGroups,
@@ -2782,6 +3184,9 @@ const routes = {
   '/elo': renderElo,
   '/h2h': renderH2H,
   '/simulator': renderSimulator,
+  '/odds': renderOdds,
+  '/accuracy': renderAccuracy,  // v0.6.0: 准确率 dashboard
+  '/health': renderHealth,  // v0.6.0: 数据源健康
 };
 
 /** 把当前 hash 映射到对应的骨架屏类型 */
@@ -2799,6 +3204,7 @@ function skeletonTypeForHash(hash) {
     '/elo': 'elo',
     '/h2h': 'h2h',
     '/simulator': 'simulator',
+    '/odds': 'generic',
   }[hash] || 'generic';
 }
 
@@ -2833,3 +3239,274 @@ async function router() {
 
 window.addEventListener('hashchange', router);
 window.addEventListener('DOMContentLoaded', router);
+
+// ============================================================
+// v0.6.0 新增 - 准确率 dashboard
+// ============================================================
+
+async function renderAccuracy() {
+  // 顶部 KPI
+  const [all, glicko2, v1elo] = await Promise.all([
+    apiWithRetry('/elo/accuracy-stats'),
+    apiWithRetry('/elo/accuracy-stats?model_version=v3_glicko2'),
+    apiWithRetry('/elo/accuracy-stats?model_version=v1_elo'),
+  ]);
+  const [bias, g2Metrics] = await Promise.all([
+    apiWithRetry('/elo/top-bias?model_version=v3_glicko2&n=5'),
+    apiWithRetry('/elo/glicko2-metrics'),
+  ]);
+
+  const overallColor = (acc) => acc == null ? '#999' : acc >= 0.60 ? '#16a34a' : acc >= 0.55 ? '#d97706' : '#dc2626';
+  const modelCard = (label, m, color) => `
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+      <div class="text-xs text-slate-500 mb-1">${label}</div>
+      <div class="text-3xl font-bold" style="color:${overallColor(m.accuracy)}">${m.accuracy == null ? '—' : (m.accuracy * 100).toFixed(1) + '%'}</div>
+      <div class="text-xs text-slate-500 mt-2">n_settled=${m.n_settled} / n_total=${m.n_total}</div>
+      <div class="grid grid-cols-3 gap-2 mt-3 text-xs">
+        <div><div class="text-slate-400">RPS</div><div class="font-semibold">${m.rps == null ? '—' : m.rps.toFixed(4)}</div></div>
+        <div><div class="text-slate-400">Brier</div><div class="font-semibold">${m.brier == null ? '—' : m.brier.toFixed(4)}</div></div>
+        <div><div class="text-slate-400">LogLoss</div><div class="font-semibold">${m.log_loss == null ? '—' : m.log_loss.toFixed(4)}</div></div>
+      </div>
+    </div>
+  `;
+
+  const compareRow = (label, m, _order) => {
+    if (!m || m.n_settled == null) {
+      return `<tr class="border-t border-slate-100 text-slate-400">
+        <td class="py-2">${label}</td>
+        <td class="text-right">—</td><td class="text-right">—</td><td class="text-right">—</td><td class="text-right">—</td><td class="text-right">—</td>
+        <td class="text-center"><span class="text-xs px-2 py-0.5 bg-slate-100 rounded">无数据</span></td>
+      </tr>`;
+    }
+    const acc = m.accuracy;
+    const rating = acc == null ? '无数据'
+      : acc >= 0.60 ? { txt: '优', cls: 'bg-emerald-100 text-emerald-700' }
+      : acc >= 0.55 ? { txt: '良', cls: 'bg-amber-100 text-amber-700' }
+      : { txt: '待优化', cls: 'bg-rose-100 text-rose-700' };
+    const accColor = acc == null ? 'text-slate-400'
+      : acc >= 0.60 ? 'text-emerald-700 font-bold'
+      : acc >= 0.55 ? 'text-amber-700 font-bold'
+      : 'text-rose-700 font-bold';
+    return `<tr class="border-t border-slate-100 hover:bg-slate-50">
+      <td class="py-2 font-medium">${label}</td>
+      <td class="text-right font-mono">${m.n_settled}</td>
+      <td class="text-right font-mono ${accColor}">${acc == null ? '—' : (acc * 100).toFixed(1) + '%'}</td>
+      <td class="text-right font-mono text-slate-600">${m.rps == null ? '—' : m.rps.toFixed(4)}</td>
+      <td class="text-right font-mono text-slate-600">${m.brier == null ? '—' : m.brier.toFixed(4)}</td>
+      <td class="text-right font-mono text-slate-600">${m.log_loss == null ? '—' : m.log_loss.toFixed(4)}</td>
+      <td class="text-center"><span class="text-xs px-2 py-0.5 rounded ${rating.cls || 'bg-slate-100 text-slate-500'}">${rating.txt}</span></td>
+    </tr>`;
+  };
+
+  const byOutcomeRows = (byOut) => {
+    const order = ['home', 'draw', 'away'];
+    const label = {home: '🏠 主胜', draw: '🤝 平局', away: '✈️ 客胜'};
+    return order.map(o => {
+      const x = byOut[o];
+      return `<tr class="border-t border-slate-100"><td class="py-2">${label[o]}</td><td>${x ? x.n : 0}</td><td>${x ? (x.accuracy * 100).toFixed(1) + '%' : '—'}</td></tr>`;
+    }).join('');
+  };
+
+  const byModelRows = (byModel) => Object.entries(byModel).map(([k, v]) => `
+    <tr class="border-t border-slate-100">
+      <td class="py-2 font-mono text-xs">${k}</td>
+      <td>${v.n}</td>
+      <td>${(v.accuracy * 100).toFixed(1)}%</td>
+      <td>${v.brier.toFixed(4)}</td>
+      <td>${v.log_loss.toFixed(4)}</td>
+    </tr>
+  `).join('');
+
+  const biasRows = (bias || []).map(b => {
+    const surprisePct = (b.surprise_score * 100).toFixed(0);
+    return `<tr class="border-t border-slate-100">
+      <td class="py-2">#${b.match_id}</td>
+      <td><span class="font-mono">${b.predicted_outcome}</span></td>
+      <td><span class="font-mono">${b.actual_outcome}</span></td>
+      <td>${(b.confidence * 100).toFixed(1)}%</td>
+      <td>${(b.actual_p * 100).toFixed(1)}%</td>
+      <td><span class="text-red-600 font-semibold">${surprisePct}%</span></td>
+    </tr>`;
+  }).join('');
+
+  $('#app').innerHTML = `
+    <div class="max-w-6xl mx-auto p-4">
+      <div class="flex items-center justify-between mb-4">
+        <h1 class="text-2xl font-bold text-slate-800">📊 预测准确率 Dashboard</h1>
+        <a href="#/cockpit" class="text-sm text-blue-600 hover:underline">← 返回驾驶舱</a>
+      </div>
+
+      <!-- KPI 行: 3 个模型对比 -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        ${modelCard('🧠 全部模型汇总', all, '')}
+        ${modelCard('⚡ Glicko-2 (v3, 默认)', glicko2, '')}
+        ${modelCard('📊 Elo M1 (v1, 基准)', v1elo, '')}
+      </div>
+
+      <!-- 3 模型横评对比表 -->
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 mb-6">
+        <h2 class="text-lg font-semibold text-slate-800 mb-3">📈 3 模型横评对比表</h2>
+        <table class="w-full text-sm">
+          <thead class="text-xs text-slate-500 border-b-2 border-slate-200">
+            <tr>
+              <th class="text-left py-2">模型</th>
+              <th class="text-right">n_settled</th>
+              <th class="text-right">准确率</th>
+              <th class="text-right">RPS ↓</th>
+              <th class="text-right">Brier ↓</th>
+              <th class="text-right">LogLoss ↓</th>
+              <th class="text-center">评级</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${compareRow('⚡ Glicko-2 (v3, 默认)', glicko2, glicko2.accuracy == null ? 0 : 1)}
+            ${compareRow('📊 Elo M1 (v1, 基准)', v1elo, v1elo.accuracy == null ? 0 : 1)}
+            ${compareRow('🧠 全部模型汇总 (混合)', all, all.accuracy == null ? 0 : 1)}
+          </tbody>
+        </table>
+        <div class="text-xs text-slate-500 mt-2">
+          ▎ ↓ = 越低越好 · 评级: ≥60% 优 / 55-60% 良 / &lt;55% 待优化 · 数据基于 prediction_log 实盘结算
+        </div>
+      </div>
+
+      <!-- 按 actual_outcome 分组 -->
+      ${all.n_settled > 0 ? `
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+            <h2 class="text-lg font-semibold text-slate-800 mb-3">按实际结果分组 (全部模型)</h2>
+            <table class="w-full text-sm">
+              <thead class="text-xs text-slate-500 border-b border-slate-200">
+                <tr><th class="text-left py-2">结果</th><th>n</th><th>准确率</th></tr>
+              </thead>
+              <tbody>${byOutcomeRows(all.by_outcome)}</tbody>
+            </table>
+          </div>
+          <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+            <h2 class="text-lg font-semibold text-slate-800 mb-3">按模型分组 (已结算)</h2>
+            <table class="w-full text-sm">
+              <thead class="text-xs text-slate-500 border-b border-slate-200">
+                <tr><th class="text-left py-2">模型</th><th>n</th><th>Acc</th><th>Brier</th><th>LogLoss</th></tr>
+              </thead>
+              <tbody>${byModelRows(all.by_model)}</tbody>
+            </table>
+          </div>
+        </div>
+      ` : `
+        <div class="bg-amber-50 border border-amber-200 rounded-2xl p-6 text-center mb-6">
+          <div class="text-3xl mb-2">⏳</div>
+          <div class="text-slate-700 font-semibold mb-1">暂无已结算预测</div>
+          <div class="text-sm text-slate-600">预测日志正在积累中. 已完赛的 MEX 2-0 RSA 比赛将在 15 分钟内被调度器结算.</div>
+        </div>
+      `}
+
+      <!-- Glicko-2 walk-forward 历史基线 -->
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 mb-6">
+        <h2 class="text-lg font-semibold text-slate-800 mb-2">🎯 Glicko-2 训练基线 (913 场 walk-forward)</h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+          <div class="bg-slate-50 p-3 rounded-lg">
+            <div class="text-xs text-slate-500">准确率</div>
+            <div class="text-2xl font-bold text-slate-800">${(g2Metrics.metrics.accuracy * 100).toFixed(1)}%</div>
+          </div>
+          <div class="bg-slate-50 p-3 rounded-lg">
+            <div class="text-xs text-slate-500">RPS</div>
+            <div class="text-2xl font-bold text-slate-800">${g2Metrics.metrics.rps.toFixed(4)}</div>
+          </div>
+          <div class="bg-slate-50 p-3 rounded-lg">
+            <div class="text-xs text-slate-500">Brier</div>
+            <div class="text-2xl font-bold text-slate-800">${g2Metrics.metrics.brier.toFixed(4)}</div>
+          </div>
+          <div class="bg-slate-50 p-3 rounded-lg">
+            <div class="text-xs text-slate-500">LogLoss</div>
+            <div class="text-2xl font-bold text-slate-800">${g2Metrics.metrics.log_loss.toFixed(4)}</div>
+          </div>
+        </div>
+        <div class="text-xs text-slate-500 mt-3">训练数据: Hicruben 913 场国际赛 (2023-11 ~ 2026-06). 较 Elo M1 准确率提升 <span class="text-green-600 font-bold">+${((g2Metrics.metrics.accuracy - 0.5663) * 100).toFixed(1)} pp</span>.</div>
+      </div>
+
+      <!-- 偏差分析 -->
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+        <h2 class="text-lg font-semibold text-slate-800 mb-3">🚨 Glicko-2 Top 5 偏差场次</h2>
+        ${bias && bias.length > 0 ? `
+          <table class="w-full text-sm">
+            <thead class="text-xs text-slate-500 border-b border-slate-200">
+              <tr><th class="text-left py-2">Match</th><th>预测</th><th>实际</th><th>Confidence</th><th>实际P</th><th>Surprise</th></tr>
+            </thead>
+            <tbody>${biasRows}</tbody>
+          </table>
+          <div class="text-xs text-slate-500 mt-2">Surprise = 模型 confidence − 实际结果概率. 越大表示越离谱.</div>
+        ` : `<div class="text-sm text-slate-500">暂无错误预测 (或全部预测都对了 🎉)</div>`}
+      </div>
+
+      <!-- 数据源健康 -->
+      <div class="mt-6 bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+        <h2 class="text-lg font-semibold text-slate-800 mb-3">🔌 数据源健康</h2>
+        <a href="#/health" class="text-sm text-blue-600 hover:underline" onclick="location.hash='#/'; setTimeout(() => location.hash='#/health', 100)">查看 4 源实时状态 →</a>
+        <div class="text-xs text-slate-500 mt-2">worldcup26.ir 主源 + football-data.org 增强 + StatsBomb 对比 + worldcupstats.football 备份</div>
+      </div>
+    </div>
+  `;
+}
+
+async function renderHealth() {
+  // v0.6.0: 数据源健康 dashboard
+  let data;
+  try {
+    data = await apiWithRetry('/api/health/sources');
+  } catch (e) {
+    $('#app').innerHTML = `<div class="p-8 text-center text-red-600">数据源健康检查失败: ${e.message}</div>`;
+    return;
+  }
+  const statusColor = (s) => s === 'ok' ? 'text-green-600 bg-green-50' : s === 'degraded' ? 'text-amber-600 bg-amber-50' : s === 'timeout' ? 'text-orange-600 bg-orange-50' : 'text-red-600 bg-red-50';
+  const statusBadge = (s) => `<span class="px-2 py-0.5 rounded-full text-xs font-bold ${statusColor(s)}">${s.toUpperCase()}</span>`;
+  const overallBadge = (o) => {
+    const map = {
+      all_ok: ['bg-green-100 text-green-800', '✅ 全部正常'],
+      minor_issue: ['bg-amber-100 text-amber-800', '⚠️ 小问题'],
+      degraded: ['bg-orange-100 text-orange-800', '🟠 降级'],
+      critical: ['bg-red-100 text-red-800', '🔴 严重'],
+    };
+    const [cls, text] = map[o] || ['', o];
+    return `<span class="px-3 py-1 rounded-full text-sm font-bold ${cls}">${text}</span>`;
+  };
+  const sourceCards = (data.sources || []).map(s => `
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+      <div class="flex items-start justify-between mb-2">
+        <div>
+          <div class="font-semibold text-slate-800 text-sm">${s.name}</div>
+          <div class="text-xs text-slate-500 mt-1">${s.description || ''}</div>
+        </div>
+        ${statusBadge(s.status)}
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-xs text-slate-600 mt-3">
+        <div><span class="text-slate-400">延迟</span><br><span class="font-mono">${s.latency_ms}ms</span></div>
+        <div><span class="text-slate-400">状态码</span><br><span class="font-mono">${s.status_code || '—'}</span></div>
+        <div><span class="text-slate-400">类型</span><br><span class="font-mono">${s.type}</span></div>
+      </div>
+      ${s.requires_token ? '<div class="text-xs text-amber-600 mt-2">🔑 需要 API token</div>' : ''}
+      ${s.error ? `<div class="text-xs text-red-600 mt-2 font-mono">${s.error}</div>` : ''}
+    </div>
+  `).join('');
+
+  $('#app').innerHTML = `
+    <div class="max-w-5xl mx-auto p-4">
+      <div class="flex items-center justify-between mb-4">
+        <h1 class="text-2xl font-bold text-slate-800">🔌 数据源健康</h1>
+        <a href="#/" class="text-sm text-blue-600 hover:underline">← 返回首页</a>
+      </div>
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 mb-4 flex items-center justify-between">
+        <div>
+          <div class="text-sm text-slate-500">总体状态</div>
+          <div class="text-2xl font-bold mt-1">${overallBadge(data.overall)}</div>
+        </div>
+        <div class="text-right text-sm text-slate-600">
+          <div>OK: <span class="font-bold text-green-600">${data.summary.ok}</span> / ${data.summary.total}</div>
+          <div>Degraded: <span class="text-amber-600">${data.summary.degraded}</span></div>
+          <div>Down: <span class="text-red-600">${data.summary.down}</span></div>
+          ${data.avg_latency_ms ? `<div class="mt-1 text-xs text-slate-400">avg ${data.avg_latency_ms}ms</div>` : ''}
+        </div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">${sourceCards}</div>
+      <div class="text-xs text-slate-400 mt-4">检测时间: ${data.checked_at}</div>
+    </div>
+  `;
+}

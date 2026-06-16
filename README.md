@@ -1,28 +1,29 @@
 # 2026 FIFA World Cup 赛事分析平台 · 工程交付
 
-> **文档版本**：v0.4.0（StatsBomb Elo 双数据源，2026-06-15）
-> **阶段**：Phase 5 – Ship（v0.4.0 StatsBomb Elo 双数据源）
-> **作用域**：48 强全量赛程 + worldcup26.ir 实时同步 + Elo-Poisson v2（含 form/H2H）+ **StatsBomb 双数据源对比** + 出线模拟器 + Bracket 淘汰赛路线图 + 手动兜底 + CSV 导出 + 历史交锋详情页
+> **文档版本**：v0.6.0（准确率 dashboard + 3 模型横评 + 历史回填，2026-06-16）
+> **阶段**：Phase 5 – Ship（v0.6.0 模型对比 + 偏差分析）
+> **作用域**：48 强全量赛程 + worldcup26.ir 实时同步 + Elo-Poisson v2（含 form/H2H）+ **StatsBomb 双数据源对比** + 出线模拟器 + Bracket 淘汰赛路线图 + **市场赔率模块 M3（管理员手动录入 + value bet 算法）** + 手动兜底 + CSV 导出 + 历史交锋详情页
 
 ---
 
 ## 一、范围与定位
 
-### 1.1 范围（v0.3.0 已交付）
+### 1.1 范围（v0.5.0 已交付）
 
 | 已交付 | 范围 |
 |---|---|
-| ✅ 静态 H5 前端（中文、深色） | 首页/赛程/积分榜/球队/比赛详情/Elo 实力榜/历史交锋/出线模拟器/Bracket 晋级路线图；Tailwind + 移动优先；hash SPA |
-| ✅ 后端 API（FastAPI · 34 端点） | matches (4) / teams (3) / groups (1) / predictions (2) / elo (7) / h2h (2) / simulator (1) / bracket (1) / admin (4) / admin_sync (7) / health |
-| ✅ Elo-Poisson v2 预测 | M1 纯 Elo + Dixon-Coles + M2 增强（form + H2H 加权因子），双返回 v1/v2；**v0.4.0 新增 StatsBomb 数据源切换 + Hicruben/StatsBomb 预测对比** |
+| ✅ 静态 H5 前端（中文、深色） | 首页/赛程/积分榜/球队/比赛详情/Elo 实力榜/历史交锋/出线模拟器/Bracket 晋级路线图/赔率分析；Tailwind + 移动优先；hash SPA |
+| ✅ 后端 API（FastAPI · 40 端点） | matches (4) / teams (3) / groups (1) / predictions (2) / elo (7) / h2h (2) / simulator (1) / bracket (1) / **odds (3) · M3** / admin (4) / admin_sync (7) / **admin_odds (3) · M3** / health |
+| ✅ Elo-Poisson v2 预测 | M1 纯 Elo + Dixon-Coles + M2 增强（form + H2H 加权因子），双返回 v1/v2；v0.4.0 新增 StatsBomb 数据源切换 + Hicruben/StatsBomb 预测对比 |
+| ✅ 市场赔率模块 M3 | match_odds 表 + 3 个 admin 录入端点（单条/批量/删除）+ 3 个公开查询端点（单场赔率/赔率 vs Elo 对比/价值投注 TOP N）+ value bet 算法（模型概率 / 市场隐含概率 - 1）+ 前端 3 处接入（matchCard 角标 / match detail 详情卡 / 独立 `/#/odds` 页面） |
 | ✅ 出线模拟器 | `/api/simulator/groups` + 前端交互式界面 |
 | ✅ Bracket 淘汰赛路线图 | `/api/bracket` 自动计算 32 强（12 组前 2 + 8 个最佳第三）+ 16 场 R32 对阵 + Elo 胜率预测；`#/bracket` 真实数据渲染 |
 | ✅ CSV 导出 | Elo 页 "导出 CSV" 按钮（48 队全榜 + 10 字段 + UTF-8 BOM）|
 | ✅ 历史交锋详情页 | 路由 `#/h2h/{code1}/{code2}` + 视角归一 + 9 队非参赛队 fallback |
-| ✅ 数据导入 | worldcup26.ir 实时同步（每 15min 调度 + 启动时立即同步）+ worldcupstats.football 备份 + 手动兜底 |
-| ✅ 手动管理接口 | 11 端点（比分/事件/统计/Bracket 重建/同步触发/缓存失效/form 回填/H2H 回填/备份源调度/回测运行），需 `X-Admin-Token` |
-| ✅ 比赛详情 | events / stats / 赛后复盘卡片（B4）/ weather |
-| ✅ 自动化测试 | **152 项**单元 + 集成 + **7 项** Playwright E2E，全部通过 |
+| ✅ 数据导入 | worldcup26.ir 实时同步（每 15min 调度 + 启动时立即同步）+ worldcupstats.football 备份 + 手动兜底 + 赔率 admin 录入 |
+| ✅ 手动管理接口 | 14 端点（比分/事件/统计/Bracket 重建/同步触发/缓存失效/form 回填/H2H 回填/备份源调度/回测运行/**赔率 3 端点**），需 `X-Admin-Token` |
+| ✅ 比赛详情 | events / stats / 赛后复盘卡片（B4）/ weather / **赔率卡（去 vig 市场概率 + 价值投注高亮）** |
+| ✅ 自动化测试 | **193 项**单元 + 集成（**+41 M3**）+ **11 项** Playwright E2E（**+4 M3**），全部通过 |
 
 ### 1.2 Non-Goals
 
@@ -219,7 +220,7 @@ alembic revision --autogenerate -m "改了什么"
 
 ---
 
-## 六、API 速查（v0.4.0 共 34 端点，含 /health）
+## 六、API 速查（v0.5.0 共 40 端点，含 /health）
 
 ### 6.1 核心数据 API
 
@@ -257,12 +258,15 @@ alembic revision --autogenerate -m "改了什么"
 | GET | `/api/elo/backtest` | 4 年 walk-forward 回测指标（Hicruben）|
 | GET | `/api/predictions/cache/stats` | 缓存统计（命中率/总条数）|
 
-### 6.3 H2H + 模拟器
+### 6.3 H2H + 模拟器 + 赔率（v0.5.0 M3）
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/h2h/{code1}/{code2}` | 两队所有直接对决 + 胜负条（视角归一）|
 | GET | `/api/simulator/groups` | 出线模拟器（基于当前 standings）|
+| GET | `/api/matches/{id}/odds` | **M3** 单场赔率（各 bookmaker + consensus 平均 + 去 vig 市场概率）|
+| GET | `/api/odds/compare` | **M3** 所有未完赛比赛：赔率(consensus) vs Elo 概率 + value bet |
+| GET | `/api/odds/value-bets?min_rate=0.05` | **M3** 价值投注 TOP N（best_value_rate ≥ 阈值）|
 
 ### 6.4 管理 API（需 `X-Admin-Token`）
 
@@ -275,6 +279,9 @@ alembic revision --autogenerate -m "改了什么"
 | POST | `/api/admin/matches/{id}/stats` | 手动录入赛后统计 |
 | POST | `/api/admin/standings/{group_name}` | 手动录入积分榜 |
 | POST | `/api/admin/bracket/rebuild` | 手动触发 Bracket 重算（v0.3.0）|
+| POST | `/api/admin/odds` | **M3** 手动录入单条赔率（同 match_id+bookmaker 覆盖）|
+| POST | `/api/admin/odds/batch` | **M3** 批量录入赔率（含失败明细）|
+| DELETE | `/api/admin/odds/{id}` | **M3** 删除单条赔率 |
 
 **6.4.2 数据同步 + 缓存**（前缀 `/api/admin/sync/`）
 
@@ -599,6 +606,209 @@ else:
 
 ---
 
+## 七·H、v0.5.0 市场赔率模块 M3（市场预期 vs Elo 模型对比）
+
+### 1. 设计目标
+
+为比赛引入"市场预期"（博彩公司隐含概率）这一第三方视角，与 Elo 模型预测对比，识别**价值投注机会**（value bet = 模型概率被市场低估）。
+
+> ⚠️ 重要声明：本模块仅供分析参考，**不构成投注建议**。赔率数据由管理员手动录入（v0.5.0），未来 v0.5.1+ 可接入 football-data.co / The Odds API。
+
+### 2. 数据模型
+
+```sql
+CREATE TABLE match_odds (
+    id INTEGER PRIMARY KEY,
+    match_id INTEGER NOT NULL,  -- FK matches.id
+    bookmaker VARCHAR(50),       -- bet365/pinnacle/avg_market
+    home_win FLOAT,              -- decimal 欧式赔率（1.01 ~ 1000.0）
+    draw FLOAT,
+    away_win FLOAT,
+    over_2_5 FLOAT,
+    under_2_5 FLOAT,
+    fetched_at DATETIME,
+    source VARCHAR(20) DEFAULT 'manual'  -- manual/history/api
+);
+CREATE INDEX idx_match_odds_match_id ON match_odds(match_id);
+```
+
+**关键设计**：
+- 同 `match_id + bookmaker` **覆盖式更新**（同一博彩公司多次刷新只保留最新）
+- 多家公司并行存在 → `consensus` 取平均
+- 赔率范围 `[1.01, 1000.0]` 校验
+
+### 3. 核心算法
+
+```python
+# 1. decimal 赔率 → 隐含概率（去 vig 前）
+decimal_to_implied_prob(2.10) == 0.4762  # 47.62%
+
+# 2. 归一化消除博彩公司利润（vig）
+remove_vig([0.5, 0.3, 0.24])  # sum=1.04 → [0.481, 0.288, 0.231]，sum=1.0
+
+# 3. 价值投注率
+value_bet(model_prob=0.55, market_prob=0.48) == 0.146  # +14.6%
+# > +5%:  强价值，理论上值得投注
+# 0 ~ +5%: 边缘价值
+# < 0:    模型认为被高估
+```
+
+参考：Kelly Criterion (1956) · "Trading Bases" by Joe Peta · Dixon-Coles (1997)
+
+### 4. API 端点（v0.5.0 新增 6 个）
+
+| 端点 | 用途 | 鉴权 |
+|---|---|---|
+| `POST /api/admin/odds` | 单条录入（覆盖式） | X-Admin-Token |
+| `POST /api/admin/odds/batch` | 批量录入（含失败明细） | X-Admin-Token |
+| `DELETE /api/admin/odds/{id}` | 删除单条 | X-Admin-Token |
+| `GET /api/matches/{id}/odds` | 单场赔率 + consensus + 去 vig 市场概率 | 公开 |
+| `GET /api/odds/compare` | 所有未完赛比赛：赔率 vs Elo + value bet | 公开 |
+| `GET /api/odds/value-bets?min_rate=0.05` | 价值投注 TOP N（按 rate 降序）| 公开 |
+
+### 5. 前端接入（3 处）
+
+1. **matchCard 底部**（首页/赛程/球队详情/今日比赛）：小型赔率角标（主/平/客 1X2 赔率）
+2. **match detail 页**：完整赔率卡片（各家赔率 + consensus + 市场概率 + vig 透明度）
+3. **`/#/odds` 独立页面**：所有未完赛比赛赔率 vs Elo 对比 + 价值投注 TOP 5 高亮（amber 色）
+
+### 6. 数据来源策略
+
+| 来源 | 用途 | 状态 |
+|---|---|---|
+| Admin 手动录入 | 主路径（v0.5.0） | ✅ 已实现 |
+| 历史回测赔率 | 用于回测 Elo vs 市场历史胜率 | 🔜 v0.5.1 |
+| football-data.co API | 2026 实时赔率（免费层 10 req/min） | 🔜 v0.5.1 |
+| The Odds API | 高级赔率源（500 req/月免费） | ❌ 不接入（零预算） |
+
+### 7. 验证（41 + 4 测试全过）
+
+- `tests/test_odds_service.py`：**18/18 通过**（归一化/vig/value_bet/aggregate 边界）
+- `tests/test_admin_odds.py`：**13/13 通过**（鉴权/覆盖/批量/删除/无效赔率）
+- `tests/test_odds_api.py`：**10/10 通过**（单场/对比/价值投注/limit/min_rate）
+- 全量 `pytest tests/`：**193 passed, 1 skipped**（零回归）
+- Playwright E2E `tests/e2e/test_odds.py`：**4/4 通过**（页面/抽屉入口/详情卡/375px 移动端）
+
+### 8. 不做的事（scope 纪律）
+
+- ❌ 实时推送（SSE/WebSocket）
+- ❌ VIP 赔率源（Pinnacle 收费 API）
+- ❌ 赔率走势图表（v0.5.1）
+- ❌ 不修改 Elo 模型（独立模块，零侵入）
+
+详见 `deliverables/v0.5.0_odds_completion_report.md`。
+
+---
+
+## 七·I、v0.5.1 赔率走势图表 + football-data.co 接入 + 6h 周期刷新
+
+### 1. 设计目标
+
+在 v0.5.0 静态赔率基础上,补齐三件事:
+1. **赔率时间序列** —— 用 snapshot 表记录每次赔率变化,前端 Chart.js 折线图可视化
+2. **football-data.co 元数据源** —— 备用交叉验证(免费层 10 req/min,需 token)
+3. **6h 周期刷新** —— 自动给现有赔率打 snapshot,长跑后走势曲线自动丰富
+
+### 2. 数据模型:odds_snapshots
+
+```sql
+CREATE TABLE odds_snapshots (
+    id INTEGER PRIMARY KEY,
+    match_id INTEGER NOT NULL,     -- FK matches.id
+    bookmaker VARCHAR(50),
+    home_win / draw / away_win FLOAT,
+    over_2_5 / under_2_5 FLOAT,
+    snapshot_at DATETIME NOT NULL,  -- 时间锚点(走势曲线 X 轴)
+    source VARCHAR(20)              -- snapshot / manual / api
+);
+-- 复合索引:走势查询主索引
+CREATE INDEX ix_odds_snap_match_book_time
+    ON odds_snapshots(match_id, bookmaker, snapshot_at);
+```
+
+**种子迁移**(`b9c4d8e2f1a3`)：v0.5.0 的 9 条 seed 赔率自动复制为初始 snapshot(`source='manual_seed_migrated'`),零数据丢失。
+
+### 3. football-data.co 客户端(`app/services/football_data.py`)
+
+| 特性 | 实现 |
+|---|---|
+| 速率限制 | 滑动窗口 10 req/min(Deque 记录 60s 时间戳) |
+| 内存缓存 | 15min TTL(dict 存 `(ts, data)`) |
+| 异常分类 | `ApiKeyMissingError`(401)/ `RateLimitedError`(429)/ `FootballDataHttpError`(5xx) |
+| 测试友好 | `httpx.MockTransport` 注入 mock |
+| 端点支持 | `get_matches_by_date_range` / `get_team` / `get_competition_standings` / `get_competitions` |
+
+**配置(主人需注册免费 token)**:
+```env
+FOOTBALL_DATA_ENABLED=true
+FOOTBALL_DATA_API_KEY=<your_free_token>  # 注册:https://www.football-data.org/
+```
+
+### 4. 6h 周期刷新(`app/services/periodic_refresh.py`)
+
+```python
+def run_periodic_refresh(db, fb_client=None) -> dict:
+    # Step 1: 给所有现有 MatchOdds 追加 snapshot(去重 2s 窗口)
+    # Step 2: 可选 fb-data 元数据更新(status / score)
+    # Step 3: 写 ApiUsageLog
+```
+
+**scope 最小化原则**:
+- ✅ fb-data 元数据 + odds 快照打点
+- ❌ **不**覆盖 wc26 主同步(15min 实时比分不变)
+- ❌ **不**重算 Elo(CPU 密集,数据稳定)
+
+**lifespan startup 立即跑一次**(避免 6h 调度窗口期数据 stale)。
+
+### 5. API 端点
+
+| 端点 | 用途 |
+|---|---|
+| `GET /api/matches/{id}/odds/history` | 单场赔率时间序列(多公司多时间点) |
+| `?bookmaker=bet365` | 过滤单家公司 |
+
+**响应结构**(直接喂给 Chart.js datasets):
+```json
+{
+  "match_id": 1,
+  "has_history": true,
+  "bookmakers": ["bet365", "pinnacle", "williamhill"],
+  "series": {
+    "bet365": [{"t": "2026-06-15T12:00", "home_win": 1.85, ...}],
+    "pinnacle": [...]
+  },
+  "count": 9
+}
+```
+
+### 6. 前端 Chart.js 折线图(`#odds-trend-chart`)
+
+- 集成在 match detail 页(在 renderOddsDetail 之后)
+- 三个 tab:主胜 / 平 / 客胜(切换 dataset)
+- 6 种颜色区分不同 bookmaker
+- 移动端 375px 布局 OK(canvas 自适应)
+- 引入 Chart.js 4.4.0 CDN(`jsdelivr.net`)
+
+### 7. 测试
+
+| 类型 | 数量 | 覆盖 |
+|---|---|---|
+| 单元 | 17 + 6 + 11 = **34 项** | football_data 客户端 + history API + periodic_refresh |
+| 集成 | (含在上述) | snapshot 幂等性 / fb-data 错误处理 / scheduler 注册 |
+| E2E | **4 项** | canvas 渲染 / 三个 tab / 切换 / 移动端 375px |
+
+**全量回归**:220 passed + 1 skipped(基线 198 → 232 项)+ 15 E2E(基线 11 → 15 项)。
+
+### 8. 已知限制
+
+- **football-data.co 免费层无赔率端点** —— 走势曲线初始平坦(自动打点值不变),未来接付费赔率 API 即可激活真实波动
+- **赔率走势需要时间积累** —— 6h 一打点,10 天后才有 40+ 时间点呈现明显波动
+- **fb-data token 需主人注册** —— 没 token 时该模块优雅 skip,不影响其他功能
+
+详见 `deliverables/v0.5.1_*_completion_report.md`。
+
+---
+
 ## 八、风险与监控
 
 | 风险 | 状态 | 兜底 |
@@ -610,14 +820,13 @@ else:
 
 ---
 
-## 九、下一阶段（v0.5+）
+## 九、下一阶段（v0.5.2+）
 
-1. **API-Football 实时层**（配置 Key 后启用）+ 配额监控
-2. **WebSocket / SSE 推送**（替代轮询，轻量）
+1. **历史赔率回测**（用 2018-2024 历史赔率做 Elo vs 市场历史胜率对比）
+2. **付费赔率 API 接入**（oddsapi.com / pinnacle 商业 feed，让走势曲线出现真实波动）
 3. **PWA 离线缓存**（赛前 1h 下载比赛包）
 4. **球员 360° 档案**（手动 + Transfermarkt 自托管）
 5. **xG 数据接入**（基于 StatsBomb Open Data event 数据做射门质量建模）
-6. **多模型集成预测**（Hicruben + StatsBomb + 可选第三方模型加权）
 
 ---
 
@@ -639,3 +848,6 @@ else:
 | 2026-06-15 | **v0.3.0** | **Bracket 真实数据接入**：(1) 新增 `app/services/bracket_logic.py` — 12 组排名、8 个最佳小组第三、2026 Annex C R32 对阵生成、Elo 预测；(2) 新增 `GET /api/bracket` 返回完整对阵树（R32/R16/QF/SF/3rd/Final）；(3) 新增 `POST /api/admin/bracket/rebuild` 手动触发重算；(4) 前端 `/#/bracket` 接入 `/api/bracket` 真实数据，渲染 Elo 胜率条；(5) 新增 `tests/test_bracket.py` 12 项单元/集成测试；(6) 新增 Playwright E2E `test_bracket_page_renders`；(7) **README v0.3.0 更新**：API 端点 33 个，测试 130+7 项；**130 项 pytest + 7 项 Playwright E2E 全绿** |
 | 2026-06-15 | **v0.3.1** | **Bracket 自动重算**：(1) 新增 `bracket_logic.should_auto_rebuild()` — 无状态判断小组赛是否全部结束且 R32 尚未落位；(2) 扩展 `app/services/scheduler.py`，注册每 15 分钟一次的 `_job_bracket_auto_rebuild` 任务，满足条件时自动调用 `rebuild_bracket()`；(3) 防重复触发：R32 全部填入真实球队后不再执行；(4) 扩展 `tests/test_bracket.py`：5 项新测试覆盖 `should_auto_rebuild` 三种状态 + scheduler job 触发/跳过；(5) 版本号 bump 至 0.3.1；**136 项 pytest + 7 项 Playwright E2E 全绿** |
 | 2026-06-15 | **v0.4.0** | **StatsBomb Elo 双数据源**（对比源，Hicruben 保持默认）：(1) 新增 `app/services/statsbomb_elo.py` + `scripts/download_statsbomb.py` + `scripts/build_statsbomb_from_extracted.py`，基于 StatsBomb Open Data 309 场国际大赛训练中性场地 Elo；(2) `app/services/elo.py` 全接口支持 `source=hicruben|statsbomb`，缺失球队自动 fallback 到 Hicruben；(3) `app/routers/elo.py` 所有 Elo 端点加 source 参数，新增 `GET /api/elo/compare/{home}/{away}` 并排对比；(4) 前端 Elo 页加数据源切换按钮、StatsBomb 说明与 fallback 提示；(5) 新增 `data/seed/statsbomb/statsbomb_elo.json` + `attribution.md` 满足许可证要求；(6) 新增 `tests/test_statsbomb_elo.py` 16 项测试；(7) 版本号 bump 至 0.4.0；**152 项 pytest + 7 项 Playwright E2E 全绿** |
+| 2026-06-15 | **v0.5.0** | **市场赔率模块 M3**（手动录入 + value bet 算法）：(1) 新增 `match_odds` 表 + Alembic 迁移 `b1c5e7f9a2d3`；(2) 新增 `app/services/odds_service.py` — `decimal_to_implied_prob` / `remove_vig` / `value_bet` / `compute_market_probabilities` / `compare_odds_vs_elo` / `aggregate_multi_bookmaker`；(3) 新增 `app/routers/admin_odds.py` — `POST /api/admin/odds`（单条覆盖式）+ `POST /api/admin/odds/batch`（批量 + 失败明细）+ `DELETE /api/admin/odds/{id}`，均需 `X-Admin-Token`；(4) 新增 `app/routers/odds.py` — `GET /api/matches/{id}/odds`（consensus + 去 vig 市场概率）+ `GET /api/odds/compare`（未完赛 vs Elo）+ `GET /api/odds/value-bets?min_rate=0.05`（TOP N 价值投注）；(5) 前端 3 处接入 — matchCard 底部赔率角标、match detail 完整赔率卡（含 vig 透明度）、新页面 `/#/odds`（价值投注高亮 amber）；(6) 新增 `tests/test_odds_service.py` (18) + `tests/test_admin_odds.py` (13) + `tests/test_odds_api.py` (10) + `tests/e2e/test_odds.py` (4)；(7) 版本号 bump 至 0.5.0；(8) README §七·H 新增 M3 详细文档；(9) ⚠️ 重要声明：本模块**仅供分析参考，不构成投注建议**，v0.5.1+ 可接入 football-data.co API；**193 项 pytest + 11 项 Playwright E2E 全绿** |
+| 2026-06-15 | **v0.5.1** | **赔率走势 + 多源数据接入 + 6h 周期刷新**：(1) 新增 `app/services/football_data.py` — httpx 客户端 + 滑动窗口限速(10 req/min) + 内存缓存(15min TTL) + 异常分类 + `httpx.MockTransport` 注入测试；(2) 新增 `OddsSnapshot` 表 + Alembic 迁移 `b9c4d8e2f1a3`（自动从 v0.5.0 `match_odds` 迁移 9 条种子）+ 复合索引 `(match_id, bookmaker, snapshot_at)`；(3) 新增 `GET /api/matches/{id}/odds/history` 端点（按 bookmaker 分组 + 时间升序 + 支持过滤）；(4) 新增 `app/services/periodic_refresh.py` — `take_odds_snapshots`（2s 窗口去重幂等）+ `refresh_match_metadata_from_football_data`（仅当 enabled + 有 key 时执行，失败写 ApiUsageLog）+ `run_periodic_refresh` 编排；(5) 扩展 `app/services/scheduler.py` — 新增 `_job_periodic_refresh` 6h 调度 + lifespan startup 立即跑一次避免 stale；(6) 前端 `app/static/index.html` + `js/app.js` — Chart.js 4.4.0 CDN + 走势图 canvas + 三个 tab(主胜/平/客胜) + 移动端 375px 适配；(7) 新增 `tests/test_football_data.py` (17) + `tests/test_odds_history_api.py` (6) + `tests/test_periodic_refresh.py` (11) + `tests/e2e/test_odds_trend.py` (4)；(8) 版本号 bump 至 0.5.1；(9) ⚠️ **football-data.co 实际需要免费 token**（5 分钟注册，主人需在 .env 填 `FOOTBALL_DATA_API_KEY=<token>`）；**220 项 pytest + 15 项 Playwright E2E 全绿**；详见 `deliverables/v0.5.1_completion_report.md` |
+| 2026-06-16 | **v0.6.0** | **准确率 dashboard + 历史回填 + 3 模型横评**：(1) 新增 `app/services/glicko2.py` (351 行) — Python 原生 Glicko-2 实现（无第三方依赖，含 RD 衰减 + 12 期窗口 + 双排名期 vol/rating 同步更新）；(2) 新增 `PredictionLog` 表 + Alembic 迁移 `c4f7b9e1a2d3`（记录"赛前预测概率 + 实际结果"回测用）；(3) 新增 `app/services/prediction_log.py` (297 行) — `record_prediction` / `settle_pending_predictions` / `compute_accuracy_stats`（综合准确率 + 1X2 胜率分布 + RPS/Brier/LogLoss）+ `get_top_prediction_bias`（Top N 偏差复盘，主队高估 / 客队高估 / 平局高估）+ Brier/LogLoss 辅助函数；(4) 新增 4 端点：`GET /api/elo/glicko2-ratings` + `GET /api/elo/glicko2-metrics`（Glicko-2 独立指标：RD/σ/volatility 分布）+ `GET /api/elo/accuracy-stats`（含 Glicko-2 横评）+ `GET /api/elo/top-bias?limit=10`（可按偏差方向过滤）；(5) 前端 3 处接入 — `/#/cockpit` mini-card 3 模型横评 + `/#/accuracy` 完整 3 模型对比表（含 RPS/Brier/LogLoss/Top 偏差）+ `/#/odds` "数据更新于 X 分钟前"（呼吸圆点 + 颜色分级）；(6) 新增 `scripts/backfill_prediction_log.py` (285 行) — walk-forward 913 场 Hicruben 数据，1x2 + 实际结果写入 prediction_log，产物 `data/prediction_log_backfill.jsonl`（1826 行 = 913 Elo + 913 Glicko-2）+ `data/backfill_report.md`；(7) 新增 `tests/test_glicko2.py` (17) + `tests/test_prediction_log.py` (15)；(8) 版本号 bump 至 0.6.0；(9) **Glicko-2 实测 62.65% vs Elo 56.63%（+6.02 pp），Top 10 偏差显示"主队轻微高估 + 平局低估"** —— 后续 v0.7+ 可考虑 market blend 校准；**276 项 pytest + 1 skipped + 15 项 Playwright E2E 全绿**；详见 `deliverables/v0.6.0_completion_report.md` + `data/backfill_report.md` |

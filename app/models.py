@@ -198,6 +198,63 @@ class H2HHistoricalMatch(Base):
     neutral_venue = Column(Boolean, default=True)  # 大赛一般中立场
 
 
+class MatchOdds(Base):
+    """M3 比赛赔率（市场预期视角，与 Elo 预测对比）.
+
+    - 来源：管理员手动录入、历史回测、API 接入（v0.5.1+）
+    - 赔率格式：decimal（欧式），如 2.10 表示 1 元本金回报 2.10 元
+    - 一场比赛可有多条赔率记录（不同博彩公司），通过 fetched_at 区分最新
+    """
+
+    __tablename__ = "match_odds"
+
+    id = Column(Integer, primary_key=True, index=True)
+    match_id = Column(Integer, ForeignKey("matches.id"), nullable=False, index=True)
+    bookmaker = Column(String(50), nullable=False, default="avg_market")  # bet365/pinnacle/avg_market
+    home_win = Column(Float, nullable=True)   # 主胜赔率
+    draw = Column(Float, nullable=True)       # 平局赔率
+    away_win = Column(Float, nullable=True)   # 客胜赔率
+    over_2_5 = Column(Float, nullable=True)   # 大球 2.5 赔率
+    under_2_5 = Column(Float, nullable=True)  # 小球 2.5 赔率
+    fetched_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    source = Column(String(20), default="manual")  # manual/history/api
+
+    match = relationship("Match")
+
+
+class OddsSnapshot(Base):
+    """v0.5.1 单场比赛每家公司每个时间点的赔率快照（用于走势图表）.
+
+    设计动机:
+    - match_odds 表只保留"每家公司最新一条"
+    - 走势图表需要历史时序数据 → 独立 snapshot 表
+    - 6h 调度器自动给所有现有赔率追加 snapshot(即使值不变也记录,提供时间锚点)
+    - 未来接入付费赔率 API 直接 INSERT 本表即可
+
+    字段语义:
+    - snapshot_at: 时间锚点（UTC），走势曲线 X 轴
+    - source: 数据来源(snapshot 自动打点 / manual 管理员录入 / api 外部 API)
+    - 复合索引 (match_id, bookmaker, snapshot_at) 加速单场单公司历史查询
+    """
+
+    __tablename__ = "odds_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    match_id = Column(Integer, ForeignKey("matches.id"), nullable=False, index=True)
+    bookmaker = Column(String(50), nullable=False, index=True)
+    home_win = Column(Float, nullable=True)
+    draw = Column(Float, nullable=True)
+    away_win = Column(Float, nullable=True)
+    over_2_5 = Column(Float, nullable=True)
+    under_2_5 = Column(Float, nullable=True)
+    snapshot_at = Column(
+        DateTime, default=lambda: datetime.now(timezone.utc), index=True, nullable=False
+    )
+    source = Column(String(20), default="snapshot")  # snapshot/manual/api
+
+    match = relationship("Match")
+
+
 class TeamEloRating(Base):
     """M1 球队历史评分（多源聚合）.
 
@@ -224,3 +281,61 @@ class TeamEloRating(Base):
     scraped_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     team = relationship("Team")
+
+
+class PredictionLog(Base):
+    """v0.6.0 预测日志 - 追踪每次预测 vs 实际, 自动计算准确率.
+
+    字段语义:
+    - match_id: 比赛 ID (外键)
+    - model_version: 'v1_elo' | 'v2_elo_enhanced' | 'v3_glicko2'
+    - predicted_at: 预测时戳 (UTC)
+    - pred_home_win/draw/away_win: 3 个概率, sum=1
+    - actual_home_score/away_score: 比赛完后回填
+    - actual_outcome: 'home'|'draw'|'away'
+    - predicted_outcome: 'H'|'D'|'A'
+    - correct: 1=正确, 0=错, NULL=未结算
+    - brier_score: (p-actual)² 3-class
+    - log_loss: -log(p_actual)
+    - elo_home/elo_away: 当时的 rating 快照 (用于复盘)
+
+    查询模式:
+    1. 全部已结算: WHERE correct IS NOT NULL
+    2. 单场历史: WHERE match_id = ? AND model_version = ?
+    3. 全局准确率: SELECT AVG(correct), COUNT(*), model_version GROUP BY
+
+    索引:
+    - (match_id, model_version): 单场单模型历史
+    - (correct): 已结算筛选
+    - (model_version, predicted_at): 按模型 + 时间窗口
+    """
+
+    __tablename__ = "prediction_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+    match_id = Column(Integer, ForeignKey("matches.id"), nullable=False, index=True)
+    model_version = Column(String(30), nullable=False, index=True)
+    predicted_at = Column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True
+    )
+    # 预测输出
+    pred_home_win = Column(Float, nullable=False)
+    pred_draw = Column(Float, nullable=False)
+    pred_away_win = Column(Float, nullable=False)
+    predicted_outcome = Column(String(1), nullable=False)  # H/D/A
+    # 实际结果 (比赛完后回填)
+    actual_home_score = Column(Integer, default=None)
+    actual_away_score = Column(Integer, default=None)
+    actual_outcome = Column(String(4), default=None)  # home/draw/away
+    correct = Column(Integer, default=None, index=True)  # 1/0/NULL
+    # 评估指标
+    brier_score = Column(Float, default=None)
+    log_loss = Column(Float, default=None)
+    # 评分快照
+    elo_home = Column(Integer, default=None)
+    elo_away = Column(Integer, default=None)
+    # 来源
+    source = Column(String(20), default="hicruben")  # hicruben/statsbomb/glicko2
+    settled_at = Column(DateTime, default=None)  # 结算时戳
+
+    match = relationship("Match")
