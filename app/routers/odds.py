@@ -1,4 +1,4 @@
-"""赔率查询 API（M3 + v0.5.1 走势 + v0.7.2 模型对比）.
+"""赔率查询 API（M3 + v0.5.1 走势 + v0.7.2 模型对比 + v0.7.2.3 走势对比）.
 
 Endpoint:
   GET /api/matches/{id}/odds              单场赔率 + 市场隐含概率（去 vig）
@@ -8,17 +8,20 @@ Endpoint:
   GET /api/odds/service-status            v0.7.2 赔率服务状态(provider/key/cached)
   POST /api/admin/odds/fetch-and-upsert   v0.7.2 手动触发 fetch + upsert(admin)
 
-v0.7.2 新增 5 端点:
+v0.7.2 新增 3 端点:
   GET /api/odds/compare-model             模型 vs 赔率对比(支持 blend/elo/glicko2)
   GET /api/odds/value-bets-model          价值投注 v2(支持 3 档 tier)
   POST /api/admin/odds/fetch              手动 fetch + upsert
+
+v0.7.2.3 新增 1 端点:
+  GET /api/odds/{match_id}/history-comparison  赔率 vs 模型概率走势对齐(双 Y 轴)
 
 所有端点公开,无需鉴权(admin 端点除外).
 """
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -32,7 +35,11 @@ from app.services.model_odds_compare import (
     compare_match_odds,
     find_value_bets,
 )
-from app.services.odds_api_client import service_status
+from app.services.odds_api_client import (
+    build_odds_model_history,
+    compute_divergence_summary,
+    service_status,
+)
 from app.services.elo import predict_match
 from app.schemas import OddsOut
 
@@ -399,6 +406,52 @@ def value_bets_model(
 def odds_service_status() -> dict:
     """v0.7.2 赔率服务状态:provider/key/rate_limit/cache_ttl."""
     return service_status()
+
+
+@router.get("/odds/{match_id}/history-comparison")
+def get_odds_history_comparison(
+    match_id: int,
+    model: str = Query("blend", description="elo | glicko2 | blend"),
+    hours: int = Query(72, ge=1, le=720, description="回看小时数"),
+    min_points: int = Query(3, ge=1, le=100, description="最少几个时点才返回 200"),
+    db: Session = Depends(get_db),
+):
+    """v0.7.2.3 赔率 vs 模型概率走势对比.
+
+    对齐 OddsSnapshot(市场) + PredictionLog(模型)同一时间窗,返回每时点
+    双方隐含/直接概率。前端用 Chart.js 双 Y 轴折线图渲染。
+
+    Returns:
+        200: {match_id, model, hours, points: [...], divergence_summary}
+        204: 数据点不足 min_points(尚未录入赔率或模型未预测过)
+        404: 比赛不存在
+    """
+    if model not in ("elo", "glicko2", "blend"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"model 必须是 elo/glicko2/blend, 收到 {model!r}",
+        )
+
+    match = db.query(Match).filter(Match.id == match_id).first()
+    if not match:
+        raise HTTPException(status_code=404, detail="比赛不存在")
+
+    points = build_odds_model_history(db, match_id, model=model, hours=hours)
+    if len(points) < min_points:
+        # 走 204:数据积累中
+        return Response(
+            status_code=204,
+            content="",
+        )
+
+    summary = compute_divergence_summary(points)
+    return {
+        "match_id": match_id,
+        "model": model,
+        "hours": hours,
+        "points": points,
+        "divergence_summary": summary,
+    }
 
 
 @router.post("/admin/odds/fetch")

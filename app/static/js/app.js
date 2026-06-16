@@ -778,6 +778,163 @@ async function loadOddsTrend(matchId) {
   }
 }
 
+// ============ v0.7.2.3: 赔率 vs 模型走势对比 ============
+let _oddsModelHistoryChart = null;
+
+function renderOddsModelHistoryCard() {
+  return `
+    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800 mb-4">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-bold text-amber-400">📊 赔率 vs 模型概率走势</h3>
+        <div class="text-xs text-slate-500">v0.7.2.3</div>
+      </div>
+      <div class="flex gap-1 mb-3">
+        <button class="odds-model-tab px-3 py-1 text-xs rounded bg-amber-500 text-white" data-outcome="home">主胜</button>
+        <button class="odds-model-tab px-3 py-1 text-xs rounded bg-slate-800 text-slate-400" data-outcome="draw">平</button>
+        <button class="odds-model-tab px-3 py-1 text-xs rounded bg-slate-800 text-slate-400" data-outcome="away">客胜</button>
+        <select id="odds-model-select" class="ml-auto px-2 py-1 text-xs rounded bg-slate-800 text-slate-300 border border-slate-700">
+          <option value="blend" selected>Blend 模型</option>
+          <option value="elo">Elo</option>
+          <option value="glicko2">Glicko-2</option>
+        </select>
+      </div>
+      <div id="odds-model-empty" class="text-sm text-slate-500">数据积累中(需要至少 3 个时点)</div>
+      <div id="odds-model-chart-wrapper" class="hidden">
+        <div class="flex items-center gap-3 text-xs text-slate-400 mb-2">
+          <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5 bg-amber-400"></span>市场概率(去 vig)</span>
+          <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5 border-t border-dashed border-cyan-400"></span>模型概率</span>
+        </div>
+        <div style="position:relative; height: 220px;">
+          <canvas id="odds-model-chart"></canvas>
+        </div>
+        <div id="odds-model-summary" class="mt-3 text-xs text-slate-400"></div>
+      </div>
+    </div>
+  `;
+}
+
+async function loadOddsModelHistory(matchId) {
+  // v0.7.2.3 赔率 vs 模型概率走势对比
+  // 双 Y 轴:左轴市场概率 / 右轴模型概率(共用 Y 轴 0-1, 实际没必要双轴)
+  // 用同 Y 轴但不同颜色 + 不同线型区分
+  const selectEl = document.getElementById('odds-model-select');
+  if (!selectEl) return;
+  const model = selectEl.value || 'blend';
+
+  try {
+    const data = await api(`/odds/${matchId}/history-comparison?model=${model}&hours=72&min_points=3`);
+    const emptyEl = document.getElementById('odds-model-empty');
+    const wrapperEl = document.getElementById('odds-model-chart-wrapper');
+
+    if (!data || data.points === undefined) {
+      emptyEl.classList.remove('hidden');
+      emptyEl.textContent = '数据积累中(需要至少 3 个时点)';
+      wrapperEl.classList.add('hidden');
+      return;
+    }
+
+    emptyEl.classList.add('hidden');
+    wrapperEl.classList.remove('hidden');
+
+    const labels = data.points.map(p => {
+      const d = new Date(p.ts);
+      return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+    });
+
+    const buildDatasets = (outcome) => ({
+      market: data.points.map(p => p.market ? p.market[outcome] : null),
+      model: data.points.map(p => p.model ? p.model[outcome] : null),
+    });
+
+    // 销毁旧 chart
+    if (_oddsModelHistoryChart) _oddsModelHistoryChart.destroy();
+
+    const ctx = document.getElementById('odds-model-chart').getContext('2d');
+    const initial = buildDatasets('home');
+    _oddsModelHistoryChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: '市场',
+            data: initial.market,
+            borderColor: '#f59e0b',
+            backgroundColor: '#f59e0b22',
+            tension: 0.25,
+            spanGaps: true,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+          },
+          {
+            label: '模型',
+            data: initial.model,
+            borderColor: '#06b6d4',
+            backgroundColor: '#06b6d422',
+            borderDash: [6, 4],
+            tension: 0.25,
+            spanGaps: true,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {mode: 'index', intersect: false},
+        plugins: {
+          legend: {display: false},
+          tooltip: {callbacks: {label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y != null ? (ctx.parsed.y * 100).toFixed(1) + '%' : '-'}`}},
+        },
+        scales: {
+          y: {title: {display: true, text: '概率(0-1)', color: '#94a3b8'}, min: 0, max: 1, ticks: {color: '#94a3b8', callback: v => (v * 100) + '%'}, grid: {color: '#1e293b'}},
+          x: {ticks: {color: '#94a3b8', maxRotation: 45, minRotation: 0}, grid: {color: '#1e293b'}},
+        },
+      },
+    });
+
+    // 切换 outcome tab
+    const outcomeLabel = {home: '主胜', draw: '平', away: '客胜'};
+    document.querySelectorAll('.odds-model-tab').forEach(tab => {
+      tab.onclick = () => {
+        document.querySelectorAll('.odds-model-tab').forEach(t => {
+          t.classList.remove('bg-amber-500', 'text-white');
+          t.classList.add('bg-slate-800', 'text-slate-400');
+        });
+        tab.classList.remove('bg-slate-800', 'text-slate-400');
+        tab.classList.add('bg-amber-500', 'text-white');
+        const outcome = tab.dataset.outcome;
+        const ds = buildDatasets(outcome);
+        _oddsModelHistoryChart.data.datasets[0].data = ds.market;
+        _oddsModelHistoryChart.data.datasets[1].data = ds.model;
+        _oddsModelHistoryChart.options.scales.y.title.text = `概率 · ${outcomeLabel[outcome]}`;
+        _oddsModelHistoryChart.update();
+      };
+    });
+
+    // 模型切换
+    selectEl.onchange = () => loadOddsModelHistory(matchId);
+
+    // 显示分歧 summary
+    const summary = data.divergence_summary || {};
+    const summaryEl = document.getElementById('odds-model-summary');
+    const favoredZh = {home: '主胜', draw: '平局', away: '客胜'}[summary.market_favored] || '主胜';
+    summaryEl.innerHTML = `
+      分歧度: 主 ${(summary.home_diff_max * 100).toFixed(1)}% ·
+      平 ${(summary.draw_diff_max * 100).toFixed(1)}% ·
+      客 ${(summary.away_diff_max * 100).toFixed(1)}% · 市场更看好 <span class="text-amber-300 font-bold">${favoredZh}</span>
+    `;
+  } catch (err) {
+    console.error('[odds-model-history] 加载失败:', err);
+    const emptyEl = document.getElementById('odds-model-empty');
+    if (emptyEl) {
+      emptyEl.classList.remove('hidden');
+      emptyEl.textContent = '数据积累中(需要至少 3 个时点)';
+    }
+  }
+}
+
 function renderOddsTrendCard() {
   // v0.5.1 返回赔率走势卡片 HTML(主胜/平/客胜 tab + canvas)
   // 占位符,渲染后由 loadOddsTrend(matchId) 填充
@@ -918,6 +1075,7 @@ async function renderMatchDetail(id) {
     ${weatherHtml}
     ${renderOddsDetail(oddsData, home.name_zh, away.name_zh)}
     ${renderOddsTrendCard()}
+    ${renderOddsModelHistoryCard()}
     ${reviewHtml}
 
     <div class="bg-slate-900 rounded-xl p-4 border border-slate-800 mb-4">
@@ -963,6 +1121,8 @@ async function renderMatchDetail(id) {
 
   // v0.5.1: 加载赔率走势图(异步,Chart.js 渲染)
   loadOddsTrend(id);
+  // v0.7.2.3: 加载赔率 vs 模型走势对比
+  loadOddsModelHistory(id);
 }
 
 

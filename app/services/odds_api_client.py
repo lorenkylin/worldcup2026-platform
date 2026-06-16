@@ -25,7 +25,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models import Match, Team
+from app.models import Match, OddsSnapshot, PredictionLog, Team
 
 logger = logging.getLogger(__name__)
 
@@ -296,4 +296,152 @@ def service_status() -> Dict:
         "cache_ttl_seconds": settings.odds_cache_ttl_seconds,
         "default_bookmaker": settings.odds_default_bookmaker,
         "value_bet_threshold": settings.odds_value_bet_threshold,
+    }
+
+
+# === v0.7.2.3 赔率 vs 模型走势对比 ===
+def _decimal_to_vig_free_prob(home: Optional[float], draw: Optional[float], away: Optional[float]) -> Optional[Dict[str, float]]:
+    """decimal 赔率 → 去 vig 隐含概率.
+
+    三项均非空才返回,否则 None(单边缺失不能去 vig).
+    """
+    if not (home and draw and away) or any(o <= 1.0 for o in (home, draw, away)):
+        return None
+    raw = {
+        "home": 1.0 / home,
+        "draw": 1.0 / draw,
+        "away": 1.0 / away,
+    }
+    total = sum(raw.values())
+    if total <= 0:
+        return None
+    return {k: v / total for k, v in raw.items()}
+
+
+def _coerce_utc(value) -> Optional[datetime]:
+    """统一 naive/aware datetime 为 UTC,失败返回 None."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def build_odds_model_history(
+    db: Session,
+    match_id: int,
+    model: str = "blend",
+    hours: int = 72,
+) -> List[Dict]:
+    """对齐 OddsSnapshot + PredictionLog 同一时间窗,返回对比点.
+
+    对齐策略: 对每个 OddsSnapshot 时间点,找 ±5 分钟内最近的 PredictionLog;
+    找不到则 model 字段为 None(前端断开线段)。
+
+    Returns:
+        List of {ts, market: {home, draw, away}, model: {home, draw, away} | None}
+    """
+    if hours <= 0:
+        return []
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    snapshots = (
+        db.query(OddsSnapshot)
+        .filter(OddsSnapshot.match_id == match_id)
+        .filter(OddsSnapshot.snapshot_at >= cutoff)
+        .order_by(OddsSnapshot.snapshot_at.asc())
+        .all()
+    )
+
+    logs = (
+        db.query(PredictionLog)
+        .filter(PredictionLog.match_id == match_id)
+        .filter(PredictionLog.model_version == model)
+        .filter(PredictionLog.predicted_at >= cutoff)
+        .order_by(PredictionLog.predicted_at.asc())
+        .all()
+    )
+
+    points: List[Dict] = []
+    for s in snapshots:
+        s_ts = _coerce_utc(s.snapshot_at)
+        if s_ts is None:
+            continue
+        market = _decimal_to_vig_free_prob(s.home_win, s.draw, s.away_win)
+
+        # 找 ±5 分钟内最近的 PredictionLog
+        nearest_log = None
+        nearest_diff = None
+        for log in logs:
+            log_ts = _coerce_utc(log.predicted_at)
+            if log_ts is None:
+                continue
+            diff = abs((log_ts - s_ts).total_seconds())
+            if diff <= 300:  # 5 分钟
+                if nearest_diff is None or diff < nearest_diff:
+                    nearest_log = log
+                    nearest_diff = diff
+
+        model_dict = None
+        if nearest_log is not None:
+            model_dict = {
+                "home": round(nearest_log.pred_home_win, 4),
+                "draw": round(nearest_log.pred_draw, 4),
+                "away": round(nearest_log.pred_away_win, 4),
+            }
+
+        points.append({
+            "ts": s_ts.isoformat(),
+            "market": (
+                {k: round(v, 4) for k, v in market.items()}
+                if market else None
+            ),
+            "model": model_dict,
+        })
+
+    return points
+
+
+def compute_divergence_summary(points: List[Dict]) -> Dict:
+    """汇总市场 vs 模型分歧度."""
+    if not points:
+        return {
+            "home_diff_max": 0.0,
+            "draw_diff_max": 0.0,
+            "away_diff_max": 0.0,
+            "market_favored": "home",  # 平局默认
+        }
+
+    home_diffs: List[float] = []
+    draw_diffs: List[float] = []
+    away_diffs: List[float] = []
+    home_signed: List[float] = []
+    for p in points:
+        if p.get("market") is None or p.get("model") is None:
+            continue
+        home_diffs.append(abs(p["market"]["home"] - p["model"]["home"]))
+        draw_diffs.append(abs(p["market"]["draw"] - p["model"]["draw"]))
+        away_diffs.append(abs(p["market"]["away"] - p["model"]["away"]))
+        home_signed.append(p["market"]["home"] - p["model"]["home"])
+
+    home_diff_max = max(home_diffs) if home_diffs else 0.0
+    draw_diff_max = max(draw_diffs) if draw_diffs else 0.0
+    away_diff_max = max(away_diffs) if away_diffs else 0.0
+
+    if home_signed:
+        avg_signed = sum(home_signed) / len(home_signed)
+        if avg_signed > 0.05:
+            favored = "home"
+        elif avg_signed < -0.05:
+            favored = "away"
+        else:
+            favored = "draw"
+    else:
+        favored = "home"
+
+    return {
+        "home_diff_max": round(home_diff_max, 4),
+        "draw_diff_max": round(draw_diff_max, 4),
+        "away_diff_max": round(away_diff_max, 4),
+        "market_favored": favored,
     }
