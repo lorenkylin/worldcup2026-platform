@@ -1773,14 +1773,15 @@ async function renderCockpit() {
   app.classList.remove('max-w-2xl');
   app.classList.add('max-w-none', 'px-4');
 
-  let today, allMatches, groups, teams, accuracy;
+  let today, allMatches, groups, teams, accuracy, weightSweep;
   try {
-    [today, allMatches, groups, teams, accuracy] = await Promise.all([
+    [today, allMatches, groups, teams, accuracy, weightSweep] = await Promise.all([
       apiWithRetry('/matches/today'),
       apiWithRetry('/matches?limit=200'),
       apiWithRetry('/groups'),
       apiWithRetry('/teams'),
       apiWithRetry('/elo/accuracy-stats?days=180').catch(() => null),
+      apiWithRetry('/elo/weight-sweep').catch(() => null),
     ]);
   } catch (err) {
     app.classList.add('max-w-2xl');
@@ -1925,6 +1926,37 @@ async function renderCockpit() {
       </div>
       <div class="mt-2 text-xs text-slate-500">
         ▎ 准确率 ≥ 60% 绿 / 55-60% 橙 / &lt;55% 红 · 详情见 <a href="#/accuracy" class="text-blue-600 hover:underline">#/accuracy</a>
+      </div>
+    </section>
+    ` : ''}
+
+    <!-- v0.7.4 weight sweep: 在 913 场历史 walk-forward 上找最佳 (w_elo, w_g2) -->
+    ${weightSweep ? `
+    <section class="cockpit-section mb-4">
+      <h2 class="cockpit-section-title">⚖️ 权重扫描 v0.7.4（${weightSweep.n_matches} 场 walk-forward）</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="cockpit-mini-card border-l-4 border-amber-400">
+          <div class="text-xs text-slate-500">🏆 最佳权重（brier 最低）</div>
+          <div class="text-2xl font-bold text-amber-600 mt-1">
+            w_elo=${weightSweep.winner.w_elo.toFixed(1)} · w_g2=${weightSweep.winner.w_g2.toFixed(1)}
+          </div>
+          <div class="text-xs text-slate-600 mt-1">
+            命中 ${(weightSweep.winner.accuracy * 100).toFixed(1)}% · brier ${weightSweep.winner.brier.toFixed(4)}
+          </div>
+        </div>
+        <div class="cockpit-mini-card border-l-4 border-slate-300">
+          <div class="text-xs text-slate-500">📊 v0.7.0a 默认 50/50</div>
+          <div class="text-2xl font-bold text-slate-700 mt-1">
+            命中 ${(weightSweep.baseline_50_50.accuracy * 100).toFixed(1)}%
+          </div>
+          <div class="text-xs text-slate-600 mt-1">
+            brier ${weightSweep.baseline_50_50.brier.toFixed(4)} · log_loss ${weightSweep.baseline_50_50.log_loss.toFixed(4)}
+          </div>
+        </div>
+      </div>
+      <div class="mt-2 text-xs text-slate-500">
+        ▎ 7 组 (w_elo, w_g2) 评估 · ${weightSweep.recommendation}
+      </div>
       </div>
     </section>
     ` : `

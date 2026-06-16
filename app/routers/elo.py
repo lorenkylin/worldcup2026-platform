@@ -30,6 +30,7 @@ from app.services.elo import (
     HOME_BONUS,
 )
 from app.services import glicko2 as g2_service
+from app.services.weight_sweep import run_weight_sweep
 
 router = APIRouter()
 
@@ -424,3 +425,19 @@ def top_bias(
     """Top N 偏差场次 (模型说某结果 80% 但实际相反 - 用于复盘)."""
     from app.services.prediction_log import get_top_prediction_bias
     return get_top_prediction_bias(db, model_version=model_version, n=n)
+
+
+@router.get("/elo/weight-sweep")
+def weight_sweep() -> Dict:
+    """v0.7.4 weight sweep — 在 913 场历史 walk-forward 上找最佳 (w_elo, w_g2) 组合.
+
+    评估 7 组权重:
+    (1.0,0.0) (0.8,0.2) (0.6,0.4) (0.5,0.5) (0.4,0.6) (0.2,0.8) (0.0,1.0)
+
+    4 指标: accuracy / brier / log_loss / roi_uniform
+    winner 选 brier 最低.
+
+    Returns:
+        {results, baseline_50_50, winner, recommendation}
+    """
+    return run_weight_sweep()
