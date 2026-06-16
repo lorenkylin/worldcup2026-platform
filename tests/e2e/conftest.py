@@ -14,6 +14,15 @@ sys.path.insert(0, str(ROOT))
 BASE_URL = os.environ.get("WC26_BASE_URL", "http://127.0.0.1:8000")
 
 
+@pytest.fixture(autouse=True)
+def _temp_db():
+    """E2E 测试使用生产数据库(与 uvicorn 服务一致),覆盖 tests/conftest.py 的临时 DB.
+
+    E2E 测试只读 API,不写入数据,因此共享生产 DB 安全。
+    """
+    yield
+
+
 @pytest.fixture(scope="module")
 def base_url() -> str:
     """后端服务地址."""

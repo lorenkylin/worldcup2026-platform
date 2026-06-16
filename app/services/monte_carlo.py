@@ -10,16 +10,18 @@
 """
 from __future__ import annotations
 
+import json
 import math
 import random
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
-from app.models import Match, Standing, Team
+from app.models import Match, MCRunHistory, Standing, Team
 from app.services.bracket_logic import (
     R32_MATCHUPS,
     _assign_third_place_slots,
@@ -714,3 +716,130 @@ def tournament_result_to_dict(result: TournamentResult) -> Dict:
         "n_groups": result.n_groups,
         "total_matches_per_sim": result.total_matches_per_sim,
     }
+
+
+# === v0.7.1.1 缓存层 ===
+MC_CACHE_TTL_SECONDS = 6 * 3600  # 6h
+
+
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def load_mc_cache(
+    db: Session,
+    model: str,
+    n_sims: int,
+    seed: int,
+    ttl_seconds: int = MC_CACHE_TTL_SECONDS,
+) -> Optional[Dict]:
+    """查询有效 MC 缓存.
+
+    Returns:
+        命中且未过期时返回 API dict;否则 None。
+    """
+    row = (
+        db.query(MCRunHistory)
+        .filter(MCRunHistory.model == model)
+        .filter(MCRunHistory.n_sims == n_sims)
+        .filter(MCRunHistory.seed == seed)
+        .order_by(MCRunHistory.generated_at.desc())
+        .first()
+    )
+    if row is None:
+        return None
+
+    # SQLite 存的是 naive UTC;统一按 UTC 比较
+    generated = row.generated_at
+    if generated.tzinfo is None:
+        generated = generated.replace(tzinfo=timezone.utc)
+
+    age_seconds = (_now_utc() - generated).total_seconds()
+    if age_seconds > ttl_seconds:
+        return None
+
+    return {
+        "n_sims": row.n_sims,
+        "model": row.model,
+        "duration_seconds": row.duration_seconds,
+        "generated_at": generated.isoformat(),
+        "champion_distribution": json.loads(row.champion_distribution),
+        "finalist_distribution": json.loads(row.finalist_distribution),
+        "semifinalist_distribution": json.loads(row.semifinalist_distribution),
+        "quarterfinalist_distribution": json.loads(row.quarterfinalist_distribution),
+        "r16_distribution": json.loads(row.r16_distribution),
+        "r32_distribution": json.loads(row.r32_distribution),
+        "group_advance_probability": json.loads(row.group_advance_probability),
+        "top_final_matchups": json.loads(row.top_final_matchups),
+        "top_semifinal_matchups": json.loads(row.top_semifinal_matchups),
+        "n_teams": row.n_teams,
+        "n_groups": row.n_groups,
+        "total_matches_per_sim": row.total_matches_per_sim,
+        "cached": True,
+        "cache_age_seconds": age_seconds,
+    }
+
+
+def save_mc_cache(
+    db: Session,
+    model: str,
+    n_sims: int,
+    seed: int,
+    result: TournamentResult,
+) -> MCRunHistory:
+    """把 TournamentResult 写入 mc_run_history,同 (model,n_sims,seed) 覆盖旧记录."""
+    # 删除同键旧记录,保持表精简
+    db.query(MCRunHistory).filter(
+        MCRunHistory.model == model,
+        MCRunHistory.n_sims == n_sims,
+        MCRunHistory.seed == seed,
+    ).delete(synchronize_session=False)
+
+    row = MCRunHistory(
+        model=model,
+        n_sims=n_sims,
+        seed=seed,
+        generated_at=_now_utc(),
+        duration_seconds=result.duration_seconds,
+        champion_distribution=json.dumps(result.champion_distribution),
+        finalist_distribution=json.dumps(result.finalist_distribution),
+        semifinalist_distribution=json.dumps(result.semifinalist_distribution),
+        quarterfinalist_distribution=json.dumps(result.quarterfinalist_distribution),
+        r16_distribution=json.dumps(result.r16_distribution),
+        r32_distribution=json.dumps(result.r32_distribution),
+        group_advance_probability=json.dumps(result.group_advance_probability),
+        top_final_matchups=json.dumps(result.top_final_matchups),
+        top_semifinal_matchups=json.dumps(result.top_semifinal_matchups),
+        n_teams=result.n_teams,
+        n_groups=result.n_groups,
+        total_matches_per_sim=result.total_matches_per_sim,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def run_mc_with_cache(
+    db: Session,
+    n_sims: int,
+    model: str,
+    return_top_n: int,
+    seed: int,
+    refresh: bool = False,
+) -> Dict:
+    """缓存优先入口.命中则秒回;否则计算并写缓存."""
+    if not refresh:
+        cached = load_mc_cache(db, model=model, n_sims=n_sims, seed=seed)
+        if cached is not None:
+            return cached
+
+    result = simulate_full_tournament(
+        db,
+        n_sims=n_sims,
+        model=model,
+        return_top_n=return_top_n,
+        seed=seed,
+    )
+    save_mc_cache(db, model=model, n_sims=n_sims, seed=seed, result=result)
+    return tournament_result_to_dict(result)

@@ -106,6 +106,19 @@ def build_default_jobs(
     )
     print("[scheduler] 已注册 预测日志自动结算 任务，间隔 15 分钟")
 
+    # v0.7.1.1: MC 缓存预热 - 每 6h 确保默认参数组合有缓存
+    scheduler.add_job(
+        _job_mc_cache_warmup,
+        trigger=IntervalTrigger(hours=6),
+        args=[session_factory],
+        id="mc_cache_warmup",
+        name="MC 缓存预热（每 6h: blend/10000/seed=42）",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    print("[scheduler] 已注册 MC 缓存预热任务，间隔 6h")
+
 
 def _job_recent_form_backfill(session_factory: Callable) -> None:
     """定时回填 B2 近期状态因子."""
@@ -177,5 +190,28 @@ def _job_settle_predictions(session_factory: Callable) -> None:
             print(f"[{datetime.now().isoformat()}] 预测日志结算: {count} 条")
     except Exception as exc:  # noqa: BLE001
         print(f"[{datetime.now().isoformat()}] 预测日志结算失败: {exc}")
+    finally:
+        db.close()
+
+
+def _job_mc_cache_warmup(session_factory: Callable) -> None:
+    """v0.7.1.1 MC 缓存预热 - 每 6h 为默认参数生成/刷新缓存."""
+    from app.services.monte_carlo import run_mc_with_cache  # 避免循环 import
+
+    db: Session = session_factory()
+    try:
+        result = run_mc_with_cache(
+            db,
+            n_sims=10000,
+            model="blend",
+            return_top_n=8,
+            seed=42,
+            refresh=False,
+        )
+        cached = result.get("cached", False)
+        status = "hit" if cached else "miss(已重算并缓存)"
+        print(f"[{datetime.now().isoformat()}] MC 缓存预热: {status}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[{datetime.now().isoformat()}] MC 缓存预热失败: {exc}")
     finally:
         db.close()

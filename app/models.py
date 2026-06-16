@@ -339,3 +339,58 @@ class PredictionLog(Base):
     settled_at = Column(DateTime, default=None)  # 结算时戳
 
     match = relationship("Match")
+
+
+class MCRunHistory(Base):
+    """v0.7.1.1 Monte Carlo Tournament 结果缓存.
+
+    设计动机:
+    - simulate_full_tournament(10000 sims) 约 4s CPU 阻塞
+    - 默认参数(model=blend, n_sims=10000, seed=42) 访问频次高
+    - 用表缓存让第二次请求 < 50ms
+
+    字段语义:
+    - model/n_sims/seed: 缓存键
+    - generated_at: UTC 时间戳,6h TTL  freshness 依据
+    - *_distribution / top_*_matchups: JSON 字符串存 MC 输出
+    - n_teams/n_groups/total_matches_per_sim: 元数据
+
+    查询模式:
+    - 查最新缓存: SELECT * FROM mc_run_history
+                  WHERE model=? AND n_sims=? AND seed=?
+                  ORDER BY generated_at DESC LIMIT 1
+    - 覆盖写: INSERT OR REPLACE (SQLite) / upsert (其他 DB)
+
+    索引:
+    - (model, n_sims, seed, generated_at): 加速最新缓存查询
+    """
+
+    __tablename__ = "mc_run_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    model = Column(String(20), nullable=False, index=True)
+    n_sims = Column(Integer, nullable=False, index=True)
+    seed = Column(Integer, nullable=False, index=True)
+    generated_at = Column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True
+    )
+    duration_seconds = Column(Float, nullable=False)
+
+    champion_distribution = Column(Text, nullable=False)
+    finalist_distribution = Column(Text, nullable=False)
+    semifinalist_distribution = Column(Text, nullable=False)
+    quarterfinalist_distribution = Column(Text, nullable=False)
+    r16_distribution = Column(Text, nullable=False)
+    r32_distribution = Column(Text, nullable=False)
+    group_advance_probability = Column(Text, nullable=False)
+
+    top_final_matchups = Column(Text, nullable=False)
+    top_semifinal_matchups = Column(Text, nullable=False)
+
+    n_teams = Column(Integer, nullable=False)
+    n_groups = Column(Integer, nullable=False)
+    total_matches_per_sim = Column(Integer, nullable=False)
+
+    __table_args__ = (
+        {"sqlite_autoincrement": True},
+    )
