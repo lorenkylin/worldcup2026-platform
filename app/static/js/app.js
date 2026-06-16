@@ -1111,11 +1111,103 @@ async function renderSimulator() {
         </div>
       `).join('')}
     </div>
+
+    <!-- v0.7.1 Monte Carlo Tournament 全模拟 -->
+    <div class="mt-8 p-4 bg-gradient-to-br from-amber-900/20 to-rose-900/20 rounded-xl border border-amber-500/30">
+      <h3 class="text-base font-bold mb-2 flex items-center gap-2">
+        <span class="w-1 h-5 bg-amber-400 rounded"></span>
+        <span>🏆 整届模拟 v0.7.1</span>
+        <span class="text-xs text-slate-400 font-normal ml-2">Monte Carlo · 整届 10000 次</span>
+      </h3>
+      <p class="text-xs text-slate-400 mb-3">从组赛到决赛跑完所有 103 场比赛,统计每队 <b>夺冠 / 决赛 / 4 强 / 8 强 / 16 强</b> 概率 + 决赛对阵频次。</p>
+      <button id="mc-run-btn" onclick="runMonteCarlo()" class="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-white text-sm font-bold rounded-lg shadow-lg transition">
+        🎲 运行 Monte Carlo (10000 次)
+      </button>
+      <div id="mc-result" class="mt-4"></div>
+    </div>
+
     <div class="mt-6 p-3 bg-slate-900 rounded-lg text-xs text-slate-500 border border-slate-800">
       <div class="font-bold text-slate-400 mb-1">图例</div>
       <div>· 进度条长度 = 出线概率（直接晋级 + 最佳第 3 名）</div>
-      <div>· 模拟方法：剩余比赛按 Elo-Poisson 随机生成比分，统计每队晋级次数</div>
-      <div>· 数据有限，模型仅作参考。Elo 初始值来自 FIFA 排名近似（B1 升级后将用 StatsBomb 训练）</div>
+      <div>· 模拟方法：剩余比赛按 Elo-Poisson 随机生成比分,统计每队晋级次数</div>
+      <div>· 数据有限,模型仅作参考。Elo 初始值来自 FIFA 排名近似（B1 升级后将用 StatsBomb 训练）</div>
+    </div>
+  `;
+}
+
+
+// v0.7.1 Monte Carlo 全模拟 (整届)
+async function runMonteCarlo(simulations = 10000) {
+  const btn = document.getElementById('mc-run-btn');
+  const out = document.getElementById('mc-result');
+  if (!out) return;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 模拟中...'; }
+  out.innerHTML = '<div class="text-xs text-slate-400 py-4 text-center"><span class="inline-block animate-spin">⏳</span> 正在运行 ' + simulations + ' 次整届模拟,大约 4-10 秒...</div>';
+
+  try {
+    const resp = await fetch('/api/simulator/tournament?simulations=' + simulations + '&model=blend&seed=42');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    renderMonteCarloResult(data);
+  } catch (e) {
+    out.innerHTML = '<div class="text-xs text-rose-400 py-3">❌ 模拟失败: ' + escapeHtml(String(e)) + '</div>';
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '🎲 运行 Monte Carlo (10000 次)'; }
+  }
+}
+
+function renderMonteCarloResult(data) {
+  const out = document.getElementById('mc-result');
+  if (!out) return;
+  const champ = data.champion_distribution || {};
+  const finalList = data.top_final_matchups || [];
+  const champEntries = Object.entries(champ).slice(0, 8);
+  const maxProb = champEntries.length ? champEntries[0][1] : 0.01;
+
+  out.innerHTML = `
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <!-- 冠军榜 -->
+      <div class="bg-slate-900 rounded-lg p-3 border border-amber-500/20">
+        <h4 class="text-sm font-bold text-amber-300 mb-2 flex items-center gap-2">
+          <span>🏆</span><span>夺冠概率 Top 8</span>
+        </h4>
+        <div class="space-y-1.5">
+          ${champEntries.map(([code, p], i) => `
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-slate-500 w-4 text-right">${i + 1}</span>
+              <span class="text-sm font-mono w-10">${code}</span>
+              <div class="flex-1 h-2 bg-slate-800 rounded overflow-hidden">
+                <div class="h-full bg-gradient-to-r from-amber-400 to-rose-400" style="width: ${(p / maxProb * 100).toFixed(1)}%"></div>
+              </div>
+              <span class="text-xs font-bold text-amber-200 w-12 text-right">${(p * 100).toFixed(1)}%</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <!-- 决赛对阵 -->
+      <div class="bg-slate-900 rounded-lg p-3 border border-rose-500/20">
+        <h4 class="text-sm font-bold text-rose-300 mb-2 flex items-center gap-2">
+          <span>🥊</span><span>决赛对阵 Top ${Math.min(5, finalList.length)}</span>
+        </h4>
+        <div class="space-y-1.5">
+          ${finalList.slice(0, 5).map((m, i) => `
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-slate-500 w-4 text-right">${i + 1}</span>
+              <span class="text-sm font-mono">${m.home} <span class="text-slate-600">vs</span> ${m.away}</span>
+              <span class="text-xs text-slate-500 ml-auto">${(m.prob * 100).toFixed(1)}%</span>
+            </div>
+          `).join('') || '<div class="text-xs text-slate-500">暂无数据</div>'}
+        </div>
+      </div>
+    </div>
+
+    <!-- 元信息 -->
+    <div class="mt-3 text-[10px] text-slate-500 flex items-center gap-3 flex-wrap">
+      <span>模型: <b class="text-slate-300">${data.model}</b></span>
+      <span>模拟: <b class="text-slate-300">${data.n_sims}</b> 次</span>
+      <span>耗时: <b class="text-slate-300">${data.duration_seconds}s</b></span>
+      <span>球队: <b class="text-slate-300">${data.n_teams}</b></span>
     </div>
   `;
 }
