@@ -15,7 +15,7 @@ from app.services.statsbomb_elo import build_statsbomb_elo_json, RAW_DIR, COMPET
 # 通过 WebFetch 从 StatsBomb Open Data 提取的精简比赛数据
 # 格式: [{"date": "YYYY-MM-DD", "home": "...", "away": "...", "hg": int, "ag": int}, ...]
 EXTRACTED: dict = {
-    (43, 3): [  # FIFA World Cup 2018 (提取到 56 场,完整应为 64)
+    (43, 3): [  # FIFA World Cup 2018 (v0.7.6 补 4 场: 60 → 64)
         {"date": "2018-06-14", "home": "Russia", "away": "Saudi Arabia", "hg": 5, "ag": 0},
         {"date": "2018-06-15", "home": "Egypt", "away": "Uruguay", "hg": 0, "ag": 1},
         {"date": "2018-06-15", "home": "Morocco", "away": "Iran", "hg": 0, "ag": 1},
@@ -76,6 +76,11 @@ EXTRACTED: dict = {
         {"date": "2018-07-11", "home": "Croatia", "away": "England", "hg": 2, "ag": 1},
         {"date": "2018-07-14", "home": "Belgium", "away": "England", "hg": 2, "ag": 0},
         {"date": "2018-07-15", "home": "France", "away": "Croatia", "hg": 4, "ag": 2},
+        # v0.7.6 补 4 场 (小组赛末轮)
+        {"date": "2018-06-19", "home": "Colombia", "away": "Japan", "hg": 1, "ag": 2},
+        {"date": "2018-06-24", "home": "Japan", "away": "Senegal", "hg": 2, "ag": 2},
+        {"date": "2018-06-26", "home": "Denmark", "away": "France", "hg": 0, "ag": 0},
+        {"date": "2018-06-27", "home": "South Korea", "away": "Germany", "hg": 2, "ag": 0},
     ],
     (43, 106): [  # FIFA World Cup 2022 (提取到 58 场,完整应为 64)
         {"date": "2022-11-20", "home": "Qatar", "away": "Ecuador", "hg": 0, "ag": 2},
