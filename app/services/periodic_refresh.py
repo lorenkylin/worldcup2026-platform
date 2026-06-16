@@ -280,4 +280,19 @@ def run_periodic_refresh(db: Session, fb_client=None) -> dict:
         result["fb_status"] = "error"
         result["fb_error"] = str(exc)[:200]
 
+    # Step 3 (v0.7.0b): 自动写库 - 未来 7+1 天比赛 prediction_log 自动累积
+    # 单条错误隔离, 不影响 snapshot/fb
+    try:
+        from app.services.prediction_log import auto_log_predictions  # 避免循环 import
+
+        pl_result = auto_log_predictions(db)
+        result["predictions_added"] = pl_result["predictions_added"]
+        result["predictions_skipped"] = pl_result["predictions_skipped"]
+        result["predictions_by_model"] = pl_result["by_model"]
+        if pl_result["errors"]:
+            result["predictions_errors"] = pl_result["errors"][:5]  # 截断,避免日志爆
+    except Exception as exc:
+        result["predictions_status"] = "error"
+        result["predictions_error"] = str(exc)[:200]
+
     return result

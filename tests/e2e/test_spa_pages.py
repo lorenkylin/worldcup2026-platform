@@ -101,3 +101,33 @@ def test_404_page_renders(page, base_url):
     # 404 页有"找不到这个页面"（app.js renderNotFound 模板）
     has_404 = "找不到" in body_text or "404" in body_text or "首页" in body_text
     assert has_404, f"404 页未渲染（应有'找不到这个页面'或'首页'按钮）: {body_text[:200]}"
+
+
+def test_elo_page_renders_blend_tab(page, base_url):
+    """v0.7.0a: Elo 页加载并显示 ModelBlend 3-tab (Elo / Glicko-2 / Blend 默认) + Glicko-2 评分榜."""
+    import time
+    page.goto(f"{base_url}/#/elo", wait_until="domcontentloaded")
+    page.wait_for_load_state("networkidle", timeout=10000)
+    # v0.7.0a: Playwright page.goto hash-only 第二次 navigate 不一定重载触发 DOMContentLoaded.
+    # 显式 evaluate router() 触发路由 + 等 1v1 段(elo-predict-result)出现.
+    page.evaluate("() => router()")
+    page.wait_for_function(
+        "() => document.getElementById('elo-predict-result') !== null",
+        timeout=15000,
+    )
+    time.sleep(1)  # 保险: 等 ModelBlend predict API resolve
+    body_text = page.locator("body").text_content() or ""
+    # 3 模型 tab 必须全部出现
+    assert "Elo M1" in body_text, f"Elo 页未显示 Elo M1 tab: {body_text[:300]}"
+    assert "Glicko-2" in body_text, f"Elo 页未显示 Glicko-2 tab: {body_text[:300]}"
+    assert "Blend" in body_text, f"Elo 页未显示 Blend tab: {body_text[:300]}"
+    # 默认 Blend 应激活(高亮 class 含 bg-gradient 或 bg-violet)
+    blend_btn = page.locator("button:has-text('Blend')").first
+    blend_class = blend_btn.get_attribute("class") or ""
+    assert "bg-gradient" in blend_class or "bg-violet" in blend_class, \
+        f"Blend tab 默认未高亮(class={blend_class[:100]})"
+    # 1v1 预测结果应含 "ModelBlend" 标注
+    assert "ModelBlend" in body_text, \
+        f"Elo 页未显示 Blend 预测结果: {body_text[:500]}"
+    # Glicko-2 评分榜段(默认折叠)应存在
+    assert "Glicko-2 评分榜" in body_text, f"Elo 页未显示 Glicko-2 评分榜段: {body_text[:300]}"

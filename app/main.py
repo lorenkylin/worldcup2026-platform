@@ -86,6 +86,25 @@ async def lifespan(app: FastAPI):
                 db.close()
         except Exception as exc:  # noqa: BLE001
             print(f"[lifespan] 6h 周期刷新启动失败: {exc}")
+        # v0.7.0b: 启动时立即跑一次 prediction_log 自动写库
+        # 配合 6h 周期刷新,实盘预测自动累积,准确率统计持续滚雪球
+        try:
+            db = SessionLocal()
+            try:
+                from app.services.prediction_log import auto_log_predictions
+
+                pl_result = auto_log_predictions(db)
+                print(
+                    f"[lifespan] v0.7.0b prediction_log 启动回填: "
+                    f"scanned={pl_result['matches_scanned']}, "
+                    f"added={pl_result['predictions_added']}, "
+                    f"skipped={pl_result['predictions_skipped']}, "
+                    f"errors={len(pl_result['errors'])}"
+                )
+            finally:
+                db.close()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[lifespan] v0.7.0b prediction_log 启动回填失败: {exc}")
     yield
     # 关闭时
     if scheduler.running:

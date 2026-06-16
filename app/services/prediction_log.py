@@ -4,16 +4,21 @@ v0.6.0 核心组件:
   1. record_prediction() - 写一次预测到 log (dedup by match+model)
   2. settle_pending_predictions() - 调度器每 15min 扫已完赛比赛
   3. compute_accuracy_stats() - 出准确率 dashboard 数据
+
+v0.7.0b 扩展:
+  4. auto_log_predictions() - 遍历未来 7+1 天比赛,对每个 (match, model) 自动
+     调 record_prediction。配合 lifespan startup 立即触发 + 6h 周期刷新
+     形成"实盘预测自动累积"链路。
 """
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func
 
 from app.models import Match, PredictionLog, Team
-from app.services.elo import predict_match, predict_match_enhanced, HOME_BONUS
+from app.services.elo import predict_match, predict_match_enhanced, predict_match_blend, HOME_BONUS
 
 
 def _score_to_outcome(home_score: int, away_score: int) -> str:
@@ -295,3 +300,184 @@ def get_top_prediction_bias(db: Session, model_version: str = "v3_glicko2", n: i
     # 按 surprise 排序
     bias_list.sort(key=lambda x: -x["surprise_score"])
     return bias_list[:n]
+
+
+# ============================================================
+# v0.7.0b 自动写库 (lifespan startup + 6h 周期刷新)
+# ============================================================
+
+
+def _predict_v1(home_code: str, away_code: str) -> Optional[Dict]:
+    """v1_elo: Elo M1 + Dixon-Coles. 返回 (ph, pd, pa, elo_home, elo_away) 或 None."""
+    result = predict_match(home_code, away_code, source="hicruben")
+    if result.get("error"):
+        return None
+    probs = result.get("probabilities", {})
+    if probs.get("home_win") is None:
+        return None
+    return {
+        "ph": probs["home_win"],
+        "pd": probs["draw"],
+        "pa": probs["away_win"],
+        "elo_home": (result.get("home") or {}).get("elo"),
+        "elo_away": (result.get("away") or {}).get("elo"),
+    }
+
+
+def _predict_v3(home_code: str, away_code: str) -> Optional[Dict]:
+    """v3_glicko2: Glicko-2 + HOME_BONUS. 返回 (ph, pd, pa, rating_home, rating_away) 或 None."""
+    from app.services import glicko2 as g2
+
+    rh = g2.lookup_glicko2_rating(home_code.upper())
+    ra = g2.lookup_glicko2_rating(away_code.upper())
+    if not rh or not ra:
+        return None
+    pred = g2.predict_outcome(
+        rating_a=rh["rating"],
+        rd_a=rh["rd"],
+        rating_b=ra["rating"],
+        rd_b=ra["rd"],
+        home_bonus=HOME_BONUS,
+    )
+    return {
+        "ph": round(pred["win_a"], 4),
+        "pd": round(pred["draw"], 4),
+        "pa": round(pred["win_b"], 4),
+        "elo_home": int(rh["rating"]),
+        "elo_away": int(ra["rating"]),
+    }
+
+
+def _predict_v7a(home_code: str, away_code: str) -> Optional[Dict]:
+    """v7a_blend: Elo + Glicko-2 等权平均. 返回 (ph, pd, pa, elo_home, elo_away) 或 None."""
+    result = predict_match_blend(home_code, away_code, w_elo=0.5, w_glicko2=0.5)
+    if result.get("error"):
+        return None
+    blended = result.get("blended", {})
+    probs = blended.get("probabilities", {})
+    if probs.get("home_win") is None:
+        return None
+    return {
+        "ph": probs["home_win"],
+        "pd": probs["draw"],
+        "pa": probs["away_win"],
+        "elo_home": (result.get("home") or {}).get("elo"),
+        "elo_away": (result.get("away") or {}).get("elo"),
+    }
+
+
+# 模型注册表: model_version -> predict_fn(home_code, away_code) -> Dict | None
+MODEL_REGISTRY: Dict[str, callable] = {
+    "v1_elo": _predict_v1,
+    "v3_glicko2": _predict_v3,
+    "v7a_blend": _predict_v7a,
+}
+
+
+def auto_log_predictions(
+    db: Session,
+    models: Tuple[str, ...] = ("v1_elo", "v3_glicko2", "v7a_blend"),
+    lookback_days: int = 1,
+    lookahead_days: int = 7,
+) -> Dict:
+    """v0.7.0b 自动写库: 遍历未完赛比赛,对每个 (match, model) 调 record_prediction.
+
+    范围: [now - lookback_days, now + lookahead_days] 内未完赛比赛
+    写库去重: 沿用 record_prediction 1h dedup (同 match + model 1h 内不重写)
+    单条错误隔离: 一条 predict 失败不影响其他 (match, model) 写入
+
+    Args:
+        db: SQLAlchemy Session
+        models: 要写入的 model_version tuple,默认 3 模型 (v1_elo + v3_glicko2 + v7a_blend)
+        lookback_days: 窗口起点(默认 1 天,允许写"刚完赛但还没结算"的可对账数据)
+        lookahead_days: 窗口终点(默认 7 天,覆盖一周赛程)
+
+    Returns:
+        {
+            "matches_scanned": int,
+            "predictions_added": int,    # 新写入条数 (dedup 跳过的不算)
+            "predictions_skipped": int,  # 1h dedup 跳过
+            "by_model": {model: int},
+            "errors": [{match_id, model, error_str}],
+            "executed_at": ISO8601 str,
+        }
+    """
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(days=lookback_days)
+    window_end = now + timedelta(days=lookahead_days)
+
+    # 1. 找窗口内未完赛比赛 (status != finished 或 比分有一方缺失)
+    matches = (
+        db.query(Match)
+        .filter(Match.kickoff_at.isnot(None))
+        .filter(Match.kickoff_at >= window_start)
+        .filter(Match.kickoff_at <= window_end)
+        .filter(
+            (Match.home_score.is_(None)) | (Match.away_score.is_(None))
+        )
+        .all()
+    )
+
+    added = 0
+    skipped = 0
+    by_model = {m: 0 for m in models}
+    errors: List[Dict] = []
+
+    for m in matches:
+        home_team = m.home_team
+        away_team = m.away_team
+        if not home_team or not away_team:
+            continue
+        home_code = home_team.fifa_code
+        away_code = away_team.fifa_code
+        if not home_code or not away_code:
+            continue
+
+        for model_name in models:
+            predict_fn = MODEL_REGISTRY.get(model_name)
+            if predict_fn is None:
+                continue
+            try:
+                pred = predict_fn(home_code, away_code)
+            except Exception as exc:
+                errors.append({
+                    "match_id": m.id,
+                    "model": model_name,
+                    "error": f"predict_fn: {str(exc)[:120]}",
+                })
+                continue
+            if pred is None:
+                # 缺数据,跳过但不记 error (正常情况: USA 等不在 Glicko-2 数据中)
+                continue
+            try:
+                log = record_prediction(
+                    db,
+                    match_id=m.id,
+                    model_version=model_name,
+                    pred_home_win=pred["ph"],
+                    pred_draw=pred["pd"],
+                    pred_away_win=pred["pa"],
+                    elo_home=pred.get("elo_home"),
+                    elo_away=pred.get("elo_away"),
+                    source="hicruben",
+                )
+                if log is not None:
+                    added += 1
+                    by_model[model_name] += 1
+                else:
+                    skipped += 1
+            except Exception as exc:
+                errors.append({
+                    "match_id": m.id,
+                    "model": model_name,
+                    "error": f"record_prediction: {str(exc)[:120]}",
+                })
+
+    return {
+        "matches_scanned": len(matches),
+        "predictions_added": added,
+        "predictions_skipped": skipped,
+        "by_model": by_model,
+        "errors": errors,
+        "executed_at": now.isoformat(),
+    }

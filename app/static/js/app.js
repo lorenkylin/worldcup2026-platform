@@ -430,11 +430,29 @@ let _teamsCache = [];
 
 // Elo 数据源切换状态
 let _eloSource = 'hicruben'; // 'hicruben' | 'statsbomb'
+let _eloModel = 'blend';   // v0.7.0a: 'elo' | 'glicko2' | 'blend' (默认 blend)
+let _g2Open = false;       // v0.7.0a: Glicko-2 评分榜默认折叠
 
 function setEloSource(source) {
   if (source !== 'hicruben' && source !== 'statsbomb') return;
   _eloSource = source;
   renderElo();
+}
+
+// v0.7.0a ModelBlend 入口: 1v1 预测器切模型 (直接重渲整页,简单稳定)
+function setEloModel(model) {
+  if (model !== 'elo' && model !== 'glicko2' && model !== 'blend') return;
+  _eloModel = model;
+  renderElo();
+}
+
+// v0.7.0a: 折叠/展开 Glicko-2 48 队评分榜
+function toggleG2Section() {
+  _g2Open = !_g2Open;
+  const sec = document.getElementById('g2-ratings-section');
+  const icon = document.getElementById('g2-toggle-icon');
+  if (sec) sec.classList.toggle('hidden', !_g2Open);
+  if (icon) icon.textContent = _g2Open ? '▼' : '▶';
 }
 
 async function renderTeams() {
@@ -1539,12 +1557,13 @@ async function renderElo() {
   app.classList.add('max-w-none', 'px-4');
 
   const source = _eloSource;
-  let ratings, teams, backtest;
+  let ratings, teams, backtest, g2Ratings;
   try {
-    [ratings, teams, backtest] = await Promise.all([
+    [ratings, teams, backtest, g2Ratings] = await Promise.all([
       apiWithRetry('/elo/ratings?source=' + source),
       apiWithRetry('/teams?limit=48'),
       source === 'hicruben' ? apiWithRetry('/elo/backtest') : Promise.resolve({}),
+      apiWithRetry('/elo/glicko2-ratings?limit=48').catch(() => []),
     ]);
   } catch (err) {
     app.classList.add('max-w-2xl');
@@ -1553,9 +1572,12 @@ async function renderElo() {
     return;
   }
 
-  // client-side join: fifa_code → 球队详情
+  // client-side join: fifa_code → 球队详情 (Elo M1 ratings 用)
   const teamMap = {};
   teams.forEach(t => { teamMap[t.fifa_code] = t; });
+  // Glicko-2 ratings 用 name_en 拼接 (API 返回 team_name = English country name, 如 "Spain")
+  const teamMapByName = {};
+  teams.forEach(t => { teamMapByName[t.name_en] = t; });
 
   // 合并
   const rows = ratings.map((r, i) => {
@@ -1584,9 +1606,15 @@ async function renderElo() {
     groupedByGroup[g].push(r);
   });
 
-  // 1v1 初始值：Top 1 vs 末尾队
-  const initHome = rows[0] ? rows[0].fifa_code : 'BRA';
-  const initAway = rows[rows.length - 1] ? rows[rows.length - 1].fifa_code : 'GUA';
+  // 1v1 初始值:Top 1 vs 末尾队
+  let initHome = rows[0] ? rows[0].fifa_code : 'BRA';
+  let initAway = rows[rows.length - 1] ? rows[rows.length - 1].fifa_code : 'GUA';
+  // v0.7.0a: Glicko-2 lookup 字典(G2_NAME_TO_CODE)只覆盖约 48 强队
+  // 强制选 g2Ratings top10 中的强队, 保证 Blend/Glicko-2 tab 默认加载不 404
+  if (g2Ratings && g2Ratings.length >= 10) {
+    const safeAway = teamMapByName[g2Ratings[9].team_name];
+    if (safeAway) initAway = safeAway.fifa_code;
+  }
 
   // 渲染
   $('#app').innerHTML = `
@@ -1645,6 +1673,18 @@ async function renderElo() {
     <section class="cockpit-section mb-4">
       <h2 class="cockpit-section-title">⚔️ 1v1 实力对比</h2>
       <div class="bg-slate-900 rounded-xl p-4 border border-slate-800">
+        <!-- v0.7.0a 模型切换 tab -->
+        <div class="flex items-center gap-2 mb-3 flex-wrap">
+          <span class="text-xs text-slate-500">模型:</span>
+          <div class="flex items-center bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
+            <button onclick="setEloModel('elo')" class="text-xs px-3 py-1.5 transition ${_eloModel === 'elo' ? 'bg-violet-600 text-white' : 'text-slate-400 hover:text-violet-400'}">📊 Elo M1 v1</button>
+            <button onclick="setEloModel('glicko2')" class="text-xs px-3 py-1.5 transition ${_eloModel === 'glicko2' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-cyan-400'}">⚡ Glicko-2 v3</button>
+            <button onclick="setEloModel('blend')" class="text-xs px-3 py-1.5 transition ${_eloModel === 'blend' ? 'bg-gradient-to-r from-violet-600 to-cyan-600 text-white' : 'text-slate-400 hover:text-violet-400'}">🧠 Blend ⭐ (默认)</button>
+          </div>
+          <span class="text-[10px] text-slate-500 hidden md:inline">
+            ${_eloModel === 'elo' ? '· Hicruben Elo (v1)' : _eloModel === 'glicko2' ? '· 913 场 walk-forward · 准确率 62.7%' : '· Elo + Glicko-2 等权 (w_elo=0.5)'}
+          </span>
+        </div>
         <div class="grid grid-cols-1 md:grid-cols-7 gap-3 items-center">
           <div class="md:col-span-3">
             <label class="text-xs text-slate-500 mb-1 block">主队</label>
@@ -1704,6 +1744,42 @@ async function renderElo() {
       </div>
     </section>
     `}
+
+    <!-- v0.7.0a: Glicko-2 48 队评分榜 (默认折叠) -->
+    <section class="cockpit-section mb-4">
+      <h2 class="cockpit-section-title cursor-pointer select-none" onclick="toggleG2Section()">
+        ⚡ Glicko-2 评分榜 (48 队) <span id="g2-toggle-icon" class="text-slate-500 text-xs">${_g2Open ? '▼' : '▶'}</span>
+        <span class="text-[10px] text-slate-500 font-normal ml-2">· 比 Elo M1 准确率高 4-5 pp</span>
+      </h2>
+      <div id="g2-ratings-section" class="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden ${_g2Open ? '' : 'hidden'}">
+        <div class="text-[10px] text-slate-500 px-3 py-2 border-b border-slate-800 flex items-center justify-between">
+          <span>▎ 按 Glicko-2 评分降序 · 913 场 walk-forward · 截至 2026-06-11</span>
+          <span class="text-cyan-400 font-mono">训练指标: 62.7% / RPS 0.17</span>
+        </div>
+        ${(g2Ratings && g2Ratings.length) ? g2Ratings.slice(0, 48).map((r, i) => {
+          // v0.7.0a: Glicko-2 API 返回 team_name=English country name, 用 name_en join
+          const t = teamMapByName[r.team_name] || {};
+          const topRating = g2Ratings[0] ? g2Ratings[0].rating : r.rating;
+          const score = Math.max(0, Math.min(100, ((r.rating - 1300) / (topRating - 1300)) * 100));
+          return `
+            <div class="elo-full-row flex items-center gap-3 px-3 py-2 border-b border-slate-800/50 hover:bg-slate-800/30 transition">
+              <span class="text-slate-500 font-mono w-6 text-right text-xs">${i + 1}</span>
+              <span class="team-flag text-xl">${t.flag_emoji || '🏳️'}</span>
+              <a href="#/team/${r.team_name}" class="font-medium text-sm flex-1 min-w-0 truncate hover:text-emerald-400 transition">
+                ${escapeHtml(t.name_zh || r.team_name)}
+              </a>
+              <span class="text-[10px] text-cyan-400 w-12 text-right" title="Rating Deviation 不确定度">±${r.rd.toFixed(0)}</span>
+              <div class="flex-1 max-w-[140px]">
+                <div class="h-2 bg-slate-800 rounded overflow-hidden">
+                  <div class="h-full bg-gradient-to-r from-cyan-500 to-emerald-400" style="width:${score.toFixed(0)}%"></div>
+                </div>
+              </div>
+              <span class="text-cyan-400 font-bold font-mono w-12 text-right">${r.rating.toFixed(0)}</span>
+            </div>
+          `;
+        }).join('') : '<div class="px-3 py-4 text-center text-slate-500 text-sm">Glicko-2 评分加载中...</div>'}
+      </div>
+    </section>
 
     <!-- 数据状态 -->
     <div class="text-center text-xs py-2 ${source === 'statsbomb' ? 'text-amber-500/80' : 'text-slate-600'}">
@@ -1827,9 +1903,18 @@ function csvEscape(value) {
 }
 
 async function _renderEloPredict(homeCode, awayCode) {
+  // v0.7.0a: 根据 _eloModel 路由到不同预测器
   if (!homeCode || !awayCode || homeCode === awayCode) {
     return '<div class="text-amber-400 text-sm text-center py-4">请选择两支不同的球队</div>';
   }
+  const model = window._eloModel || _eloModel || 'blend';
+  if (model === 'elo') return _renderEloM1Predict(homeCode, awayCode);
+  if (model === 'glicko2') return _renderGlicko2Predict(homeCode, awayCode);
+  return _renderBlendPredict(homeCode, awayCode);
+}
+
+// Elo M1 (v1) 单模型预测
+async function _renderEloM1Predict(homeCode, awayCode) {
   try {
     const p = await apiWithRetry('/elo/predict/' + homeCode + '/' + awayCode + '?source=' + _eloSource);
     const hWin = (p.probabilities.home_win * 100).toFixed(1);
@@ -1840,7 +1925,6 @@ async function _renderEloPredict(homeCode, awayCode) {
     const winnerColor = maxProb === p.probabilities.home_win ? 'text-emerald-400' : maxProb === p.probabilities.away_win ? 'text-rose-400' : 'text-amber-400';
     return `
       <div class="space-y-3">
-        <!-- 概率条 -->
         <div>
           <div class="flex justify-between text-sm mb-2">
             <span>主胜 <b class="text-emerald-400">${hWin}%</b></span>
@@ -1853,7 +1937,6 @@ async function _renderEloPredict(homeCode, awayCode) {
             <div class="bg-rose-500" style="width:${aWin}%"></div>
           </div>
         </div>
-        <!-- 期望进球 -->
         <div class="grid grid-cols-2 gap-2 text-center">
           <div class="bg-slate-800/50 rounded p-2">
             <div class="text-xs text-slate-500">主队预期进球</div>
@@ -1864,16 +1947,131 @@ async function _renderEloPredict(homeCode, awayCode) {
             <div class="text-lg font-bold text-rose-400">${p.expected_goals.away.toFixed(2)}</div>
           </div>
         </div>
-        <!-- 结论 -->
         <div class="text-center">
           <span class="text-xs text-slate-500">结论：</span>
           <span class="${winnerColor} font-bold">${winnerText}</span>
           <span class="text-xs text-slate-500 ml-2">（最高概率 ${(maxProb * 100).toFixed(1)}%）</span>
         </div>
+        <div class="text-center text-[10px] text-slate-600">📊 Elo M1 v1 · 数据源: ${escapeHtml(p.data_source || _eloSource)}</div>
       </div>
     `;
   } catch (e) {
-    return '<div class="text-rose-400 text-sm text-center py-4">预测失败：' + escapeHtml(e.message || '') + '</div>';
+    return '<div class="text-rose-400 text-sm text-center py-4">Elo 预测失败：' + escapeHtml(e.message || '') + '</div>';
+  }
+}
+
+// Glicko-2 (v3) 单模型预测
+async function _renderGlicko2Predict(homeCode, awayCode) {
+  try {
+    const p = await apiWithRetry('/elo/predict-glicko2/' + homeCode + '/' + awayCode);
+    const hWin = (p.probabilities.home_win * 100).toFixed(1);
+    const draw = (p.probabilities.draw * 100).toFixed(1);
+    const aWin = (p.probabilities.away_win * 100).toFixed(1);
+    const maxProb = Math.max(p.probabilities.home_win, p.probabilities.draw, p.probabilities.away_win);
+    const winnerText = maxProb === p.probabilities.home_win ? '主胜倾向' : maxProb === p.probabilities.away_win ? '客胜倾向' : '平局倾向';
+    const winnerColor = maxProb === p.probabilities.home_win ? 'text-emerald-400' : maxProb === p.probabilities.away_win ? 'text-rose-400' : 'text-amber-400';
+    return `
+      <div class="space-y-3">
+        <div>
+          <div class="flex justify-between text-sm mb-2">
+            <span>主胜 <b class="text-emerald-400">${hWin}%</b></span>
+            <span>平 <b class="text-amber-400">${draw}%</b></span>
+            <span>客胜 <b class="text-rose-400">${aWin}%</b></span>
+          </div>
+          <div class="flex h-3 rounded-full overflow-hidden bg-slate-800">
+            <div class="bg-emerald-500" style="width:${hWin}%"></div>
+            <div class="bg-amber-500" style="width:${draw}%"></div>
+            <div class="bg-rose-500" style="width:${aWin}%"></div>
+          </div>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center">
+          <div class="bg-slate-800/50 rounded p-2">
+            <div class="text-xs text-slate-500">主队 Glicko-2</div>
+            <div class="text-sm font-bold text-cyan-400">${p.home.rating.toFixed(0)}</div>
+            <div class="text-[10px] text-slate-500">±${p.home.rd.toFixed(1)}</div>
+          </div>
+          <div class="bg-slate-800/50 rounded p-2">
+            <div class="text-xs text-slate-500">期望进球</div>
+            <div class="text-sm font-bold text-slate-300">${(p.expected_score * 2.6).toFixed(2)} - ${((1 - p.expected_score) * 2.6).toFixed(2)}</div>
+          </div>
+          <div class="bg-slate-800/50 rounded p-2">
+            <div class="text-xs text-slate-500">客队 Glicko-2</div>
+            <div class="text-sm font-bold text-rose-400">${p.away.rating.toFixed(0)}</div>
+            <div class="text-[10px] text-slate-500">±${p.away.rd.toFixed(1)}</div>
+          </div>
+        </div>
+        <div class="text-center">
+          <span class="text-xs text-slate-500">结论：</span>
+          <span class="${winnerColor} font-bold">${winnerText}</span>
+          <span class="text-xs text-slate-500 ml-2">（最高概率 ${(maxProb * 100).toFixed(1)}%）</span>
+        </div>
+        <div class="text-center text-[10px] text-slate-600">⚡ Glicko-2 v3 · 913 场 walk-forward · 准确率 62.7%</div>
+      </div>
+    `;
+  } catch (e) {
+    // v0.7.0a: 404 fallback (球队不在 Glicko-2 字典) → 降级显示 Elo M1
+    if (e.message && e.message.includes('404')) {
+      const fallback = await _renderEloM1Predict(homeCode, awayCode);
+      return fallback + '<div class="text-center text-amber-400 text-[10px] mt-1">⚠️ 该队不在 Glicko-2 字典, 已降级到 Elo M1</div>';
+    }
+    return '<div class="text-rose-400 text-sm text-center py-4">Glicko-2 预测失败：' + escapeHtml(e.message || '') + '</div>';
+  }
+}
+
+// v0.7.0a ModelBlend: Elo + Glicko-2 加权平均(默认 w_elo=0.5)
+async function _renderBlendPredict(homeCode, awayCode) {
+  try {
+    const b = await apiWithRetry('/elo/predict-blend/' + homeCode + '/' + awayCode + '?w_elo=0.5&w_glicko2=0.5');
+    const probs = b.blended.probabilities;
+    const hWin = (probs.home_win * 100).toFixed(1);
+    const draw = (probs.draw * 100).toFixed(1);
+    const aWin = (probs.away_win * 100).toFixed(1);
+    const eloProbs = b.elo.probabilities;
+    const g2Probs = b.glicko2.probabilities;
+    const maxProb = Math.max(probs.home_win, probs.draw, probs.away_win);
+    const winnerText = maxProb === probs.home_win ? '主胜倾向' : maxProb === probs.away_win ? '客胜倾向' : '平局倾向';
+    const winnerColor = maxProb === probs.home_win ? 'text-emerald-400' : maxProb === probs.away_win ? 'text-rose-400' : 'text-amber-400';
+    // 3 模型并排: Elo / Glicko-2 / Blend
+    const compRow = (label, color, p) => `
+      <div class="bg-slate-800/40 rounded p-2">
+        <div class="text-[10px] text-slate-500">${label}</div>
+        <div class="text-[11px] font-mono ${color}">${(p.home_win * 100).toFixed(1)} / ${(p.draw * 100).toFixed(1)} / ${(p.away_win * 100).toFixed(1)}</div>
+      </div>
+    `;
+    return `
+      <div class="space-y-3">
+        <div>
+          <div class="flex justify-between text-sm mb-2">
+            <span>主胜 <b class="text-emerald-400">${hWin}%</b></span>
+            <span>平 <b class="text-amber-400">${draw}%</b></span>
+            <span>客胜 <b class="text-rose-400">${aWin}%</b></span>
+          </div>
+          <div class="flex h-3 rounded-full overflow-hidden bg-slate-800">
+            <div class="bg-emerald-500" style="width:${hWin}%"></div>
+            <div class="bg-amber-500" style="width:${draw}%"></div>
+            <div class="bg-rose-500" style="width:${aWin}%"></div>
+          </div>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center">
+          ${compRow('📊 Elo M1', 'text-violet-400', eloProbs)}
+          ${compRow('⚡ Glicko-2', 'text-cyan-400', g2Probs)}
+          ${compRow('🧠 Blend ⭐', 'text-gradient bg-gradient-to-r from-violet-400 to-cyan-400 bg-clip-text text-transparent', probs)}
+        </div>
+        <div class="text-center">
+          <span class="text-xs text-slate-500">结论：</span>
+          <span class="${winnerColor} font-bold">${winnerText}</span>
+          <span class="text-xs text-slate-500 ml-2">（Blend 最高概率 ${(maxProb * 100).toFixed(1)}%）</span>
+        </div>
+        <div class="text-center text-[10px] text-slate-600">🧠 ModelBlend · Elo + Glicko-2 等权 w=0.5/0.5 · 三方融合见 v0.7.3</div>
+      </div>
+    `;
+  } catch (e) {
+    // v0.7.0a: 404 fallback (球队不在 Glicko-2 字典) → 降级显示 Elo M1
+    if (e.message && e.message.includes('404')) {
+      const fallback = await _renderEloM1Predict(homeCode, awayCode);
+      return fallback + '<div class="text-center text-amber-400 text-[10px] mt-1">⚠️ 该队不在 Glicko-2 字典, 已降级到 Elo M1</div>';
+    }
+    return '<div class="text-rose-400 text-sm text-center py-4">Blend 预测失败：' + escapeHtml(e.message || '') + '</div>';
   }
 }
 
