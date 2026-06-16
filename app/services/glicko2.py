@@ -339,6 +339,10 @@ def lookup_glicko2_rating(fifa_code: str) -> Optional[Dict]:
     data = load_glicko2_ratings()
     ratings = data.get("ratings", {})
 
+    # v0.7.0a fix: ratings 文件中也可能用大写 FIFA code 作为 key(实测: 'USA' 大写存在)
+    if fifa_code.upper() in ratings:
+        return ratings[fifa_code.upper()]
+
     # 反向: FIFA code → name
     for name, code in G2_NAME_TO_CODE.items():
         if code == fifa_code:

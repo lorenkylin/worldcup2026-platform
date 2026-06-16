@@ -520,3 +520,126 @@ def get_backtest_metrics() -> Dict:
     if not metrics_path.exists():
         return {'error': '回测指标未生成，请先跑 scripts/m1_backtest.py'}
     return json.loads(metrics_path.read_text(encoding='utf-8'))
+
+
+# === v0.7.0a ModelBlend: Elo + Glicko-2 等权平均 ===
+
+def predict_match_blend(
+    home_code: str,
+    away_code: str,
+    w_elo: float = 0.5,
+    w_glicko2: float = 0.5,
+    source: str = "hicruben",
+) -> Dict:
+    """v0.7.0a 融合预测: Elo (v1) + Glicko-2 (v3) 加权平均.
+
+    简单透明的等权/可调权融合,不训练 β(无市场赔率数据时无意义)。
+    真正的"MarketBlend"(Elo + Glicko-2 + 市场赔率)在 v0.7.3 才有。
+
+    Args:
+        home_code: 主队 FIFA 3-letter code
+        away_code: 客队 FIFA 3-letter code
+        w_elo: Elo 权重 (0-1, 默认 0.5)
+        w_glicko2: Glicko-2 权重 (0-1, 默认 0.5)
+        source: Elo 数据源 (hicruben / statsbomb),Glicko-2 固定用 hicruben
+
+    Returns:
+        {
+            'home': {'fifa_code': str, 'elo': int|None},
+            'away': {'fifa_code': str, 'elo': int|None},
+            'elo': {完整 Elo 预测(从 predict_match)},
+            'glicko2': {完整 Glicko-2 预测(从 glicko2.predict_outcome)},
+            'blended': {
+                'model': 'blend_elo_glicko2_v1',
+                'weights': {'elo': float, 'glicko2': float},
+                'probabilities': {'home_win': float, 'draw': float, 'away_win': float},
+            },
+            'predicted_outcome': 'H' | 'D' | 'A',
+            'confidence': float,  # max(blended_probabilities)
+            'data_source': str,
+            'data_as_of': str,
+            'error': str | None,
+        }
+    """
+    home_code_u = home_code.upper()
+    away_code_u = away_code.upper()
+
+    # 1) Elo 预测
+    elo_result = predict_match(home_code_u, away_code_u, source=source)
+
+    # 2) Glicko-2 预测
+    from app.services import glicko2 as g2_service
+    rh = g2_service.lookup_glicko2_rating(home_code_u)
+    ra = g2_service.lookup_glicko2_rating(away_code_u)
+    g2_result = None
+    g2_error = None
+    if rh is None or ra is None:
+        missing = home_code_u if rh is None else away_code_u
+        g2_error = f"球队 {missing} 不在 Glicko-2 数据中"
+    else:
+        g2_pred = g2_service.predict_outcome(
+            rh["rating"], rh["rd"], ra["rating"], ra["rd"], home_bonus=HOME_BONUS,
+        )
+        g2_data = g2_service.load_glicko2_ratings()
+        g2_result = {
+            "model": "glicko2_v1",
+            "home": {"fifa_code": home_code_u, "rating": rh["rating"], "rd": rh["rd"], "volatility": rh["volatility"]},
+            "away": {"fifa_code": away_code_u, "rating": ra["rating"], "rd": ra["rd"], "volatility": ra["volatility"]},
+            "probabilities": {
+                "home_win": g2_pred["win_a"],
+                "draw": g2_pred["draw"],
+                "away_win": g2_pred["win_b"],
+            },
+            "expected_score": g2_pred["expected_score"],
+            "uncertainty": g2_pred["uncertainty"],
+            "data_source": "hicruben/world-cup-2026-prediction-model (913 matches walk-forward)",
+            "data_as_of": g2_data.get("generatedAt"),
+        }
+
+    # 3) 融合(两边都成功才能 blend)
+    if elo_result.get("error") or g2_error:
+        return {
+            "home": elo_result.get("home"),
+            "away": elo_result.get("away"),
+            "elo": elo_result if not elo_result.get("error") else None,
+            "glicko2": g2_result,
+            "blended": None,
+            "predicted_outcome": None,
+            "confidence": None,
+            "data_source": elo_result.get("data_source"),
+            "data_as_of": elo_result.get("data_as_of"),
+            "error": elo_result.get("error") or g2_error,
+        }
+
+    elo_probs = elo_result["probabilities"]
+    g2_probs = g2_result["probabilities"]
+    blended_probs = {
+        "home_win": round(w_elo * elo_probs["home_win"] + w_glicko2 * g2_probs["home_win"], 4),
+        "draw":     round(w_elo * elo_probs["draw"]     + w_glicko2 * g2_probs["draw"], 4),
+        "away_win": round(w_elo * elo_probs["away_win"] + w_glicko2 * g2_probs["away_win"], 4),
+    }
+    predicted = max(blended_probs, key=blended_probs.get)
+    predicted_outcome = {"home_win": "H", "draw": "D", "away_win": "A"}[predicted]
+    confidence = blended_probs[predicted]
+
+    return {
+        "home": elo_result["home"],
+        "away": elo_result["away"],
+        "elo": {
+            "model": elo_result["model"],
+            "probabilities": elo_probs,
+            "data_as_of": elo_result.get("data_as_of"),
+        },
+        "glicko2": g2_result,
+        "blended": {
+            "model": "blend_elo_glicko2_v1",
+            "weights": {"elo": w_elo, "glicko2": w_glicko2},
+            "probabilities": blended_probs,
+        },
+        "predicted_outcome": predicted_outcome,
+        "confidence": confidence,
+        "data_source": elo_result.get("data_source"),
+        "data_as_of": elo_result.get("data_as_of"),
+        "model_version": "v7a_blend",
+        "error": None,
+    }

@@ -21,6 +21,7 @@ from app.services.elo import (
     get_team_elo,
     predict_match,
     predict_match_enhanced,
+    predict_match_blend,
     get_top_elo,
     get_backtest_metrics,
     compare_predictions,
@@ -349,6 +350,56 @@ def glicko2_metrics() -> Dict:
         "homeBonus": data.get("homeBonus", 70),
         "data_as_of": data.get("generatedAt"),
     }
+
+
+# === v0.7.0a ModelBlend (Elo + Glicko-2 等权) ===
+
+@router.get("/elo/predict-blend/{home_code}/{away_code}")
+def predict_blend(
+    home_code: str,
+    away_code: str,
+    w_elo: float = Query(0.5, ge=0.0, le=1.0, description="Elo 权重 (0-1, 默认 0.5)"),
+    w_glicko2: float = Query(0.5, ge=0.0, le=1.0, description="Glicko-2 权重 (0-1, 默认 0.5)"),
+    match_id: Optional[int] = Query(None, description="比赛 ID (v0.7.0a+ 自动记录 prediction_log)"),
+    db: Session = Depends(get_db),
+) -> Dict:
+    """v0.7.0a ModelBlend: Elo (v1) + Glicko-2 (v3) 加权平均预测.
+
+    等权 0.5/0.5 起步,可调(参数 w_elo / w_glicko2)。
+    真正的三方融合(含市场赔率)在 v0.7.3。
+    """
+    if abs((w_elo + w_glicko2) - 1.0) > 1e-6:
+        raise HTTPException(status_code=422, detail="w_elo + w_glicko2 必须等于 1.0")
+
+    result = predict_match_blend(
+        home_code=home_code,
+        away_code=away_code,
+        w_elo=w_elo,
+        w_glicko2=w_glicko2,
+    )
+    if result.get("error"):
+        raise HTTPException(status_code=404, detail=result["error"])
+
+    # v0.7.0a: 自动写 prediction_log (model_version='v7a_blend')
+    if match_id is not None:
+        try:
+            from app.services.prediction_log import record_prediction
+            blended = result["blended"]["probabilities"]
+            record_prediction(
+                db=db,
+                match_id=match_id,
+                model_version="v7a_blend",
+                pred_home_win=blended["home_win"],
+                pred_draw=blended["draw"],
+                pred_away_win=blended["away_win"],
+                elo_home=result.get("home", {}).get("elo"),
+                elo_away=result.get("away", {}).get("elo"),
+                source="blend_elo_glicko2",
+            )
+        except Exception as e:
+            print(f"[prediction_log] v7a_blend 写入失败: {e}")
+
+    return result
 
 
 # === 准确率 dashboard (v0.6.0+) ===
