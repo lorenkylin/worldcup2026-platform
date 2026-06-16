@@ -446,7 +446,7 @@ function setEloSource(source) {
 
 // v0.7.0a ModelBlend 入口: 1v1 预测器切模型 (直接重渲整页,简单稳定)
 function setEloModel(model) {
-  if (model !== 'elo' && model !== 'glicko2' && model !== 'blend') return;
+  if (model !== 'elo' && model !== 'glicko2' && model !== 'blend' && model !== 'adaptive') return;
   _eloModel = model;
   renderElo();
 }
@@ -2170,9 +2170,10 @@ async function renderElo() {
             <button onclick="setEloModel('elo')" class="text-xs px-3 py-1.5 transition ${_eloModel === 'elo' ? 'bg-violet-600 text-white' : 'text-slate-400 hover:text-violet-400'}">📊 Elo M1 v1</button>
             <button onclick="setEloModel('glicko2')" class="text-xs px-3 py-1.5 transition ${_eloModel === 'glicko2' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-cyan-400'}">⚡ Glicko-2 v3</button>
             <button onclick="setEloModel('blend')" class="text-xs px-3 py-1.5 transition ${_eloModel === 'blend' ? 'bg-gradient-to-r from-violet-600 to-cyan-600 text-white' : 'text-slate-400 hover:text-violet-400'}">🧠 Blend ⭐ (默认)</button>
+            <button onclick="setEloModel('adaptive')" class="text-xs px-3 py-1.5 transition ${_eloModel === 'adaptive' ? 'bg-gradient-to-r from-emerald-600 to-cyan-600 text-white' : 'text-slate-400 hover:text-emerald-400'}">🌱 Adaptive <span class="text-[9px]">v7.5</span></button>
           </div>
           <span class="text-[10px] text-slate-500 hidden md:inline">
-            ${_eloModel === 'elo' ? '· Hicruben Elo (v1)' : _eloModel === 'glicko2' ? '· 913 场 walk-forward · 准确率 62.7%' : '· Elo + Glicko-2 等权 (w_elo=0.5)'}
+            ${_eloModel === 'elo' ? '· Hicruben Elo (v1)' : _eloModel === 'glicko2' ? '· 913 场 walk-forward · 准确率 62.7%' : _eloModel === 'adaptive' ? '· 按距上次比赛天数自动调 w_g2' : '· Elo + Glicko-2 等权 (w_elo=0.5)'}
           </span>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-7 gap-3 items-center">
@@ -2400,6 +2401,7 @@ async function _renderEloPredict(homeCode, awayCode) {
   const model = window._eloModel || _eloModel || 'blend';
   if (model === 'elo') return _renderEloM1Predict(homeCode, awayCode);
   if (model === 'glicko2') return _renderGlicko2Predict(homeCode, awayCode);
+  if (model === 'adaptive') return _renderAdaptivePredict(homeCode, awayCode);
   return _renderBlendPredict(homeCode, awayCode);
 }
 
@@ -2562,6 +2564,73 @@ async function _renderBlendPredict(homeCode, awayCode) {
       return fallback + '<div class="text-center text-amber-400 text-[10px] mt-1">⚠️ 该队不在 Glicko-2 字典, 已降级到 Elo M1</div>';
     }
     return '<div class="text-rose-400 text-sm text-center py-4">Blend 预测失败：' + escapeHtml(e.message || '') + '</div>';
+  }
+}
+
+// v0.7.5 Adaptive: 按距上次比赛天数动态调 w_g2
+async function _renderAdaptivePredict(homeCode, awayCode) {
+  try {
+    const a = await apiWithRetry('/elo/adaptive-weight/' + homeCode + '/' + awayCode);
+    const blend = a.blend_result;
+    if (blend.error || !blend.blended) {
+      return '<div class="text-amber-400 text-sm text-center py-4">' + escapeHtml(blend.error || '无可用预测') + '</div>';
+    }
+    const probs = blend.blended.probabilities;
+    const hWin = (probs.home_win * 100).toFixed(1);
+    const draw = (probs.draw * 100).toFixed(1);
+    const aWin = (probs.away_win * 100).toFixed(1);
+    const maxProb = Math.max(probs.home_win, probs.draw, probs.away_win);
+    const winnerText = maxProb === probs.home_win ? '主胜倾向' : maxProb === probs.away_win ? '客胜倾向' : '平局倾向';
+    const winnerColor = maxProb === probs.home_win ? 'text-emerald-400' : maxProb === probs.away_win ? 'text-rose-400' : 'text-amber-400';
+    const segColor = {
+      fresh: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+      warm: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
+      stale: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+      dormant: 'bg-slate-500/20 text-slate-400 border-slate-500/30',
+    };
+    const segLabel = {
+      fresh: '新鲜数据', warm: '近期数据', stale: '陈旧数据', dormant: '休眠数据'
+    };
+    const segBadge = `
+      <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border ${segColor[a.segment] || segColor.dormant} text-xs font-medium mb-3">
+        <span class="text-slate-500">权重</span>
+        <span class="font-mono text-base">${a.w_elo.toFixed(1)}</span>
+        <span class="text-slate-500">/</span>
+        <span class="font-mono text-base">${a.w_g2.toFixed(1)}</span>
+        <span class="text-slate-400 ml-1">·</span>
+        <span>${segLabel[a.segment] || a.segment}</span>
+        <span class="text-slate-500 ml-1">·</span>
+        <span class="text-slate-500">距 ${a.max_days} 天</span>
+      </div>
+    `;
+    return `
+      <div class="bg-slate-800/30 rounded-xl p-4 border border-slate-800">
+        ${segBadge}
+        <div class="text-xs text-slate-500 mb-3 italic">${escapeHtml(a.rationale)}</div>
+        <div class="grid grid-cols-3 gap-3 mb-3">
+          <div class="text-center p-3 rounded-lg ${maxProb === probs.home_win ? 'bg-emerald-500/20 border border-emerald-500/30' : 'bg-slate-800/40'}">
+            <div class="text-2xl font-bold ${maxProb === probs.home_win ? 'text-emerald-300' : 'text-slate-300'}">${hWin}%</div>
+            <div class="text-xs text-slate-500 mt-1">主胜</div>
+          </div>
+          <div class="text-center p-3 rounded-lg ${maxProb === probs.draw ? 'bg-amber-500/20 border border-amber-500/30' : 'bg-slate-800/40'}">
+            <div class="text-2xl font-bold ${maxProb === probs.draw ? 'text-amber-300' : 'text-slate-300'}">${draw}%</div>
+            <div class="text-xs text-slate-500 mt-1">平局</div>
+          </div>
+          <div class="text-center p-3 rounded-lg ${maxProb === probs.away_win ? 'bg-rose-500/20 border border-rose-500/30' : 'bg-slate-800/40'}">
+            <div class="text-2xl font-bold ${maxProb === probs.away_win ? 'text-rose-300' : 'text-slate-300'}">${aWin}%</div>
+            <div class="text-xs text-slate-500 mt-1">客胜</div>
+          </div>
+        </div>
+        <div class="text-center ${winnerColor} text-sm font-medium mb-3">→ ${winnerText}</div>
+        <div class="grid grid-cols-2 gap-2 text-[10px] text-slate-500 pt-2 border-t border-slate-800">
+          <div>主队 ${homeCode} 距上次比赛 <span class="text-slate-300 font-mono">${a.home_days_since_last}</span> 天</div>
+          <div>客队 ${awayCode} 距上次比赛 <span class="text-slate-300 font-mono">${a.away_days_since_last}</span> 天</div>
+        </div>
+        <div class="text-[10px] text-slate-600 mt-2 text-center">v0.7.5 Adaptive · ${a.model_version}</div>
+      </div>
+    `;
+  } catch (e) {
+    return '<div class="text-rose-400 text-sm text-center py-4">Adaptive 预测失败：' + escapeHtml(e.message || '') + '</div>';
   }
 }
 

@@ -441,3 +441,71 @@ def weight_sweep() -> Dict:
         {results, baseline_50_50, winner, recommendation}
     """
     return run_weight_sweep()
+
+
+@router.get("/elo/adaptive-weight/{home}/{away}")
+def adaptive_weight(
+    home: str,
+    away: str,
+    match_id: Optional[int] = Query(None, ge=1, description="可选,自动写 prediction_log"),
+    db: Session = Depends(get_db),
+) -> Dict:
+    """v0.7.5 G2 自适应权重 — 按距上次比赛天数动态调整 w_g2.
+
+    4 段: FRESH(≤7d) w_g2=1.0 / WARM(7-30d) 0.8 / STALE(30-90d) 0.6 / DORMANT(>90d) 0.5
+
+    Args:
+        home: 主队 FIFA code
+        away: 客队 FIFA code
+        match_id: 可选,匹配 ID,提供时自动写 prediction_log(model=adaptive)
+    """
+    from app.services.adaptive_weight import adaptive_weight_blend
+    from app.services.elo import HOME_BONUS
+
+    if home.upper() == away.upper():
+        raise HTTPException(status_code=422, detail="主客队不能相同")
+
+    # 校验球队存在
+    home_team = db.query(Team).filter(Team.fifa_code == home.upper()).first()
+    away_team = db.query(Team).filter(Team.fifa_code == away.upper()).first()
+    if not home_team:
+        raise HTTPException(status_code=404, detail=f"球队 {home.upper()} 不存在")
+    if not away_team:
+        raise HTTPException(status_code=404, detail=f"球队 {away.upper()} 不存在")
+
+    r = adaptive_weight_blend(home, away, db)
+    blend = r["blend_result"]
+
+    # 自动写 prediction_log
+    if match_id is not None and not blend.get("error") and blend.get("blended"):
+        try:
+            from app.services.prediction_log import record_prediction
+            probs = blend["blended"]["probabilities"]
+            record_prediction(
+                db=db,
+                match_id=match_id,
+                model_version="v7b_adaptive",
+                pred_home_win=probs["home_win"],
+                pred_draw=probs["draw"],
+                pred_away_win=probs["away_win"],
+                elo_home=int(home_team.elo_rating) if home_team.elo_rating else None,
+                elo_away=int(away_team.elo_rating) if away_team.elo_rating else None,
+                source="adaptive",
+            )
+        except Exception as e:
+            print(f"[prediction_log] adaptive 写入失败: {e}")
+
+    return {
+        "home": home_team.fifa_code,
+        "away": away_team.fifa_code,
+        "home_days_since_last": r["home_days_since_last"],
+        "away_days_since_last": r["away_days_since_last"],
+        "max_days": r["max_days_since_last"],
+        "segment": r["segment"],
+        "w_elo": r["w_elo"],
+        "w_g2": r["w_g2"],
+        "rationale": r["rationale"],
+        "blend_result": blend,
+        "model_version": r["model_version"],
+    }
+
