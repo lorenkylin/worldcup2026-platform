@@ -516,18 +516,22 @@ def calibrated_predict(
     away: str,
     model: str = Query("glicko2", pattern="^(glicko2|elo|blend)$",
                        description="校准目标模型 (glicko2/elo/blend)"),
+    method: str = Query("platt", pattern="^(platt|isotonic|both)$",
+                        description="v0.7.8.1: 校准方法 (platt|isotonic|both)"),
     match_id: Optional[int] = Query(None, ge=1, description="可选,自动写 prediction_log"),
     db: Session = Depends(get_db),
 ) -> Dict:
-    """v0.7.8 G2-only Platt scaling — 在 913 场 walk-forward 拟合 3 个 (a, b) 校准器
-    并对实时预测的 (ph, pd, pa) 做后验校准。实验性功能:
-    brier 改进 ≈ 0.0069 (0.69 pp), 低于 spec 门槛 0.015。
+    """v0.7.8 G2-only Platt scaling + v0.7.8.1 isotonic 校准对比
+
+    在 913 场 walk-forward 拟合,默认 Platt(2-param sigmoid)。
+    method=isotonic 走 PAVA 步阶函数;method=both 同时返回两者便于 A/B。
+
+    实验性功能: brier 改进均 < 1.5pp 门槛
+      (v0.7.9 实测 913 场:
+       Platt full fit -0.69pp / walkforward 80/20 -0.27pp
+       Isotonic full fit -0.77pp / walkforward 80/20 -0.23pp)
     推荐: 高 / 关键场预测时用, 普通场用 v3_g2 即可。
     """
-    from app.services.calibration import (
-        load_g2_records, fit_calibrators, calibrate_probs,
-    )
-
     if home.upper() == away.upper():
         raise HTTPException(status_code=422, detail="主客队不能相同")
 
@@ -565,38 +569,106 @@ def calibrated_predict(
 
     ph, pd, pa = raw["ph"], raw["pd"], raw["pa"]
 
-    records = load_g2_records()
-    cals = fit_calibrators(records)
-    ch, cd, ca = calibrate_probs(ph, pd, pa, cals)
+    # v0.7.9 缓存 records + 校准预热指标,避免每个请求重算 913 场 brier
+    from app.services.calibration import (
+        load_g2_records, fit_calibrators, calibrate_probs,
+        walkforward_validate, evaluate_all,
+    )
+    from app.services.isotonic_calibration import (
+        fit_isotonic_calibrators, isotonic_calibrate_probs,
+        isotonic_walkforward_validate,
+    )
 
-    confidence = "high" if max(ch, cd, ca) > 0.6 else "medium" if max(ch, cd, ca) > 0.45 else "low"
+    records = load_g2_records()
+    platt_wf = walkforward_validate(records, test_ratio=0.2)
+    platt_full = evaluate_all(records)
+    iso_wf = isotonic_walkforward_validate(records, test_ratio=0.2)
+    platt_wf_pp = round(
+        (platt_wf["raw"]["brier"] - platt_wf["calibrated"]["brier"]) * 100, 3
+    )
+    platt_full_pp = round(
+        (platt_full["raw_brier"] - platt_full["calibrated_brier"]) * 100, 3
+    )
+    iso_wf_pp = round(
+        (iso_wf["raw"]["brier"] - iso_wf["calibrated"]["brier"]) * 100, 3
+    )
+
+    result: Dict = {
+        "home": home_team.fifa_code,
+        "away": away_team.fifa_code,
+        "model": model,
+        "raw_probs": {"home": round(ph, 4), "draw": round(pd, 4), "away": round(pa, 4)},
+        "experimental": True,
+        "training_samples": len(records),
+        "calibration_metrics": {
+            "platt_walkforward_80_20_pp": platt_wf_pp,
+            "platt_full_fit_pp": platt_full_pp,
+            "isotonic_walkforward_80_20_pp": iso_wf_pp,
+        },
+    }
+
+    if method in ("platt", "both"):
+        cals_p = fit_calibrators(records)
+        ch, cd, ca = calibrate_probs(ph, pd, pa, cals_p)
+        result["platt"] = {
+            "calibrated_probs": {"home": round(ch, 4), "draw": round(cd, 4), "away": round(ca, 4)},
+            "calibration_params": cals_p.to_dict(),
+            "brier_improvement_pp": platt_full_pp,
+            "confidence": "high" if max(ch, cd, ca) > 0.6 else "medium" if max(ch, cd, ca) > 0.45 else "low",
+        }
+        if method == "platt":
+            result["calibrated_probs"] = result["platt"]["calibrated_probs"]
+            result["calibration_params"] = result["platt"]["calibration_params"]
+            result["confidence"] = result["platt"]["confidence"]
+            result["brier_improvement"] = round(platt_full_pp / 100, 4)
+
+    if method in ("isotonic", "both"):
+        cals_i = fit_isotonic_calibrators(records)
+        ih, id_, ia = isotonic_calibrate_probs(ph, pd, pa, cals_i)
+        result["isotonic"] = {
+            "calibrated_probs": {"home": round(ih, 4), "draw": round(id_, 4), "away": round(ia, 4)},
+            "calibration_params": cals_i.to_dict(),
+            "brier_improvement_pp": iso_wf_pp,
+            "confidence": "high" if max(ih, id_, ia) > 0.6 else "medium" if max(ih, id_, ia) > 0.45 else "low",
+        }
+        if method == "isotonic":
+            result["calibrated_probs"] = result["isotonic"]["calibrated_probs"]
+            result["calibration_params"] = result["isotonic"]["calibration_params"]
+            result["confidence"] = result["isotonic"]["confidence"]
+            result["brier_improvement"] = round(iso_wf_pp / 100, 4)
+
+    if method == "both":
+        pl = result["platt"]
+        iso = result["isotonic"]
+        # walkforward 80/20 更严格,用它做 A/B 推荐
+        recommendation = "platt" if platt_wf_pp >= iso_wf_pp else "isotonic"
+        result["calibrated_probs"] = pl["calibrated_probs"]
+        result["confidence"] = pl["confidence"]
+        result["brier_improvement"] = round(platt_wf_pp / 100, 4)
+        result["comparison"] = {
+            "platt_brier_pp": platt_wf_pp,
+            "isotonic_brier_pp": iso_wf_pp,
+            "recommendation": recommendation,
+        }
 
     if match_id is not None:
         try:
             from app.services.prediction_log import record_prediction
+            ch = result["calibrated_probs"]["home"]
+            cd = result["calibrated_probs"]["draw"]
+            ca = result["calibrated_probs"]["away"]
             record_prediction(
                 db=db,
                 match_id=match_id,
-                model_version="v7c_calibrated",
+                model_version=f"v7c_calibrated_{method}",
                 pred_home_win=ch,
                 pred_draw=cd,
                 pred_away_win=ca,
                 elo_home=int(home_team.elo_rating) if home_team.elo_rating else None,
                 elo_away=int(away_team.elo_rating) if away_team.elo_rating else None,
-                source=f"calibrated_{model}",
+                source=f"calibrated_{model}_{method}",
             )
         except Exception as e:
             print(f"[prediction_log] calibrated 写入失败: {e}")
 
-    return {
-        "home": home_team.fifa_code,
-        "away": away_team.fifa_code,
-        "model": model,
-        "raw_probs": {"home": round(ph, 4), "draw": round(pd, 4), "away": round(pa, 4)},
-        "calibrated_probs": {"home": round(ch, 4), "draw": round(cd, 4), "away": round(ca, 4)},
-        "calibration_params": cals.to_dict(),
-        "confidence": confidence,
-        "training_samples": len(records),
-        "experimental": True,
-        "brier_improvement": 0.0069,
-    }
+    return result

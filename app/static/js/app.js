@@ -446,7 +446,7 @@ function setEloSource(source) {
 
 // v0.7.0a ModelBlend 入口: 1v1 预测器切模型 (直接重渲整页,简单稳定)
 function setEloModel(model) {
-  if (model !== 'elo' && model !== 'glicko2' && model !== 'blend' && model !== 'adaptive') return;
+  if (model !== 'elo' && model !== 'glicko2' && model !== 'blend' && model !== 'adaptive' && model !== 'calibrated') return;
   _eloModel = model;
   renderElo();
 }
@@ -2171,9 +2171,10 @@ async function renderElo() {
             <button onclick="setEloModel('glicko2')" class="text-xs px-3 py-1.5 transition ${_eloModel === 'glicko2' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-cyan-400'}">⚡ Glicko-2 v3</button>
             <button onclick="setEloModel('blend')" class="text-xs px-3 py-1.5 transition ${_eloModel === 'blend' ? 'bg-gradient-to-r from-violet-600 to-cyan-600 text-white' : 'text-slate-400 hover:text-violet-400'}">🧠 Blend ⭐ (默认)</button>
             <button onclick="setEloModel('adaptive')" class="text-xs px-3 py-1.5 transition ${_eloModel === 'adaptive' ? 'bg-gradient-to-r from-emerald-600 to-cyan-600 text-white' : 'text-slate-400 hover:text-emerald-400'}">🌱 Adaptive <span class="text-[9px]">v7.5</span></button>
+          <button onclick="setEloModel('calibrated')" class="text-xs px-3 py-1.5 transition ${_eloModel === 'calibrated' ? 'bg-gradient-to-r from-amber-600 to-pink-600 text-white' : 'text-slate-400 hover:text-amber-400'}">🧪 Calibrated <span class="text-[9px]">v7.9 experimental</span></button>
           </div>
           <span class="text-[10px] text-slate-500 hidden md:inline">
-            ${_eloModel === 'elo' ? '· Hicruben Elo (v1)' : _eloModel === 'glicko2' ? '· 913 场 walk-forward · 准确率 62.7%' : _eloModel === 'adaptive' ? '· 按距上次比赛天数自动调 w_g2' : '· Elo + Glicko-2 等权 (w_elo=0.5)'}
+            ${_eloModel === 'elo' ? '· Hicruben Elo (v1)' : _eloModel === 'glicko2' ? '· 913 场 walk-forward · 准确率 62.7%' : _eloModel === 'adaptive' ? '· 按距上次比赛天数自动调 w_g2' : _eloModel === 'calibrated' ? '· Platt+Isotonic 校准 · 913 场 · 实验性' : '· Elo + Glicko-2 等权 (w_elo=0.5)'}
           </span>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-7 gap-3 items-center">
@@ -2402,6 +2403,7 @@ async function _renderEloPredict(homeCode, awayCode) {
   if (model === 'elo') return _renderEloM1Predict(homeCode, awayCode);
   if (model === 'glicko2') return _renderGlicko2Predict(homeCode, awayCode);
   if (model === 'adaptive') return _renderAdaptivePredict(homeCode, awayCode);
+  if (model === 'calibrated') return _renderCalibratedPredict(homeCode, awayCode);
   return _renderBlendPredict(homeCode, awayCode);
 }
 
@@ -2631,6 +2633,88 @@ async function _renderAdaptivePredict(homeCode, awayCode) {
     `;
   } catch (e) {
     return '<div class="text-rose-400 text-sm text-center py-4">Adaptive 预测失败：' + escapeHtml(e.message || '') + '</div>';
+  }
+}
+
+// v0.7.9 Calibrated 预测: 默认 method=both, 同时显示 Platt vs Isotonic A/B
+async function _renderCalibratedPredict(homeCode, awayCode) {
+  try {
+    const p = await apiWithRetry('/elo/calibrated-predict/' + homeCode + '/' + awayCode + '?model=glicko2&method=both');
+    const raw = p.raw_probs;
+    const pl = p.platt;
+    const iso = p.isotonic;
+    const cmp = p.comparison || {};
+
+    const plH = (pl.calibrated_probs.home * 100).toFixed(1);
+    const plD = (pl.calibrated_probs.draw * 100).toFixed(1);
+    const plA = (pl.calibrated_probs.away * 100).toFixed(1);
+    const isH = (iso.calibrated_probs.home * 100).toFixed(1);
+    const isD = (iso.calibrated_probs.draw * 100).toFixed(1);
+    const isA = (iso.calibrated_probs.away * 100).toFixed(1);
+    const rH = (raw.home * 100).toFixed(1);
+    const rD = (raw.draw * 100).toFixed(1);
+    const rA = (raw.away * 100).toFixed(1);
+
+    const metrics = p.calibration_metrics || {};
+    const plFull = metrics.platt_full_fit_pp;
+    const plWf = metrics.platt_walkforward_80_20_pp;
+    const isWf = metrics.isotonic_walkforward_80_20_pp;
+
+    const recomBadge = cmp.recommendation === 'platt'
+      ? '<span class="text-[10px] bg-emerald-900/40 text-emerald-300 px-2 py-0.5 rounded">推荐 Platt</span>'
+      : '<span class="text-[10px] bg-amber-900/40 text-amber-300 px-2 py-0.5 rounded">推荐 Isotonic</span>';
+
+    const probBar = (label, rawV, plV, isoV, color) => {
+      const maxV = Math.max(parseFloat(plV), parseFloat(isoV));
+      const maxLabel = parseFloat(plV) === maxV ? 'Platt' : 'Isotonic';
+      return `
+        <div class="space-y-1">
+          <div class="flex items-baseline gap-2 text-xs">
+            <span class="w-12 text-slate-400">${label}</span>
+            <span class="text-slate-500 line-through">raw ${rawV}%</span>
+            <span class="font-mono font-bold ${color}">Platt ${plV}%</span>
+            <span class="font-mono text-slate-300">Iso ${isoV}%</span>
+            <span class="text-[9px] text-slate-600">← ${maxLabel}</span>
+          </div>
+          <div class="flex h-2 rounded overflow-hidden bg-slate-800">
+            <div class="bg-slate-600" style="width:${rawV}%"></div>
+            <div class="${color} opacity-90" style="width:${plV}%; margin-left:-${rawV}%"></div>
+          </div>
+        </div>
+      `;
+    };
+
+    return `
+      <div class="bg-slate-800/30 rounded-xl p-4 border border-amber-900/30">
+        <div class="flex items-center justify-between mb-2">
+          <div class="text-xs text-amber-400 font-medium">🧪 Calibrated (experimental)</div>
+          ${recomBadge}
+        </div>
+        <div class="text-[10px] text-slate-500 mb-3 italic">v0.7.9 实验性功能 — brier 改进均 &lt; 1.5pp 门槛, 推荐高 / 关键场预测时用, 普通场用 v3_g2 即可</div>
+        <div class="space-y-3 mb-3">
+          ${probBar('主胜', rH, plH, isH, 'bg-emerald-500')}
+          ${probBar('平局', rD, plD, isD, 'bg-amber-500')}
+          ${probBar('客胜', rA, plA, isA, 'bg-rose-500')}
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-[10px] pt-3 border-t border-slate-800">
+          <div class="text-center">
+            <div class="text-slate-500">Platt full fit</div>
+            <div class="font-mono text-emerald-400 font-bold">${plFull != null ? (plFull > 0 ? '+' : '') + plFull.toFixed(2) + ' pp' : 'n/a'}</div>
+          </div>
+          <div class="text-center">
+            <div class="text-slate-500">Platt 80/20 WF</div>
+            <div class="font-mono text-emerald-300 font-bold">${plWf != null ? (plWf > 0 ? '+' : '') + plWf.toFixed(2) + ' pp' : 'n/a'}</div>
+          </div>
+          <div class="text-center">
+            <div class="text-slate-500">Isotonic 80/20</div>
+            <div class="font-mono text-amber-300 font-bold">${isWf != null ? (isWf > 0 ? '+' : '') + isWf.toFixed(2) + ' pp' : 'n/a'}</div>
+          </div>
+        </div>
+        <div class="text-[10px] text-slate-600 mt-2 text-center">913 G2 场 · 后验校准 (Platt 2-param sigmoid / Isotonic PAVA)</div>
+      </div>
+    `;
+  } catch (e) {
+    return '<div class="text-rose-400 text-sm text-center py-4">Calibrated 预测失败：' + escapeHtml(e.message || '') + '</div>';
   }
 }
 
