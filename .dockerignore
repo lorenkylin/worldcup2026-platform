@@ -1,0 +1,74 @@
+# v0.12.0 — Docker 排除文件
+# 避免本地虚拟环境/数据/cache 打入镜像
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+build/
+dist/
+
+# 数据 — 持久卷, 不入镜像
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.db-journal
+data/sync_status.json
+data/backtest_results/
+data/prediction_log_backfill.jsonl
+data/statsbomb/
+data/external/
+data/worldcupstats/
+data/seed/
+data/fixtures/
+data/elo_data/
+data/glicko2_data/
+data/last_sync.json
+
+# 日志
+logs/
+*.log
+
+# 测试
+tests/
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# 文档 / 截图 / 报告 (可保留, 体积小)
+# docs/ — 保留 (deliverable 文档有参考价值)
+# deliverables/ — 保留
+
+# CI/CD
+.github/
+
+# Docker 自指
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# 其他
+.env
+.env.local
+*.bak
+*.tmp
+.DS_Store
+Thumbs.db

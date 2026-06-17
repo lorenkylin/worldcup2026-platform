@@ -1,0 +1,41 @@
+# v0.12.0 — Docker Compose
+# 单容器编排: uvicorn + 持久卷 (data/ + logs/)
+# 用途: 本地起服务 / 部署到 VPS (主人需自带 VPS + 域名)
+
+version: "3.9"
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: worldcup2026-platform:0.12.0
+    container_name: wc2026-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # SQLite 数据库 + scheduler 状态 + 日志 — 主机持久化
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      # 配置通过环境变量注入 (可被 .env 覆盖)
+      - APP_NAME=2026 FIFA World Cup 赛事分析平台
+      - DEBUG=false
+      - SYNC_INTERVAL_SECONDS=900
+      - ADMIN_TOKEN=${ADMIN_TOKEN:-changeme-please-override}
+      - FOOTBALL_DATA_API_KEY=${FOOTBALL_DATA_API_KEY:-}
+      # 时区
+      - TZ=Asia/Shanghai
+    healthcheck:
+      # 与 Dockerfile 内置一致 — 但 docker compose 用更精细控制
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

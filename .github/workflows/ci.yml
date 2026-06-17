@@ -1,0 +1,76 @@
+# v0.12.0 — GitHub Actions CI
+# 用途: push / PR 自动跑 lint + 单元测试
+# 主人需在 GitHub repo Settings → Secrets 加:
+#   - ADMIN_TOKEN: 部署用 (本地 .env 同名)
+#   - FOOTBALL_DATA_API_KEY: 赔率 API
+#
+# 触发: push master / push PR / manual workflow_dispatch
+
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:  # 主人手动跑
+
+jobs:
+  test:
+    name: 单元测试 + 集成测试 (非 E2E)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 检查 import (sanity check)
+        run: |
+          python -c "from app.main import app; print('app:', app.title, 'v', app.version)"
+
+      - name: 跑单元测试 + 集成测试
+        run: |
+          pytest tests/ --ignore=tests/e2e -v --tb=short -p no:cacheprovider
+
+      - name: 跑 alembic 迁移 (干跑: --sql 只生成不执行)
+        run: |
+          # 不执行实际迁移, 只验证迁移脚本可解析
+          alembic upgrade head --sql 2>&1 | head -50
+
+  lint:
+    name: 语法 + 风格 (lightweight)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: 编译所有 .py 文件
+        run: |
+          python -m compileall -q app/ tests/ scripts/ || exit 1
+
+      - name: bash 脚本语法
+        run: |
+          bash -n deploy.sh
+          echo "deploy.sh OK"
+
+      - name: Dockerfile 存在性
+        run: |
+          test -f Dockerfile && echo "Dockerfile OK"
+          test -f docker-compose.yml && echo "compose OK"
+          test -f .dockerignore && echo ".dockerignore OK"

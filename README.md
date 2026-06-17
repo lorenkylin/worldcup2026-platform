@@ -5,6 +5,11 @@
 > `GET /api/elo/live-accuracy?is_live=true` + `GET /api/elo/live-window-accuracy?days=7` 两端点,
 > Cockpit "🎯 真 Forward 准确率" mini-card 一眼看出赛前的真预测 vs 完赛结果. **6/17 距开赛 17 天, 端点返回 backfill_only (历史 1829 场, G2 62.7% / Elo 56.7%)**.
 >
+> ## 🐳 **v0.12.0 — Deployment Infra 部署基础设施（2026-06-17）**
+> 主人 3 真问题之 #1 部署/可用性 — 容器化 + CI 闭环. **Dockerfile + docker-compose.yml + .dockerignore + deploy.sh + .github/workflows/ci.yml**.
+> 主人需自带 VPS (Ubuntu/Debian), 一行 `./deploy.sh` 拉最新代码 + 重 build + 启服务. CI push master 自动跑测试.
+> 公开部署 + HTTPS + 域名仍需主人自行处理 (certbot + 域名注册商).
+>
 > **📡 v0.10.0 — Observability 观测能力落地（数据新鲜度追踪，2026-06-17）**
 > 直面主人 3 个真问题之 #1 部署/可用性. scheduler 同步状态持久化 JSON, /health 暴露健康度,
 > Cockpit "📡 数据新鲜度" widget 一眼看出 worldcup26.ir 同步是否健康.
