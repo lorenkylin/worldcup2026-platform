@@ -113,7 +113,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.9.0",
+    version="0.10.0",
     debug=settings.debug,
     docs_url="/api/docs" if settings.debug else None,
     redoc_url="/api/redoc" if settings.debug else None,
@@ -158,11 +158,46 @@ async def serve_index(request: Request) -> FileResponse:
 
 @app.get("/health", tags=["健康检查"])
 async def health_check() -> dict:
-    """服务健康检查."""
+    """服务健康检查 (v0.10 强化: 数据新鲜度 + DB 行数 + 调度器状态)."""
+    from app.services.sync_status import get_status
+    from sqlalchemy import func
+    from app.models import Match, Team, Standing, PredictionLog, OddsSnapshot
+
+    sync = get_status()
+    # DB 行数 (快速聚合查询, < 100ms)
+    try:
+        db = SessionLocal()
+        try:
+            row_counts = {
+                "matches": db.query(func.count(Match.id)).scalar() or 0,
+                "teams": db.query(func.count(Team.id)).scalar() or 0,
+                "standings": db.query(func.count(Standing.id)).scalar() or 0,
+                "prediction_log": db.query(func.count(PredictionLog.id)).scalar() or 0,
+                "odds_snapshots": db.query(func.count(OddsSnapshot.id)).scalar() or 0,
+            }
+        finally:
+            db.close()
+    except Exception as exc:  # noqa: BLE001
+        row_counts = {"error": str(exc)}
+
+    # 健康度聚合: fresh + scheduler_running = healthy; stale = degraded; critical = unhealthy
+    freshness = sync.get("freshness", "unknown")
+    if freshness == "fresh":
+        overall = "healthy"
+    elif freshness == "stale":
+        overall = "degraded"
+    elif freshness == "critical":
+        overall = "unhealthy"
+    else:
+        overall = "unknown"
+
     return {
-        "status": "ok",
+        "status": overall,
         "app": settings.app_name,
         "version": app.version,
         "data_source": "worldcup26.ir (primary) + worldcupstats.football (backup) + manual (fallback)",
         "sync_interval_seconds": settings.sync_interval_seconds,
+        "sync_status": sync,
+        "db_row_counts": row_counts,
+        "scheduler_running": scheduler.running,
     }

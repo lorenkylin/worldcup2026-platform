@@ -1,6 +1,8 @@
 # 2026 FIFA World Cup 赛事分析平台 · 工程交付
 
-> ## 🟢 **STABLE — 核心功能已收敛（v0.9.0, 2026-06-17）**
+> ## 📡 **v0.10.0 — Observability 观测能力落地（数据新鲜度追踪，2026-06-17）**
+> 直面主人 3 个真问题之 #1 部署/可用性. scheduler 同步状态持久化 JSON, /health 暴露健康度,
+> Cockpit "📡 数据新鲜度" widget 一眼看出 worldcup26.ir 同步是否健康.
 > 6 天 19 tag, 459 测试零回归, 距世界杯开赛 17 天. 不再加新功能, 进入前向验证模式.
 > 详见 `deliverables/v0.9.0_stable.md` 收尾文档.
 

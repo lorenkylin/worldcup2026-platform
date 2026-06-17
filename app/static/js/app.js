@@ -1773,16 +1773,17 @@ async function renderCockpit() {
   app.classList.remove('max-w-2xl');
   app.classList.add('max-w-none', 'px-4');
 
-  let today, allMatches, groups, teams, accuracy, weightSweep;  // v0.8.1: calibrationSummary 关停移除
+  let today, allMatches, groups, teams, accuracy, weightSweep, syncStatus;  // v0.10: 新增 syncStatus
   try {
-    [today, allMatches, groups, teams, accuracy, weightSweep] = await Promise.all([
+    [today, allMatches, groups, teams, accuracy, weightSweep, syncStatus] = await Promise.all([
       apiWithRetry('/matches/today'),
       apiWithRetry('/matches?limit=200'),
       apiWithRetry('/groups'),
       apiWithRetry('/teams'),
       apiWithRetry('/elo/accuracy-stats?days=180').catch(() => null),
       apiWithRetry('/elo/weight-sweep').catch(() => null),
-      // v0.8.1 关停: calibration-summary 端点下线,移除 Cockpit mini-card
+      // v0.10: 数据新鲜度 (公开端点,无 auth)
+      apiWithRetry('/health/sync-status').catch(() => null),
     ]);
   } catch (err) {
     app.classList.add('max-w-2xl');
@@ -1915,6 +1916,9 @@ async function renderCockpit() {
       ${kpiCard('🏆', '热门第 1', topTeam ? topTeam.flag_emoji + ' ' + topTeam.name_zh : '-', '', 'violet', topTeam ? 'Elo ' + topTeam.elo_rating : '')}
       ${kpiCard('🎯', '模型胜率', accuracy && accuracy.n_settled > 0 ? (accuracy.accuracy * 100).toFixed(1) + '%' : '—', accuracy ? `n=${accuracy.n_settled}` : '暂无', 'cyan', accuracy && accuracy.by_model ? `🏅 ${bestModelLabel(accuracy.by_model)}` : '—')}
     </div>
+
+    <!-- v0.10 数据新鲜度 widget (主人知道 worldcup26.ir 是否还在正常同步) -->
+    ${syncStatus ? renderFreshnessCard(syncStatus) : ''}
 
     <!-- 模型准确率 mini-card: 3 模型横评 -->
     ${accuracy && accuracy.n_settled > 0 ? `
@@ -2715,6 +2719,61 @@ function kpiCard(icon, label, value, unit, color, sub) {
       </div>
       ${sub ? `<div class="text-xs text-slate-500 mt-1">${sub}</div>` : ''}
     </div>
+  `;
+}
+
+// v0.10: 数据新鲜度 widget — 主人一眼看出 worldcup26.ir 同步是否健康
+function renderFreshnessCard(s) {
+  const freshness = s.freshness || 'unknown';
+  const colorMap = {
+    fresh:    { bg: 'from-emerald-500/15 to-emerald-600/5',  border: 'border-emerald-500/40', icon: '🟢', label: '新鲜',  text: 'text-emerald-400' },
+    stale:    { bg: 'from-amber-500/15 to-amber-600/5',     border: 'border-amber-500/40',  icon: '🟡', label: '陈旧',  text: 'text-amber-400' },
+    critical: { bg: 'from-rose-500/15 to-rose-600/5',        border: 'border-rose-500/40',   icon: '🔴', label: '严重',  text: 'text-rose-400' },
+    unknown:  { bg: 'from-slate-500/15 to-slate-600/5',      border: 'border-slate-500/40',  icon: '⚪', label: '未知',  text: 'text-slate-400' },
+  };
+  const c = colorMap[freshness];
+  const ageStr = s.age_seconds != null
+    ? s.age_seconds < 60 ? `${s.age_seconds} 秒前`
+      : s.age_seconds < 3600 ? `${Math.floor(s.age_seconds / 60)} 分钟前`
+      : `${(s.age_seconds / 3600).toFixed(1)} 小时前`
+    : '—';
+  const successRate = (s.total_successes + s.total_failures) > 0
+    ? ((s.total_successes / (s.total_successes + s.total_failures)) * 100).toFixed(1) + '%'
+    : '—';
+  return `
+    <section class="cockpit-section mb-4">
+      <h2 class="cockpit-section-title">📡 数据新鲜度 (v0.10)</h2>
+      <div class="bg-gradient-to-br ${c.bg} border ${c.border} rounded-xl p-4">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div>
+            <div class="text-xs text-slate-500 mb-1">同步状态</div>
+            <div class="flex items-center gap-2">
+              <span class="text-2xl">${c.icon}</span>
+              <span class="text-lg font-bold ${c.text}">${c.label}</span>
+            </div>
+          </div>
+          <div>
+            <div class="text-xs text-slate-500 mb-1">最近成功</div>
+            <div class="text-lg font-bold text-slate-200">${ageStr}</div>
+          </div>
+          <div>
+            <div class="text-xs text-slate-500 mb-1">连续失败</div>
+            <div class="text-lg font-bold ${s.consecutive_failures >= 3 ? 'text-rose-400' : s.consecutive_failures > 0 ? 'text-amber-400' : 'text-emerald-400'}">
+              ${s.consecutive_failures} 次
+            </div>
+          </div>
+          <div>
+            <div class="text-xs text-slate-500 mb-1">历史成功率</div>
+            <div class="text-lg font-bold text-slate-200">${successRate}</div>
+            <div class="text-xs text-slate-500">${s.total_successes}✓ / ${s.total_failures}✗</div>
+          </div>
+        </div>
+        ${s.last_error ? `<div class="mt-3 text-xs text-rose-400 bg-rose-950/30 rounded px-3 py-2">⚠ 最近错误: ${s.last_error}</div>` : ''}
+        <div class="mt-3 text-xs text-slate-500">
+          阈值: 新鲜 &lt; 30 分钟 / 陈旧 30-60 分钟 / 严重 &gt; 60 分钟 · 端点 <code class="text-slate-400">GET /api/health/sync-status</code>
+        </div>
+      </div>
+    </section>
   `;
 }
 

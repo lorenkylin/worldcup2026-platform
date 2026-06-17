@@ -10,12 +10,16 @@ client = TestClient(app)
 
 
 def test_health_check():
-    """健康检查端点."""
+    """健康检查端点 (v0.10 强化: status + sync_status + db_row_counts + scheduler_running)."""
     resp = client.get("/health")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["status"] == "ok"
+    # v0.10 新语义: status ∈ {healthy, degraded, unhealthy, unknown}
+    assert data["status"] in ("healthy", "degraded", "unhealthy", "unknown")
     assert "2026" in data["app"]
+    assert "sync_status" in data
+    assert "db_row_counts" in data
+    assert "scheduler_running" in data
 
 
 def test_index_page_serves():

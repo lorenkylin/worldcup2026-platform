@@ -437,7 +437,12 @@ def full_sync(db: Optional[Session] = None) -> dict:
     Args:
         db: 可选的 SQLAlchemy Session。若传 None 则内部创建（admin 手动调用场景），
             传 db 则由调用方管理生命周期（scheduler 场景）。
+
+    v0.10 新增: 同步成功/失败时自动写 sync_status (持久化 JSON),
+    让主人通过 /health 或 Cockpit 看到数据新鲜度。
     """
+    from app.services.sync_status import record_success, record_failure  # 避免循环
+
     owns_db = db is None
     if owns_db:
         db = SessionLocal()
@@ -449,7 +454,11 @@ def full_sync(db: Optional[Session] = None) -> dict:
             "standings": sync_standings(db),
             "synced_at": datetime.now(timezone.utc).isoformat(),
         }
+        record_success(result)
         return result
+    except Exception as exc:
+        record_failure(str(exc))
+        raise
     finally:
         if owns_db:
             db.close()

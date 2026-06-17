@@ -25,6 +25,8 @@ data/*.db
 data/*.db-shm
 data/*.db-wal
 data/worldcup2026.db-journal
+# v0.10 运行时同步状态 (JSON, 持久化但 git 不追踪)
+data/sync_status.json
 !data/seed/.gitkeep
 !data/fixtures/.gitkeep
 
