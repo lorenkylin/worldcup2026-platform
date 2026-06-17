@@ -9,9 +9,15 @@
 - 已下线：API-Football、The Odds API（不订阅以保持零预算）
 """
 
+import os
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+# v0.13: 支持 DATA_DIR 环境变量，便于 Fly.io 等云平台的持久卷挂载
+_DEFAULT_DATA_DIR = "./data"
+_DATA_DIR = Path(os.environ.get("DATA_DIR", _DEFAULT_DATA_DIR))
 
 
 class Settings(BaseSettings):
@@ -29,7 +35,8 @@ class Settings(BaseSettings):
 
     app_name: str = "2026 FIFA World Cup 赛事分析平台"
     debug: bool = True
-    database_url: str = "sqlite:///./data/worldcup2026.db"
+    # v0.13: 数据库路径跟随 DATA_DIR，支持容器/云持久卷
+    database_url: str = f"sqlite:///{_DATA_DIR}/worldcup2026.db"
     admin_token: str = "change-me"
 
     # 同步配置

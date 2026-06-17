@@ -101,3 +101,9 @@ scripts/_archive/
 
 # 根目录的 0 字节占位 DB（v0.2.0 之前遗留）
 /worldcup2026.db
+
+# v0.13.0 Fly.io 部署产物
+fly.toml.local
+.fly/
+# 数据迁移 tar 包 (migrate_data_to_fly.sh 输出)
+/tmp/wc2026_data_*.tar.gz
