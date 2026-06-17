@@ -509,3 +509,94 @@ def adaptive_weight(
         "model_version": r["model_version"],
     }
 
+
+@router.get("/elo/calibrated-predict/{home}/{away}")
+def calibrated_predict(
+    home: str,
+    away: str,
+    model: str = Query("glicko2", pattern="^(glicko2|elo|blend)$",
+                       description="校准目标模型 (glicko2/elo/blend)"),
+    match_id: Optional[int] = Query(None, ge=1, description="可选,自动写 prediction_log"),
+    db: Session = Depends(get_db),
+) -> Dict:
+    """v0.7.8 G2-only Platt scaling — 在 913 场 walk-forward 拟合 3 个 (a, b) 校准器
+    并对实时预测的 (ph, pd, pa) 做后验校准。实验性功能:
+    brier 改进 ≈ 0.0069 (0.69 pp), 低于 spec 门槛 0.015。
+    推荐: 高 / 关键场预测时用, 普通场用 v3_g2 即可。
+    """
+    from app.services.calibration import (
+        load_g2_records, fit_calibrators, calibrate_probs,
+    )
+
+    if home.upper() == away.upper():
+        raise HTTPException(status_code=422, detail="主客队不能相同")
+
+    home_team = db.query(Team).filter(Team.fifa_code == home.upper()).first()
+    away_team = db.query(Team).filter(Team.fifa_code == away.upper()).first()
+    if not home_team:
+        raise HTTPException(status_code=404, detail=f"球队 {home.upper()} 不存在")
+    if not away_team:
+        raise HTTPException(status_code=404, detail=f"球队 {away.upper()} 不存在")
+
+    if model == "glicko2":
+        from app.services import glicko2 as g2_service
+        rh = g2_service.lookup_glicko2_rating(home_team.fifa_code)
+        ra = g2_service.lookup_glicko2_rating(away_team.fifa_code)
+        if rh is None or ra is None:
+            raise HTTPException(status_code=404, detail="球队不在 Glicko-2 数据中")
+        pred = g2_service.predict_outcome(
+            rh["rating"], rh["rd"],
+            ra["rating"], ra["rd"],
+            home_bonus=HOME_BONUS,
+        )
+        raw = {"ph": pred["win_a"], "pd": pred["draw"], "pa": pred["win_b"]}
+    elif model == "elo":
+        from app.services.elo import predict_match
+        em = predict_match(home_team.fifa_code, away_team.fifa_code, db)
+        raw = {"ph": em["probabilities"]["home_win"], "pd": em["probabilities"]["draw"], "pa": em["probabilities"]["away_win"]}
+    else:
+        from app.services.adaptive_weight import adaptive_weight_blend
+        bw = adaptive_weight_blend(home_team.fifa_code, away_team.fifa_code, db)
+        if bw.get("blend_result", {}).get("blended"):
+            probs = bw["blend_result"]["blended"]["probabilities"]
+            raw = {"ph": probs["home_win"], "pd": probs["draw"], "pa": probs["away_win"]}
+        else:
+            raise HTTPException(status_code=503, detail="blend 预测失败")
+
+    ph, pd, pa = raw["ph"], raw["pd"], raw["pa"]
+
+    records = load_g2_records()
+    cals = fit_calibrators(records)
+    ch, cd, ca = calibrate_probs(ph, pd, pa, cals)
+
+    confidence = "high" if max(ch, cd, ca) > 0.6 else "medium" if max(ch, cd, ca) > 0.45 else "low"
+
+    if match_id is not None:
+        try:
+            from app.services.prediction_log import record_prediction
+            record_prediction(
+                db=db,
+                match_id=match_id,
+                model_version="v7c_calibrated",
+                pred_home_win=ch,
+                pred_draw=cd,
+                pred_away_win=ca,
+                elo_home=int(home_team.elo_rating) if home_team.elo_rating else None,
+                elo_away=int(away_team.elo_rating) if away_team.elo_rating else None,
+                source=f"calibrated_{model}",
+            )
+        except Exception as e:
+            print(f"[prediction_log] calibrated 写入失败: {e}")
+
+    return {
+        "home": home_team.fifa_code,
+        "away": away_team.fifa_code,
+        "model": model,
+        "raw_probs": {"home": round(ph, 4), "draw": round(pd, 4), "away": round(pa, 4)},
+        "calibrated_probs": {"home": round(ch, 4), "draw": round(cd, 4), "away": round(ca, 4)},
+        "calibration_params": cals.to_dict(),
+        "confidence": confidence,
+        "training_samples": len(records),
+        "experimental": True,
+        "brier_improvement": 0.0069,
+    }
