@@ -1,8 +1,12 @@
 # 2026 FIFA World Cup 赛事分析平台 · 工程交付
 
-> **文档版本**：v0.8.0（README 整合 v0.7.7–v0.7.10 跨版本专章 + 校准实验，2026-06-17）
-> **阶段**：Phase 5 – Ship（v0.7.x 模型演进 + 赔率深化 + 缓存 + Adaptive Weight + 数据回填 + **G2 校准实验 Platt/Isotonic** + **Cockpit mini-card 校准 brier 速览**）
-> **作用域**：48 强全量赛程 + worldcup26.ir 实时同步 + Elo-Poisson v2 + **Glicko-2** + **ModelBlend (Elo + G2 加权)** + **Adaptive Weight (4 段按距上次比赛天数)** + **G2 校准（Platt + Isotonic 双方法，experimental）+ Cockpit 速览** + **Walk-forward 1226 场训练集（Hicruben 913 + StatsBomb 313）** + **StatsBomb 双数据源对比** + **Monte Carlo 10000 sims + 缓存层** + 出线模拟器 + Bracket 淘汰赛路线图 + **市场赔率模块 M3（管理员 + value bet + 走势 + 模型 vs 市场对比）** + 手动兜底 + CSV 导出 + 历史交锋详情页 + **准确率 dashboard**
+> ## 🟢 **STABLE — 核心功能已收敛（v0.9.0, 2026-06-17）**
+> 6 天 19 tag, 459 测试零回归, 距世界杯开赛 17 天. 不再加新功能, 进入前向验证模式.
+> 详见 `deliverables/v0.9.0_stable.md` 收尾文档.
+
+> **文档版本**：v0.9.0（**STABLE 收尾** —— v0.8.1 校准实验 sunset + v0.8.0 README 整合 v0.7.7–v0.7.10，2026-06-17）
+> **阶段**：Phase 5 – Ship ✅ **完成**（v0.7.x 模型演进 + 赔率深化 + 缓存 + Adaptive Weight + 数据回填 + 校准实验 4 版 + Cockpit 速览 + **校准 sunset 决策**）
+> **作用域**：48 强全量赛程 + worldcup26.ir 实时同步 + Elo-Poisson v2 + **Glicko-2** + **ModelBlend (Elo + G2 加权)** + **Adaptive Weight (4 段按距上次比赛天数)** + **G2 校准（Platt + Isotonic 双方法，v0.8.1 已 sunset, 代码 git 保留）** + **Walk-forward 1226 场训练集（Hicruben 913 + StatsBomb 313）** + **StatsBomb 双数据源对比** + **Monte Carlo 10000 sims + 缓存层** + 出线模拟器 + Bracket 淘汰赛路线图 + **市场赔率模块 M3（管理员 + value bet + 走势 + 模型 vs 市场对比）** + 手动兜底 + CSV 导出 + 历史交锋详情页 + **准确率 dashboard**
 
 ---
 
