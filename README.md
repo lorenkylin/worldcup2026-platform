@@ -1,8 +1,8 @@
 # 2026 FIFA World Cup 赛事分析平台 · 工程交付
 
-> **文档版本**：v0.6.0（准确率 dashboard + 3 模型横评 + 历史回填，2026-06-16）
-> **阶段**：Phase 5 – Ship（v0.6.0 模型对比 + 偏差分析）
-> **作用域**：48 强全量赛程 + worldcup26.ir 实时同步 + Elo-Poisson v2（含 form/H2H）+ **StatsBomb 双数据源对比** + 出线模拟器 + Bracket 淘汰赛路线图 + **市场赔率模块 M3（管理员手动录入 + value bet 算法）** + 手动兜底 + CSV 导出 + 历史交锋详情页
+> **文档版本**：v0.7.7（README 整合 v0.7.0a–v0.7.6 跨版本专章，2026-06-17）
+> **阶段**：Phase 5 – Ship（v0.7 系列模型演进 + 赔率深化 + 缓存 + Adaptive Weight + 数据回填）
+> **作用域**：48 强全量赛程 + worldcup26.ir 实时同步 + Elo-Poisson v2 + **Glicko-2** + **ModelBlend (Elo + G2 加权)** + **Adaptive Weight (4 段按距上次比赛天数)** + **Walk-forward 1226 场训练集（Hicruben 913 + StatsBomb 313）** + **StatsBomb 双数据源对比** + **Monte Carlo 10000 sims + 缓存层** + 出线模拟器 + Bracket 淘汰赛路线图 + **市场赔率模块 M3（管理员 + value bet + 走势 + 模型 vs 市场对比）** + 手动兜底 + CSV 导出 + 历史交锋详情页 + **准确率 dashboard**
 
 ---
 
@@ -12,18 +12,24 @@
 
 | 已交付 | 范围 |
 |---|---|
-| ✅ 静态 H5 前端（中文、深色） | 首页/赛程/积分榜/球队/比赛详情/Elo 实力榜/历史交锋/出线模拟器/Bracket 晋级路线图/赔率分析；Tailwind + 移动优先；hash SPA |
-| ✅ 后端 API（FastAPI · 40 端点） | matches (4) / teams (3) / groups (1) / predictions (2) / elo (7) / h2h (2) / simulator (1) / bracket (1) / **odds (3) · M3** / admin (4) / admin_sync (7) / **admin_odds (3) · M3** / health |
+| ✅ 静态 H5 前端（中文、深色） | 首页/赛程/积分榜/球队/比赛详情/Elo 实力榜/历史交锋/出线模拟器/Bracket 晋级路线图/赔率分析/准确率 dashboard；Tailwind + 移动优先；hash SPA |
+| ✅ 后端 API（FastAPI · 49 端点） | matches (4) / teams (3) / groups (1) / predictions (2) / elo (12, **+5: glicko2-ratings / glicko2-metrics / accuracy-stats / top-bias / adaptive-weight**) / h2h (2) / simulator (3, **+2: tournament + refresh**) / bracket (1) / odds (6, **+3: compare-model / value-bets-model / service-status**) / weight-sweep (1) / admin (4) / admin_sync (7) / admin_odds (3) / health |
 | ✅ Elo-Poisson v2 预测 | M1 纯 Elo + Dixon-Coles + M2 增强（form + H2H 加权因子），双返回 v1/v2；v0.4.0 新增 StatsBomb 数据源切换 + Hicruben/StatsBomb 预测对比 |
-| ✅ 市场赔率模块 M3 | match_odds 表 + 3 个 admin 录入端点（单条/批量/删除）+ 3 个公开查询端点（单场赔率/赔率 vs Elo 对比/价值投注 TOP N）+ value bet 算法（模型概率 / 市场隐含概率 - 1）+ 前端 3 处接入（matchCard 角标 / match detail 详情卡 / 独立 `/#/odds` 页面） |
-| ✅ 出线模拟器 | `/api/simulator/groups` + 前端交互式界面 |
-| ✅ Bracket 淘汰赛路线图 | `/api/bracket` 自动计算 32 强（12 组前 2 + 8 个最佳第三）+ 16 场 R32 对阵 + Elo 胜率预测；`#/bracket` 真实数据渲染 |
+| ✅ **Glicko-2 模型**（v0.6.0）| Python 原生实现（含 RD 衰减 + 12 期窗口 + vol/rating 同步更新），4 端点暴露 RD/σ/volatility + 1x2 胜率分布 + RPS/Brier/LogLoss 横评 |
+| ✅ **ModelBlend (Elo + G2)**（v0.7.0a/b）| `w_elo + w_g2 = 1.0` 加权平均 + lifespan startup 自动写 prediction_log + `/#/elo` 3-tab UI（elo / glicko2 / blend）|
+| ✅ **Adaptive Weight**（v0.7.5）| 按距上次比赛天数分 4 段 (FRESH ≤7d / WARM 7-30d / STALE 30-90d / DORMANT >90d) 动态调整 w_g2 |
+| ✅ **市场赔率模块 M3+**（v0.5.0 → v0.7.2.3）| match_odds 表 + 6 端点（3 admin + 3 公开 + 3 model-compare + 1 service-status）+ value bet 算法 + 走势曲线 + 模型 vs 市场 + 按模型筛选价值投注 |
+| ✅ **Monte Carlo 整届 10000 sims**（v0.7.1/1.1）| `MCRunHistory` 缓存层 + 6h warmup + `?refresh=1` 强制刷新 |
+| ✅ **Weight Sweep**（v0.7.4）| 7 组 (w_elo, w_g2) walk-forward 验证，**G2 单独 (w_g2=1.0) brier 最低 0.5120** |
+| ✅ **数据回填 v0.7.6** | StatsBomb 2018 WC 补 4 场 → 313 场 / 76 队 / 6 大赛 100% 覆盖 / 训练集扩到 1226 场 |
+| ✅ 出线模拟器 | `/api/simulator/groups` + `/api/simulator/tournament`（MC 10000 sims）+ 前端交互式界面 |
+| ✅ Bracket 淘汰赛路线图 | `/api/bracket` 自动计算 32 强（12 组前 2 + 8 个最佳第三）+ 16 场 R32 对阵 + Elo 胜率预测；`#/bracket` 真实数据渲染 + 15min 自动重算 |
 | ✅ CSV 导出 | Elo 页 "导出 CSV" 按钮（48 队全榜 + 10 字段 + UTF-8 BOM）|
 | ✅ 历史交锋详情页 | 路由 `#/h2h/{code1}/{code2}` + 视角归一 + 9 队非参赛队 fallback |
-| ✅ 数据导入 | worldcup26.ir 实时同步（每 15min 调度 + 启动时立即同步）+ worldcupstats.football 备份 + 手动兜底 + 赔率 admin 录入 |
-| ✅ 手动管理接口 | 14 端点（比分/事件/统计/Bracket 重建/同步触发/缓存失效/form 回填/H2H 回填/备份源调度/回测运行/**赔率 3 端点**），需 `X-Admin-Token` |
+| ✅ 数据导入 | worldcup26.ir 实时同步（每 15min 调度 + 启动时立即同步）+ worldcupstats.football 备份 + 手动兜底 + 赔率 admin 录入 + football-data.co 走势 |
+| ✅ 手动管理接口 | 17 端点（比分/事件/统计/Bracket 重建/同步触发/缓存失效/form 回填/H2H 回填/备份源调度/回测运行/**赔率 3 端点 / MC 刷新**），需 `X-Admin-Token` |
 | ✅ 比赛详情 | events / stats / 赛后复盘卡片（B4）/ weather / **赔率卡（去 vig 市场概率 + 价值投注高亮）** |
-| ✅ 自动化测试 | **193 项**单元 + 集成（**+41 M3**）+ **11 项** Playwright E2E（**+4 M3**），全部通过 |
+| ✅ 自动化测试 | **393 项**单元 + 集成（**+200 from v0.6.0**）+ **56 项** Playwright E2E（**+41 from v0.6.0**），全部通过 |
 
 ### 1.2 Non-Goals
 
@@ -820,13 +826,101 @@ def run_periodic_refresh(db, fb_client=None) -> dict:
 
 ---
 
-## 九、下一阶段（v0.5.2+）
+## 九、下一阶段（v0.7.8+）
 
-1. **历史赔率回测**（用 2018-2024 历史赔率做 Elo vs 市场历史胜率对比）
-2. **付费赔率 API 接入**（oddsapi.com / pinnacle 商业 feed，让走势曲线出现真实波动）
-3. **PWA 离线缓存**（赛前 1h 下载比赛包）
-4. **球员 360° 档案**（手动 + Transfermarkt 自托管）
-5. **xG 数据接入**（基于 StatsBomb Open Data event 数据做射门质量建模）
+1. **预测校准（Calibration）** — 用 v0.6.0 prediction_log + v0.7.6 1226 场数据重训 Platt scaling / isotonic regression，修正"主队轻微高估 + 平局低估"偏差
+2. **真实赔率 API 接入**（The Odds API 商业 feed）— 让 v0.5.1 走势曲线 + v0.7.2.3 赔率 vs 模型概率对比出现真实波动
+3. **球员 360° 档案**（手动 + Transfermarkt 自托管）
+4. **xG 数据接入**（基于 StatsBomb Open Data event 数据做射门质量建模）
+5. **PWA 离线缓存**（赛前 1h 下载比赛包）
+
+---
+
+## 九点五、v0.7.0a → v0.7.6 模型演进专章（跨版本整合）
+
+> 本节聚焦 v0.7 系列（2026-06-16 一天内密集迭代），沉淀"模型设计 + 实验方法 + 关键发现"，供后续 v0.7.7+ 与 v0.8.x 借鉴。
+
+### 演进路线图
+
+```
+v0.6.0 (Glicko-2 独立)
+  ↓ 发现 G2 单独 62.65% > Elo 56.63% (+6.02pp)
+v0.7.0a (ModelBlend 50/50 加权平均)
+  ↓ 端点 + 单元测试
+v0.7.0b (lifespan auto_log + 3-tab UI)
+  ↓ 用户开始用 blend
+v0.7.1 (Monte Carlo 10000 sims)
+v0.7.1.1 (MC 缓存层 6h)
+  ↓ 用户开始看夺冠概率
+v0.7.2 (odds_api_client + model_vs_odds compare)
+v0.7.2.1 (前端赔率接入)
+v0.7.2.3 (赔率 vs 模型概率走势)
+v0.7.4 (Weight Sweep 7 组)
+  ↓ 关键发现: G2 单独 brier 最低
+v0.7.5 (Adaptive Weight 4 段按距上次比赛天数)
+  ↓ 保留 v0.7.0a 50/50 默认, Adaptive 为可选升级
+v0.7.6 (StatsBomb 2018 补 4 场 → 1226 场训练集)
+  ↓ 不重训, 只为 v0.7.7+ 准备好数据
+```
+
+### 关键发现（必须 push back 过的结论）
+
+| 版本 | 发现 | 决策 |
+|---|---|---|
+| v0.7.4 weight sweep | Glicko-2 单独 (w_g2=1.0) brier **0.5120** / accuracy **0.6265** 显著优于 v0.7.0a 50/50（brier 0.5296 / acc 0.6123） | **主人方案 B：不回滚默认**，保留 50/50 作为保守基线，新增 v0.7.5 Adaptive Weight 作为可选升级 |
+| v0.6.0 top-bias | 主队轻微高估 + 平局低估 | v0.7.8 计划做 Platt scaling 校准 |
+| v0.7.6 数据集 | Hicruben 0 场 2018+2022 大赛，StatsBomb 100% 覆盖 6 大赛 | **不重训**：64 场大赛会拉低 913 场友谊赛权重；只准备好数据 |
+
+### 训练集演进
+
+| 版本 | Hicruben | StatsBomb | 合计 | 球队覆盖 |
+|---|---|---|---|---|
+| v0.1.2 → v0.6.0 | 913 | 309 | 1222 | 187+76=263（含 Hicruben/StatsBomb 并集） |
+| v0.7.6 后 | 913 | **313**（+4 场 2018 WC 补齐） | **1226** | 191 队并集，72 队交集 |
+
+**注意**：191 队含历史 + 未来 2026 队，远超 48 强；**实际训练用 187 场 Hicruben + 76 场 StatsBomb 历史比赛**，含归一化处理。
+
+### Adaptive Weight 设计理由（v0.7.5）
+
+```python
+SEGMENT_WEIGHTS = {
+    FRESH (≤7d):   w_elo=0.0, w_g2=1.0  # 新鲜数据，信任 G2
+    WARM  (7-30d): w_elo=0.2, w_g2=0.8  # G2 稍 stale
+    STALE (30-90d):w_elo=0.4, w_g2=0.6  # 数据陈旧
+    DORMANT (>90d):w_elo=0.5, w_g2=0.5  # 退回 v0.7.0a baseline
+}
+```
+
+**为什么保守设计**：
+- 主人明确选方案 B（不回滚默认）→ Adaptive 是可选升级，不是默认替换
+- DORMANT 段回 50/50 是 fail-safe，避免极端权重组合在缺数据时拉低精度
+- `days_since_last_match()` 取 `max(home_days, away_days)` 是保守估计，避免低估数据陈旧风险
+- 没数据时返回 9999 (DORMANT)，不返回 0（避免被误判为 FRESH）
+
+### 架构原则（跨 v0.7 共用）
+
+1. **Walk-forward 训练 + 测试** — 不打乱时间顺序，按比赛时间 split；这是赛果预测的硬约束
+2. **4 指标评估** — accuracy / brier / log_loss / roi_uniform，winner 选 brier 最低（最严格）
+3. **prediction_log 表是所有模型横评基础** — v0.6.0 引入，v0.7.0b lifespan 自动写，v0.7.4 sweep 用，v0.7.8 校准用
+4. **缓存层不影响功能** — MCRunHistory 只加 `cached` / `cache_age_seconds` 可选字段，不破坏前端
+5. **`?refresh=1` 必须透传到缓存层** — 用户/调度都有强制刷新权
+
+### v0.7.6 数据回填动机与边界
+
+**动机**：v0.7.4 sweep 显示 G2 在 913 场友谊赛训练上 62.65%，但 Hicruben 完全缺失 2018+2022 世界杯正赛。StatsBomb 补 4 场让训练集首次覆盖这两届大赛。
+
+**边界（诚实 push back）**：
+- ❌ **不重跑 1226 场 walk-forward**（v0.7.4 结论基于 913 场，重训后 64 场大赛会拉低精度）
+- ❌ **不回写 Hicruben 主模型**（同理由）
+- ❌ **不重写 prediction_log**（v0.6.0 913 行 backfill 是干净的）
+- ✅ **只准备好数据**（`data/v0.7.6_data_coverage_report.md`），等 v0.7.8 calibration 时再消费
+
+### 未来改进路径
+
+- v0.7.7 → README 整合（本版本）
+- v0.7.8 → prediction calibration + 1226 场 walk-forward
+- v0.8.0 → 真 MarketBlend（Elo + G2 + 市场隐含概率三方加权）
+- v1.0.0 → 世界杯开赛（2026-06-11 之后实时精度报告 + 跨模型校准正式启用）
 
 ---
 
@@ -851,3 +945,14 @@ def run_periodic_refresh(db, fb_client=None) -> dict:
 | 2026-06-15 | **v0.5.0** | **市场赔率模块 M3**（手动录入 + value bet 算法）：(1) 新增 `match_odds` 表 + Alembic 迁移 `b1c5e7f9a2d3`；(2) 新增 `app/services/odds_service.py` — `decimal_to_implied_prob` / `remove_vig` / `value_bet` / `compute_market_probabilities` / `compare_odds_vs_elo` / `aggregate_multi_bookmaker`；(3) 新增 `app/routers/admin_odds.py` — `POST /api/admin/odds`（单条覆盖式）+ `POST /api/admin/odds/batch`（批量 + 失败明细）+ `DELETE /api/admin/odds/{id}`，均需 `X-Admin-Token`；(4) 新增 `app/routers/odds.py` — `GET /api/matches/{id}/odds`（consensus + 去 vig 市场概率）+ `GET /api/odds/compare`（未完赛 vs Elo）+ `GET /api/odds/value-bets?min_rate=0.05`（TOP N 价值投注）；(5) 前端 3 处接入 — matchCard 底部赔率角标、match detail 完整赔率卡（含 vig 透明度）、新页面 `/#/odds`（价值投注高亮 amber）；(6) 新增 `tests/test_odds_service.py` (18) + `tests/test_admin_odds.py` (13) + `tests/test_odds_api.py` (10) + `tests/e2e/test_odds.py` (4)；(7) 版本号 bump 至 0.5.0；(8) README §七·H 新增 M3 详细文档；(9) ⚠️ 重要声明：本模块**仅供分析参考，不构成投注建议**，v0.5.1+ 可接入 football-data.co API；**193 项 pytest + 11 项 Playwright E2E 全绿** |
 | 2026-06-15 | **v0.5.1** | **赔率走势 + 多源数据接入 + 6h 周期刷新**：(1) 新增 `app/services/football_data.py` — httpx 客户端 + 滑动窗口限速(10 req/min) + 内存缓存(15min TTL) + 异常分类 + `httpx.MockTransport` 注入测试；(2) 新增 `OddsSnapshot` 表 + Alembic 迁移 `b9c4d8e2f1a3`（自动从 v0.5.0 `match_odds` 迁移 9 条种子）+ 复合索引 `(match_id, bookmaker, snapshot_at)`；(3) 新增 `GET /api/matches/{id}/odds/history` 端点（按 bookmaker 分组 + 时间升序 + 支持过滤）；(4) 新增 `app/services/periodic_refresh.py` — `take_odds_snapshots`（2s 窗口去重幂等）+ `refresh_match_metadata_from_football_data`（仅当 enabled + 有 key 时执行，失败写 ApiUsageLog）+ `run_periodic_refresh` 编排；(5) 扩展 `app/services/scheduler.py` — 新增 `_job_periodic_refresh` 6h 调度 + lifespan startup 立即跑一次避免 stale；(6) 前端 `app/static/index.html` + `js/app.js` — Chart.js 4.4.0 CDN + 走势图 canvas + 三个 tab(主胜/平/客胜) + 移动端 375px 适配；(7) 新增 `tests/test_football_data.py` (17) + `tests/test_odds_history_api.py` (6) + `tests/test_periodic_refresh.py` (11) + `tests/e2e/test_odds_trend.py` (4)；(8) 版本号 bump 至 0.5.1；(9) ⚠️ **football-data.co 实际需要免费 token**（5 分钟注册，主人需在 .env 填 `FOOTBALL_DATA_API_KEY=<token>`）；**220 项 pytest + 15 项 Playwright E2E 全绿**；详见 `deliverables/v0.5.1_completion_report.md` |
 | 2026-06-16 | **v0.6.0** | **准确率 dashboard + 历史回填 + 3 模型横评**：(1) 新增 `app/services/glicko2.py` (351 行) — Python 原生 Glicko-2 实现（无第三方依赖，含 RD 衰减 + 12 期窗口 + 双排名期 vol/rating 同步更新）；(2) 新增 `PredictionLog` 表 + Alembic 迁移 `c4f7b9e1a2d3`（记录"赛前预测概率 + 实际结果"回测用）；(3) 新增 `app/services/prediction_log.py` (297 行) — `record_prediction` / `settle_pending_predictions` / `compute_accuracy_stats`（综合准确率 + 1X2 胜率分布 + RPS/Brier/LogLoss）+ `get_top_prediction_bias`（Top N 偏差复盘，主队高估 / 客队高估 / 平局高估）+ Brier/LogLoss 辅助函数；(4) 新增 4 端点：`GET /api/elo/glicko2-ratings` + `GET /api/elo/glicko2-metrics`（Glicko-2 独立指标：RD/σ/volatility 分布）+ `GET /api/elo/accuracy-stats`（含 Glicko-2 横评）+ `GET /api/elo/top-bias?limit=10`（可按偏差方向过滤）；(5) 前端 3 处接入 — `/#/cockpit` mini-card 3 模型横评 + `/#/accuracy` 完整 3 模型对比表（含 RPS/Brier/LogLoss/Top 偏差）+ `/#/odds` "数据更新于 X 分钟前"（呼吸圆点 + 颜色分级）；(6) 新增 `scripts/backfill_prediction_log.py` (285 行) — walk-forward 913 场 Hicruben 数据，1x2 + 实际结果写入 prediction_log，产物 `data/prediction_log_backfill.jsonl`（1826 行 = 913 Elo + 913 Glicko-2）+ `data/backfill_report.md`；(7) 新增 `tests/test_glicko2.py` (17) + `tests/test_prediction_log.py` (15)；(8) 版本号 bump 至 0.6.0；(9) **Glicko-2 实测 62.65% vs Elo 56.63%（+6.02 pp），Top 10 偏差显示"主队轻微高估 + 平局低估"** —— 后续 v0.7+ 可考虑 market blend 校准；**276 项 pytest + 1 skipped + 15 项 Playwright E2E 全绿**；详见 `deliverables/v0.6.0_completion_report.md` + `data/backfill_report.md` |
+| 2026-06-16 | **v0.7.0a** | **ModelBlend (Elo + G2 加权平均) + 端点**：(1) `app/services/blend.py` `predict_match_blend(home, away, w_elo, w_g2, ...)` — `w_elo + w_g2 = 1.0` 校验，winner 选 max prob；(2) `app/routers/elo.py` 新增 `GET /api/elo/predict-blend/{home}/{away}?w_elo=0.5&w_g2=0.5&match_id=` — match_id 自动写 prediction_log model=v7a_blend；(3) 修 Glicko-2 USA/MEX 大写 fallback；(4) 11 测试（8 函数层 + 3 端点层 200/404/422）；(5) commit `844190a` + **git tag v0.7.0a**；**E2E 5 场景全 PASS（BRA/ARG 等权 0.3948 = 0.5×0.3940 + 0.5×0.3956 数学完全一致，w_elo=0.7 → 0.3945）** |
+| 2026-06-16 | **v0.7.0b** | **Lifespan 自动写 prediction_log + 前端 3-tab UI**：(1) `auto_log_predictions()` 服务 + 3 模型注册表（elo / glicko2 / blend）；(2) `app/main.py` lifespan startup 立即跑一次 + 6h scheduler 周期刷新 step 3；(3) `app/static/js/app.js` `/#/elo` 3-tab (Elo / Glicko-2 / Blend) + Glicko-2 评分榜折叠；(4) 8 集成测试 + 7 e2e + 3 UI tab 断言；(5) commit `e9c6635` + **git tag v0.7.0b**；**280 passed + 1 skipped, 184.62s, 零回归** |
+| 2026-06-16 | **v0.7.1** | **Monte Carlo Tournament 整届 10000 次模拟**：(1) `app/services/monte_carlo.py` `simulate_full_tournament()` — 48×48 prob_matrix 预计算 + 二叉树淘汰赛推进；(2) `GET /api/simulator/tournament` 端点 + Simulator 页 MC section；(3) `tests/test_monte_carlo.py` 11 unit/集成 + `tests/e2e/test_mc_e2e.py` 6 e2e + `deliverables/v0.7.1_spec.md` / `v0.7.1_release.md`；(4) commit `b17ddaf` + **git tag v0.7.1**；**10000 sims ≈ 4s**（预算 15s）；**291 passed + 1 skipped**（非 E2E）；实测 FRA 13.1% / ESP 13.0% / GER 10.4% |
+| 2026-06-16 | **v0.7.1.1** | **Monte Carlo 缓存层**：(1) `MCRunHistory` 表（Alembic `e916a40edd77`） + `load/save/run_mc_with_cache()`；(2) `/api/simulator/tournament?refresh=` 强制刷新；(3) 6h scheduler warmup；(4) `tests/test_mc_cache.py` 7 测试 + `tests/e2e/test_mc_cache_e2e.py` 2 测试 + `tests/e2e/conftest.py` 覆盖使用生产 DB；(5) commit `b137458` + **git tag v0.7.1.1**；**298 passed + 1 skipped + 31 E2E**；默认参数第二次请求 **~4s → <50ms** |
+| 2026-06-16 | **v0.7.2** | **odds_api_client + 模型对比**：(1) `app/services/odds_api_client.py` — football-data.co 客户端（滑动窗口限速 10 req/min + 15min 缓存 + Mock 注入）；(2) `compare_model_vs_odds()` 服务（支持 elo/glicko2/blend）+ `compute_value_bets()` 按模型筛选；(3) 3 新端点 `/odds/compare-model` / `/odds/value-bets-model` / `/odds/service-status`；(4) 10 测试；(5) commit `acaa0ee` + **git tag v0.7.2**；**310 passed + 1 skipped + 40 E2E** |
+| 2026-06-16 | **v0.7.2.1** | **前端赔率接入 v0.7.2 新端点**：(1) 顶部"服务状态"小卡；(2) 赔率卡模型下拉（Elo / Glicko-2 / Blend，默认 Blend）；(3) "按模型筛选价值投注" 新 section（模型 + 最低价值双控件）；(4) v0.5.1 旧 API 路径保留；(5) commit `0122737` + **git tag v0.7.2.1**；**310 passed + 1 skipped + 43 E2E** |
+| 2026-06-16 | **v0.7.2.3** | **赔率 vs 模型概率走势对比**：(1) `/api/odds/{id}/history?model=` 支持模型参数；(2) 走势图叠加模型预测概率（半透明线）；(3) Chart.js 4.4.0 升级；(4) `tests/test_odds_history_model.py` 8 测试；(5) commit `0a3da9b` + **git tag v0.7.2.3**；**310 passed + 1 skipped + 46 E2E** |
+| 2026-06-16 | **v0.7.4** | **Weight Sweep**：(1) `app/services/weight_sweep.py` — 7 组权重 (1.0,0.0)~(0.0,1.0) + 4 指标 (accuracy / brier / log_loss / roi_uniform)，winner 选 brier 最低；(2) `/api/elo/weight-sweep` 端点；(3) Cockpit mini-card 渲染；(4) `tests/test_weight_sweep.py` 8 unit + `tests/e2e/test_weight_sweep_e2e.py` 3 e2e；(5) commit `bd42a24` + **git tag v0.7.4**；**326 passed + 1 skipped + 53 E2E**；**关键发现**：Glicko-2 单独 (w_g2=1.0) brier 最低 0.5120 / accuracy 0.6265，v0.7.0a 50/50 默认是次优解（brier 0.5296 / acc 0.6123）—— 主人选方案 B（保留默认 + 加 Adaptive） |
+| 2026-06-16 | **v0.7.5** | **G2 Adaptive Weight**（按距上次比赛天数分段）：(1) `app/services/adaptive_weight.py` 4 段 (FRESH ≤7d / WARM 7-30d / STALE 30-90d / DORMANT >90d) + `days_since_last_match()` + `adaptive_weight_blend()` + `walkforward_adaptive_validate()`；(2) `/api/elo/adaptive-weight/{home}/{away}` 端点（match_id 自动写 prediction_log model=v7b_adaptive）；(3) `/elo` 4-tab UI（Elo / Glicko-2 / Blend / **Adaptive**）；(4) 11 unit + 3 e2e 测试；(5) commit `36bae24` + **git tag v0.7.5**；**337 passed + 1 skipped + 56 E2E**；v0.7.0a 50/50 默认保留，Adaptive 为可选升级 |
+| 2026-06-16 | **v0.7.6** | **数据回填 2018+2022 扩训练集**：(1) StatsBomb 2018 WC 补 4 场 (Colombia 1-2 Japan / Japan 2-2 Senegal / Denmark 0-0 France / **South Korea 2-0 Germany**) → 60→64 场；(2) 重新生成 `statsbomb_elo.json` 309→313 场（matchesApplied +4）；(3) 数据覆盖报告 `data/v0.7.6_data_coverage_report.md`：合并 1226 场 / 时间 2018-06-14→2026-06-11 / 191 队 / StatsBomb 6 大赛 100% 覆盖 / Hicruben 0 场 2018+2022；(4) 4/4 v0.7.6 专项测试 PASS；(5) commit `7c40dd7` + **git tag v0.7.6**；**393 passed + 1 skipped + 56 E2E**（零回归）；**诚实 push back 边界**：不重训 1226 场 walk-forward / 不回写 Hicruben 主模型 / 不重写 prediction_log（v0.7.4 结论基于 913 场友谊赛，64 场大赛会拉低精度） |
+| 2026-06-17 | **v0.7.7** | **README 整合 v0.7.0a–v0.7.6 跨版本专章**（用户文档 2h）：(1) 头部版本/阶段/作用域刷新至 v0.7.7；(2) §1.1 范围表扩 API 端点 40→49 + 新增 G2/ModelBlend/Adaptive/MC/Sweep/回填 6 行；(3) 新增 **§九点五 v0.7 模型演进专章**（演进路线图 + 关键发现 + 训练集演进 + Adaptive 设计理由 + 架构原则 + v0.7.6 动机与边界 + 未来路径）；(4) §9 下一阶段改写为 v0.7.8+ 校准/真实赔率 API；(5) §10 变更日志追加 v0.7.0a/b、1、1.1、2、2.1、2.3、4、5、6 共 10 条（每条含 commit + tag + 测试 + 关键发现） |
