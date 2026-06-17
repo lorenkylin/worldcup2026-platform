@@ -44,7 +44,7 @@ jobs:
         run: |
           pytest tests/ --ignore=tests/e2e -v --tb=short -p no:cacheprovider
 
-      - name: 跑 alembic 迁移 (干跑: --sql 只生成不执行)
+      - name: "跑 alembic 迁移 (干跑 --sql 只生成不执行)"
         run: |
           # 不执行实际迁移, 只验证迁移脚本可解析
           alembic upgrade head --sql 2>&1 | head -50

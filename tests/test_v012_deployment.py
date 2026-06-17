@@ -5,10 +5,12 @@
 - 关键字段检查
 - bash 脚本语法
 - 应用在 container 内能 import
+- 真 YAML 解析 (v0.12.1 修复 bug: ci.yml 中文冒号未引号)
 """
 import os
 import re
 import subprocess
+import yaml
 from pathlib import Path
 
 import pytest
@@ -34,6 +36,30 @@ class TestInfraFilesExist:
     def test_ci_workflow_exists(self):
         ci = PROJECT_ROOT / ".github" / "workflows" / "ci.yml"
         assert ci.is_file(), ".github/workflows/ci.yml 缺失"
+
+    def test_ci_workflow_yaml_parses(self):
+        """v0.12.1: 真 YAML 解析, 防止中文冒号等 unquoted 字符串触发 YAML 报错.
+        之前 v0.12 32 测试只做存在+grep, 未真解析, 漏掉 line 47: '干跑: --sql' 冒号 bug."""
+        import yaml
+        ci = PROJECT_ROOT / ".github" / "workflows" / "ci.yml"
+        with open(ci, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        assert isinstance(data, dict), "ci.yml 顶层必须为 dict"
+        assert "jobs" in data, "ci.yml 缺 jobs"
+        assert "test" in data["jobs"], "ci.yml 缺 test job"
+        # 触发器
+        on_key = True if True in data else "on"
+        triggers = list(data[on_key].keys())
+        assert "push" in triggers, "ci.yml 必须有 push 触发"
+        assert "pull_request" in triggers, "ci.yml 必须有 PR 触发"
+
+    def test_compose_yaml_parses(self):
+        """docker-compose.yml 真解析, 同 v0.12.1 fix."""
+        compose = PROJECT_ROOT / "docker-compose.yml"
+        with open(compose, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        assert "services" in data, "compose 缺 services"
+        assert len(data["services"]) >= 1, "compose 必须至少 1 个服务"
 
 
 # === Dockerfile 关键字段 ===
