@@ -240,3 +240,65 @@ def evaluate_all(records: List[dict]) -> dict:
         "calibrated_brier": _brier(cal),
         "calibrators": cals.to_dict(),
     }
+
+
+# v0.7.10 calibration summary cache (Cockpit mini-card)
+import threading
+from datetime import datetime, timezone
+
+_calibration_summary_cache: dict = {"data": None, "computed_at": None}
+_calibration_summary_lock = threading.Lock()
+_CALIBRATION_SUMMARY_TTL_SECONDS = 21600  # 6h
+
+
+def get_calibration_summary() -> dict:
+    """v0.7.10 轻量摘要: 3 个 brier 改进百分点 + 训练样本数.
+    进程内 cache, 6h TTL. Cockpit 频繁刷新只算 1 次.
+
+    Returns:
+        {
+            "training_samples": int,
+            "platt_full_fit_pp": float,        # 负数=校准后 brier 变低
+            "platt_walkforward_80_20_pp": float,
+            "isotonic_walkforward_80_20_pp": float,
+            "cache_ttl_seconds": 21600,
+            "computed_at": ISO 8601 str (UTC)
+        }
+    """
+    from app.services.isotonic_calibration import isotonic_walkforward_validate
+    now = datetime.now(timezone.utc)
+    cached = _calibration_summary_cache
+    if cached["data"] is not None and cached["computed_at"] is not None:
+        age = (now - cached["computed_at"]).total_seconds()
+        if age < _CALIBRATION_SUMMARY_TTL_SECONDS:
+            return cached["data"]
+    with _calibration_summary_lock:
+        # double-check after acquire lock
+        if cached["data"] is not None and cached["computed_at"] is not None:
+            age = (now - cached["computed_at"]).total_seconds()
+            if age < _CALIBRATION_SUMMARY_TTL_SECONDS:
+                return cached["data"]
+        records = load_g2_records()
+        platt_wf = walkforward_validate(records, test_ratio=0.2)
+        platt_full = evaluate_all(records)
+        iso_wf = isotonic_walkforward_validate(records, test_ratio=0.2)
+        platt_wf_pp = round(
+            (platt_wf["raw"]["brier"] - platt_wf["calibrated"]["brier"]) * 100, 3
+        )
+        platt_full_pp = round(
+            (platt_full["raw_brier"] - platt_full["calibrated_brier"]) * 100, 3
+        )
+        iso_wf_pp = round(
+            (iso_wf["raw"]["brier"] - iso_wf["calibrated"]["brier"]) * 100, 3
+        )
+        data = {
+            "training_samples": len(records),
+            "platt_full_fit_pp": platt_full_pp,
+            "platt_walkforward_80_20_pp": platt_wf_pp,
+            "isotonic_walkforward_80_20_pp": iso_wf_pp,
+            "cache_ttl_seconds": _CALIBRATION_SUMMARY_TTL_SECONDS,
+            "computed_at": now.isoformat().replace("+00:00", "Z"),
+        }
+        cached["data"] = data
+        cached["computed_at"] = now
+        return data

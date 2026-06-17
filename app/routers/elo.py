@@ -672,3 +672,16 @@ def calibrated_predict(
             print(f"[prediction_log] calibrated 写入失败: {e}")
 
     return result
+
+
+@router.get("/elo/calibration-summary")
+def calibration_summary() -> Dict:
+    """v0.7.10 Cockpit mini-card 轻量摘要.
+
+    返回 3 个 brier 改进百分点 (Platt full / Platt 80/20 / Isotonic 80/20)
+    + 训练样本数 + 6h cache 时间戳.
+
+    进程内 cache 避免 Cockpit 频繁刷新时重复 913 场 walkforward (~100ms/次).
+    """
+    from app.services.calibration import get_calibration_summary
+    return get_calibration_summary()

@@ -134,3 +134,38 @@ def test_evaluate_all_brier_improvement_positive():
     assert result["calibrated_brier"] <= result["raw_brier"]
     # 113 场 baseline 0.5120, 期望 0.495-0.515 区间
     assert 0.45 < result["calibrated_brier"] < 0.55
+
+
+# ---------- v0.7.10 calibration summary (Cockpit mini-card) ----------
+
+def test_get_calibration_summary_returns_6_fields():
+    """v0.7.10 summary 返回 6 字段 (3 brier pp + samples + ttl + computed_at)"""
+    from app.services.calibration import get_calibration_summary
+    summary = get_calibration_summary()
+    assert "training_samples" in summary
+    assert "platt_full_fit_pp" in summary
+    assert "platt_walkforward_80_20_pp" in summary
+    assert "isotonic_walkforward_80_20_pp" in summary
+    assert "cache_ttl_seconds" in summary
+    assert "computed_at" in summary
+    # 训练样本 913
+    assert summary["training_samples"] == 913
+    # cache TTL = 6h
+    assert summary["cache_ttl_seconds"] == 21600
+    # ISO 8601 UTC 格式
+    assert summary["computed_at"].endswith("Z")
+
+
+def test_get_calibration_summary_caches_second_call():
+    """v0.7.10 第二次调用应走 cache (耗时 < 0.01s)"""
+    import time
+    from app.services.calibration import get_calibration_summary
+    s1 = get_calibration_summary()
+    t0 = time.monotonic()
+    s2 = get_calibration_summary()
+    elapsed = time.monotonic() - t0
+    # 同一 cache hit 必须 < 10ms
+    assert elapsed < 0.01
+    # 数据应一致 (computed_at 不变)
+    assert s1["computed_at"] == s2["computed_at"]
+    assert s1["training_samples"] == s2["training_samples"]

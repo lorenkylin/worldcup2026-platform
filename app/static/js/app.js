@@ -1773,15 +1773,16 @@ async function renderCockpit() {
   app.classList.remove('max-w-2xl');
   app.classList.add('max-w-none', 'px-4');
 
-  let today, allMatches, groups, teams, accuracy, weightSweep;
+  let today, allMatches, groups, teams, accuracy, weightSweep, calibrationSummary;
   try {
-    [today, allMatches, groups, teams, accuracy, weightSweep] = await Promise.all([
+    [today, allMatches, groups, teams, accuracy, weightSweep, calibrationSummary] = await Promise.all([
       apiWithRetry('/matches/today'),
       apiWithRetry('/matches?limit=200'),
       apiWithRetry('/groups'),
       apiWithRetry('/teams'),
       apiWithRetry('/elo/accuracy-stats?days=180').catch(() => null),
       apiWithRetry('/elo/weight-sweep').catch(() => null),
+      apiWithRetry('/elo/calibration-summary').catch(() => null),
     ]);
   } catch (err) {
     app.classList.add('max-w-2xl');
@@ -1959,14 +1960,46 @@ async function renderCockpit() {
       </div>
       </div>
     </section>
-    ` : `
+    ` : ''}
+    ${calibrationSummary ? `
+    <section class="cockpit-section mb-4">
+      <h2 class="cockpit-section-title">🎯 G2 校准 brier 速览 (v0.7.10)</h2>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div class="cockpit-mini-card border-l-4 border-emerald-400">
+          <div class="text-xs text-slate-500">Platt Full Fit</div>
+          <div class="text-2xl font-bold text-emerald-600 mt-1">
+            ${calibrationSummary.platt_full_fit_pp >= 0 ? '+' : ''}${calibrationSummary.platt_full_fit_pp.toFixed(2)} pp
+          </div>
+          <div class="text-xs text-slate-500 mt-1">913 场全样本</div>
+        </div>
+        <div class="cockpit-mini-card border-l-4 border-amber-400">
+          <div class="text-xs text-slate-500">Platt 80/20 Walkforward</div>
+          <div class="text-2xl font-bold ${calibrationSummary.platt_walkforward_80_20_pp >= 0 ? 'text-emerald-600' : 'text-rose-600'} mt-1">
+            ${calibrationSummary.platt_walkforward_80_20_pp >= 0 ? '+' : ''}${calibrationSummary.platt_walkforward_80_20_pp.toFixed(2)} pp
+          </div>
+          <div class="text-xs text-slate-500 mt-1">真实泛化能力</div>
+        </div>
+        <div class="cockpit-mini-card border-l-4 border-cyan-400">
+          <div class="text-xs text-slate-500">Isotonic 80/20 Walkforward</div>
+          <div class="text-2xl font-bold ${calibrationSummary.isotonic_walkforward_80_20_pp >= 0 ? 'text-emerald-600' : 'text-rose-600'} mt-1">
+            ${calibrationSummary.isotonic_walkforward_80_20_pp >= 0 ? '+' : ''}${calibrationSummary.isotonic_walkforward_80_20_pp.toFixed(2)} pp
+          </div>
+          <div class="text-xs text-slate-500 mt-1">PAVA 步阶</div>
+        </div>
+      </div>
+      <div class="mt-2 text-xs text-slate-400">
+        训练样本 ${calibrationSummary.training_samples} 场 · 缓存 ${(calibrationSummary.cache_ttl_seconds / 3600).toFixed(0)}h
+      </div>
+    </section>
+    ` : ''}
+    ${accuracy ? `
     <section class="cockpit-section mb-4">
       <h2 class="cockpit-section-title">🎯 3 模型横评</h2>
       <div class="text-slate-500 text-sm py-4 text-center">
         ⏳ 暂无已结算预测 · 预测日志正在积累中,预计 15 分钟内首批结算入库
       </div>
     </section>
-    `}
+    ` : ''}
 
     <!-- 焦点战 -->
     <section class="cockpit-section mb-4">
