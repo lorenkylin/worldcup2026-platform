@@ -18,7 +18,7 @@
 | ✅ **Glicko-2 模型**（v0.6.0）| Python 原生实现（含 RD 衰减 + 12 期窗口 + vol/rating 同步更新），4 端点暴露 RD/σ/volatility + 1x2 胜率分布 + RPS/Brier/LogLoss 横评 |
 | ✅ **ModelBlend (Elo + G2)**（v0.7.0a/b）| `w_elo + w_g2 = 1.0` 加权平均 + lifespan startup 自动写 prediction_log + `/#/elo` 3-tab UI（elo / glicko2 / blend）|
 | ✅ **Adaptive Weight**（v0.7.5）| 按距上次比赛天数分 4 段 (FRESH ≤7d / WARM 7-30d / STALE 30-90d / DORMANT >90d) 动态调整 w_g2 |
-| ✅ **G2 校准实验**（v0.7.8–v0.7.10，experimental）| Platt scaling + Isotonic regression（PAVA 步阶）双方法对比 + `?method=platt|isotonic|both` Query 参数 + `calibration_metrics` 实测字段 + 进程内 6h cache + Cockpit mini-card 速览（Platt Full / Platt 80/20 / Isotonic 80/20 三列）|
+| ✅ **G2 校准实验**（v0.7.8–v0.7.10，**v0.8.1 已关停**）| Platt scaling + Isotonic regression（PAVA 步阶）双方法对比 + `?method=platt|isotonic|both` Query 参数 + `calibration_metrics` 实测字段 + 进程内 6h cache + Cockpit mini-card 速览（Platt Full / Platt 80/20 / Isotonic 80/20 三列）。**结论**: brier 改进均 < 1.5pp 门槛, 端点返回 410, 详见 §九点六 顶部 banner |
 | ✅ **市场赔率模块 M3+**（v0.5.0 → v0.7.2.3）| match_odds 表 + 6 端点（3 admin + 3 公开 + 3 model-compare + 1 service-status）+ value bet 算法 + 走势曲线 + 模型 vs 市场 + 按模型筛选价值投注 |
 | ✅ **Monte Carlo 整届 10000 sims**（v0.7.1/1.1）| `MCRunHistory` 缓存层 + 6h warmup + `?refresh=1` 强制刷新 |
 | ✅ **Weight Sweep**（v0.7.4）| 7 组 (w_elo, w_g2) walk-forward 验证，**G2 单独 (w_g2=1.0) brier 最低 0.5120** |
@@ -926,9 +926,16 @@ SEGMENT_WEIGHTS = {
 
 ---
 
-## 九点六、v0.7.8 → v0.7.10 校准实验专章（Platt + Isotonic + Cockpit 速览）
+## 九点六、v0.7.8 → v0.7.10 校准实验专章（Platt + Isotonic + Cockpit 速览） ⚠️ **v0.8.1 已关停**
 
-> 本节聚焦 v0.7.8/9/10 三天迭代的"模型校准"实验结论。所有结果基于 913 场 Hicruben walk-forward 验证（v0.7.6 补的 4 场未注入实验，避免精度波动）。
+> **v0.8.1 关停**: G2 后验校准（Platt + Isotonic）未达 1.5pp brier 改进门槛，已下线。
+> 端点 `/elo/calibrated-predict/*` 和 `/elo/calibration-summary` 返回 **410 Gone**。
+> UI 第 5 个 tab "Calibrated" 移除, Cockpit mini-card 移除。
+> prediction_log v7c/v7d 行通过 Alembic migration `f3a9b2c1d4e6` 清理。
+> **git 历史保留 v0.7.8/9/10 commit, 可 `git checkout v0.7.8` 恢复运行时端点**。
+> 详细关停报告见 `deliverables/v0.8.1_calibration_sunset.md`。
+
+> 本节聚焦 v0.7.8/9/10 三天迭代的"模型校准"实验结论（**已存档**）。所有结果基于 913 场 Hicruben walk-forward 验证（v0.7.6 补的 4 场未注入实验，避免精度波动）。
 
 ### 1. 校准动机
 

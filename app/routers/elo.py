@@ -514,174 +514,26 @@ def adaptive_weight(
 def calibrated_predict(
     home: str,
     away: str,
-    model: str = Query("glicko2", pattern="^(glicko2|elo|blend)$",
-                       description="校准目标模型 (glicko2/elo/blend)"),
-    method: str = Query("platt", pattern="^(platt|isotonic|both)$",
-                        description="v0.7.8.1: 校准方法 (platt|isotonic|both)"),
-    match_id: Optional[int] = Query(None, ge=1, description="可选,自动写 prediction_log"),
     db: Session = Depends(get_db),
 ) -> Dict:
-    """v0.7.8 G2-only Platt scaling + v0.7.8.1 isotonic 校准对比
+    """v0.8.1 关停: 校准实验未达 1.5pp 门槛已下线.
 
-    在 913 场 walk-forward 拟合,默认 Platt(2-param sigmoid)。
-    method=isotonic 走 PAVA 步阶函数;method=both 同时返回两者便于 A/B。
-
-    实验性功能: brier 改进均 < 1.5pp 门槛
-      (v0.7.9 实测 913 场:
-       Platt full fit -0.69pp / walkforward 80/20 -0.27pp
-       Isotonic full fit -0.77pp / walkforward 80/20 -0.23pp)
-    推荐: 高 / 关键场预测时用, 普通场用 v3_g2 即可。
+    原 v0.7.8 Platt + v0.7.8.1 Isotonic 双方法 (git 保留,运行时不再调).
+    详细关停原因见 deliverables/v0.8.1_calibration_sunset.md.
     """
-    if home.upper() == away.upper():
-        raise HTTPException(status_code=422, detail="主客队不能相同")
-
-    home_team = db.query(Team).filter(Team.fifa_code == home.upper()).first()
-    away_team = db.query(Team).filter(Team.fifa_code == away.upper()).first()
-    if not home_team:
-        raise HTTPException(status_code=404, detail=f"球队 {home.upper()} 不存在")
-    if not away_team:
-        raise HTTPException(status_code=404, detail=f"球队 {away.upper()} 不存在")
-
-    if model == "glicko2":
-        from app.services import glicko2 as g2_service
-        rh = g2_service.lookup_glicko2_rating(home_team.fifa_code)
-        ra = g2_service.lookup_glicko2_rating(away_team.fifa_code)
-        if rh is None or ra is None:
-            raise HTTPException(status_code=404, detail="球队不在 Glicko-2 数据中")
-        pred = g2_service.predict_outcome(
-            rh["rating"], rh["rd"],
-            ra["rating"], ra["rd"],
-            home_bonus=HOME_BONUS,
-        )
-        raw = {"ph": pred["win_a"], "pd": pred["draw"], "pa": pred["win_b"]}
-    elif model == "elo":
-        from app.services.elo import predict_match
-        em = predict_match(home_team.fifa_code, away_team.fifa_code, db)
-        raw = {"ph": em["probabilities"]["home_win"], "pd": em["probabilities"]["draw"], "pa": em["probabilities"]["away_win"]}
-    else:
-        from app.services.adaptive_weight import adaptive_weight_blend
-        bw = adaptive_weight_blend(home_team.fifa_code, away_team.fifa_code, db)
-        if bw.get("blend_result", {}).get("blended"):
-            probs = bw["blend_result"]["blended"]["probabilities"]
-            raw = {"ph": probs["home_win"], "pd": probs["draw"], "pa": probs["away_win"]}
-        else:
-            raise HTTPException(status_code=503, detail="blend 预测失败")
-
-    ph, pd, pa = raw["ph"], raw["pd"], raw["pa"]
-
-    # v0.7.9 缓存 records + 校准预热指标,避免每个请求重算 913 场 brier
-    from app.services.calibration import (
-        load_g2_records, fit_calibrators, calibrate_probs,
-        walkforward_validate, evaluate_all,
+    raise HTTPException(
+        status_code=410,
+        detail="v0.8.1 关停: G2 校准未达 1.5pp brier 改进门槛已下线,详见 deliverables/v0.8.1_calibration_sunset.md",
     )
-    from app.services.isotonic_calibration import (
-        fit_isotonic_calibrators, isotonic_calibrate_probs,
-        isotonic_walkforward_validate,
-    )
-
-    records = load_g2_records()
-    platt_wf = walkforward_validate(records, test_ratio=0.2)
-    platt_full = evaluate_all(records)
-    iso_wf = isotonic_walkforward_validate(records, test_ratio=0.2)
-    platt_wf_pp = round(
-        (platt_wf["raw"]["brier"] - platt_wf["calibrated"]["brier"]) * 100, 3
-    )
-    platt_full_pp = round(
-        (platt_full["raw_brier"] - platt_full["calibrated_brier"]) * 100, 3
-    )
-    iso_wf_pp = round(
-        (iso_wf["raw"]["brier"] - iso_wf["calibrated"]["brier"]) * 100, 3
-    )
-
-    result: Dict = {
-        "home": home_team.fifa_code,
-        "away": away_team.fifa_code,
-        "model": model,
-        "raw_probs": {"home": round(ph, 4), "draw": round(pd, 4), "away": round(pa, 4)},
-        "experimental": True,
-        "training_samples": len(records),
-        "calibration_metrics": {
-            "platt_walkforward_80_20_pp": platt_wf_pp,
-            "platt_full_fit_pp": platt_full_pp,
-            "isotonic_walkforward_80_20_pp": iso_wf_pp,
-        },
-    }
-
-    if method in ("platt", "both"):
-        cals_p = fit_calibrators(records)
-        ch, cd, ca = calibrate_probs(ph, pd, pa, cals_p)
-        result["platt"] = {
-            "calibrated_probs": {"home": round(ch, 4), "draw": round(cd, 4), "away": round(ca, 4)},
-            "calibration_params": cals_p.to_dict(),
-            "brier_improvement_pp": platt_full_pp,
-            "confidence": "high" if max(ch, cd, ca) > 0.6 else "medium" if max(ch, cd, ca) > 0.45 else "low",
-        }
-        if method == "platt":
-            result["calibrated_probs"] = result["platt"]["calibrated_probs"]
-            result["calibration_params"] = result["platt"]["calibration_params"]
-            result["confidence"] = result["platt"]["confidence"]
-            result["brier_improvement"] = round(platt_full_pp / 100, 4)
-
-    if method in ("isotonic", "both"):
-        cals_i = fit_isotonic_calibrators(records)
-        ih, id_, ia = isotonic_calibrate_probs(ph, pd, pa, cals_i)
-        result["isotonic"] = {
-            "calibrated_probs": {"home": round(ih, 4), "draw": round(id_, 4), "away": round(ia, 4)},
-            "calibration_params": cals_i.to_dict(),
-            "brier_improvement_pp": iso_wf_pp,
-            "confidence": "high" if max(ih, id_, ia) > 0.6 else "medium" if max(ih, id_, ia) > 0.45 else "low",
-        }
-        if method == "isotonic":
-            result["calibrated_probs"] = result["isotonic"]["calibrated_probs"]
-            result["calibration_params"] = result["isotonic"]["calibration_params"]
-            result["confidence"] = result["isotonic"]["confidence"]
-            result["brier_improvement"] = round(iso_wf_pp / 100, 4)
-
-    if method == "both":
-        pl = result["platt"]
-        iso = result["isotonic"]
-        # walkforward 80/20 更严格,用它做 A/B 推荐
-        recommendation = "platt" if platt_wf_pp >= iso_wf_pp else "isotonic"
-        result["calibrated_probs"] = pl["calibrated_probs"]
-        result["confidence"] = pl["confidence"]
-        result["brier_improvement"] = round(platt_wf_pp / 100, 4)
-        result["comparison"] = {
-            "platt_brier_pp": platt_wf_pp,
-            "isotonic_brier_pp": iso_wf_pp,
-            "recommendation": recommendation,
-        }
-
-    if match_id is not None:
-        try:
-            from app.services.prediction_log import record_prediction
-            ch = result["calibrated_probs"]["home"]
-            cd = result["calibrated_probs"]["draw"]
-            ca = result["calibrated_probs"]["away"]
-            record_prediction(
-                db=db,
-                match_id=match_id,
-                model_version=f"v7c_calibrated_{method}",
-                pred_home_win=ch,
-                pred_draw=cd,
-                pred_away_win=ca,
-                elo_home=int(home_team.elo_rating) if home_team.elo_rating else None,
-                elo_away=int(away_team.elo_rating) if away_team.elo_rating else None,
-                source=f"calibrated_{model}_{method}",
-            )
-        except Exception as e:
-            print(f"[prediction_log] calibrated 写入失败: {e}")
-
-    return result
 
 
 @router.get("/elo/calibration-summary")
 def calibration_summary() -> Dict:
-    """v0.7.10 Cockpit mini-card 轻量摘要.
+    """v0.8.1 关停: Cockpit mini-card 已移除,端点保留为 410.
 
-    返回 3 个 brier 改进百分点 (Platt full / Platt 80/20 / Isotonic 80/20)
-    + 训练样本数 + 6h cache 时间戳.
-
-    进程内 cache 避免 Cockpit 频繁刷新时重复 913 场 walkforward (~100ms/次).
+    详细关停原因见 deliverables/v0.8.1_calibration_sunset.md.
     """
-    from app.services.calibration import get_calibration_summary
-    return get_calibration_summary()
+    raise HTTPException(
+        status_code=410,
+        detail="v0.8.1 关停: 校准实验未达 1.5pp 门槛已下线,详见 deliverables/v0.8.1_calibration_sunset.md",
+    )
