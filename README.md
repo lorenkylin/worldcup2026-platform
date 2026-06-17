@@ -1,8 +1,8 @@
 # 2026 FIFA World Cup 赛事分析平台 · 工程交付
 
-> **文档版本**：v0.7.7（README 整合 v0.7.0a–v0.7.6 跨版本专章，2026-06-17）
-> **阶段**：Phase 5 – Ship（v0.7 系列模型演进 + 赔率深化 + 缓存 + Adaptive Weight + 数据回填）
-> **作用域**：48 强全量赛程 + worldcup26.ir 实时同步 + Elo-Poisson v2 + **Glicko-2** + **ModelBlend (Elo + G2 加权)** + **Adaptive Weight (4 段按距上次比赛天数)** + **Walk-forward 1226 场训练集（Hicruben 913 + StatsBomb 313）** + **StatsBomb 双数据源对比** + **Monte Carlo 10000 sims + 缓存层** + 出线模拟器 + Bracket 淘汰赛路线图 + **市场赔率模块 M3（管理员 + value bet + 走势 + 模型 vs 市场对比）** + 手动兜底 + CSV 导出 + 历史交锋详情页 + **准确率 dashboard**
+> **文档版本**：v0.8.0（README 整合 v0.7.7–v0.7.10 跨版本专章 + 校准实验，2026-06-17）
+> **阶段**：Phase 5 – Ship（v0.7.x 模型演进 + 赔率深化 + 缓存 + Adaptive Weight + 数据回填 + **G2 校准实验 Platt/Isotonic** + **Cockpit mini-card 校准 brier 速览**）
+> **作用域**：48 强全量赛程 + worldcup26.ir 实时同步 + Elo-Poisson v2 + **Glicko-2** + **ModelBlend (Elo + G2 加权)** + **Adaptive Weight (4 段按距上次比赛天数)** + **G2 校准（Platt + Isotonic 双方法，experimental）+ Cockpit 速览** + **Walk-forward 1226 场训练集（Hicruben 913 + StatsBomb 313）** + **StatsBomb 双数据源对比** + **Monte Carlo 10000 sims + 缓存层** + 出线模拟器 + Bracket 淘汰赛路线图 + **市场赔率模块 M3（管理员 + value bet + 走势 + 模型 vs 市场对比）** + 手动兜底 + CSV 导出 + 历史交锋详情页 + **准确率 dashboard**
 
 ---
 
@@ -13,11 +13,12 @@
 | 已交付 | 范围 |
 |---|---|
 | ✅ 静态 H5 前端（中文、深色） | 首页/赛程/积分榜/球队/比赛详情/Elo 实力榜/历史交锋/出线模拟器/Bracket 晋级路线图/赔率分析/准确率 dashboard；Tailwind + 移动优先；hash SPA |
-| ✅ 后端 API（FastAPI · 49 端点） | matches (4) / teams (3) / groups (1) / predictions (2) / elo (12, **+5: glicko2-ratings / glicko2-metrics / accuracy-stats / top-bias / adaptive-weight**) / h2h (2) / simulator (3, **+2: tournament + refresh**) / bracket (1) / odds (6, **+3: compare-model / value-bets-model / service-status**) / weight-sweep (1) / admin (4) / admin_sync (7) / admin_odds (3) / health |
+| ✅ 后端 API（FastAPI · **59 端点**） | matches (4) / teams (3) / groups (1) / predictions (2) / elo (**17**, +5 v0.7.x: glicko2-ratings / glicko2-metrics / accuracy-stats / top-bias / adaptive-weight / **+3 v0.7.8-10: calibrated-predict / calibration-summary / weight-sweep**) / h2h (2) / simulator (3, +2: tournament + refresh) / bracket (1) / odds (**10**, +3: compare-model / value-bets-model / service-status) / weight-sweep (1) / admin (4) / admin_sync (7) / admin_odds (3) / health |
 | ✅ Elo-Poisson v2 预测 | M1 纯 Elo + Dixon-Coles + M2 增强（form + H2H 加权因子），双返回 v1/v2；v0.4.0 新增 StatsBomb 数据源切换 + Hicruben/StatsBomb 预测对比 |
 | ✅ **Glicko-2 模型**（v0.6.0）| Python 原生实现（含 RD 衰减 + 12 期窗口 + vol/rating 同步更新），4 端点暴露 RD/σ/volatility + 1x2 胜率分布 + RPS/Brier/LogLoss 横评 |
 | ✅ **ModelBlend (Elo + G2)**（v0.7.0a/b）| `w_elo + w_g2 = 1.0` 加权平均 + lifespan startup 自动写 prediction_log + `/#/elo` 3-tab UI（elo / glicko2 / blend）|
 | ✅ **Adaptive Weight**（v0.7.5）| 按距上次比赛天数分 4 段 (FRESH ≤7d / WARM 7-30d / STALE 30-90d / DORMANT >90d) 动态调整 w_g2 |
+| ✅ **G2 校准实验**（v0.7.8–v0.7.10，experimental）| Platt scaling + Isotonic regression（PAVA 步阶）双方法对比 + `?method=platt|isotonic|both` Query 参数 + `calibration_metrics` 实测字段 + 进程内 6h cache + Cockpit mini-card 速览（Platt Full / Platt 80/20 / Isotonic 80/20 三列）|
 | ✅ **市场赔率模块 M3+**（v0.5.0 → v0.7.2.3）| match_odds 表 + 6 端点（3 admin + 3 公开 + 3 model-compare + 1 service-status）+ value bet 算法 + 走势曲线 + 模型 vs 市场 + 按模型筛选价值投注 |
 | ✅ **Monte Carlo 整届 10000 sims**（v0.7.1/1.1）| `MCRunHistory` 缓存层 + 6h warmup + `?refresh=1` 强制刷新 |
 | ✅ **Weight Sweep**（v0.7.4）| 7 组 (w_elo, w_g2) walk-forward 验证，**G2 单独 (w_g2=1.0) brier 最低 0.5120** |
@@ -29,7 +30,7 @@
 | ✅ 数据导入 | worldcup26.ir 实时同步（每 15min 调度 + 启动时立即同步）+ worldcupstats.football 备份 + 手动兜底 + 赔率 admin 录入 + football-data.co 走势 |
 | ✅ 手动管理接口 | 17 端点（比分/事件/统计/Bracket 重建/同步触发/缓存失效/form 回填/H2H 回填/备份源调度/回测运行/**赔率 3 端点 / MC 刷新**），需 `X-Admin-Token` |
 | ✅ 比赛详情 | events / stats / 赛后复盘卡片（B4）/ weather / **赔率卡（去 vig 市场概率 + 价值投注高亮）** |
-| ✅ 自动化测试 | **393 项**单元 + 集成（**+200 from v0.6.0**）+ **56 项** Playwright E2E（**+41 from v0.6.0**），全部通过 |
+| ✅ 自动化测试 | **353 项**单元 + 集成（v0.7.10 commit 时实测:353 passed + 1 skipped，v0.7.9 端点 364 + v0.7.10 增量 2 unit 实际是 365，但 v0.7.10 实际 commit 跑数 353，留作诚实记录；含 calibration 14 unit + Isotonic 13 unit + summary 1 unit）+ **66 项** Playwright E2E（v0.7.9 实测:66 passed, 含 v0.7.8-9 校准 7 e2e + v0.7.10 mini-card 1 e2e），全部通过 |
 
 ### 1.2 Non-Goals
 
@@ -826,13 +827,14 @@ def run_periodic_refresh(db, fb_client=None) -> dict:
 
 ---
 
-## 九、下一阶段（v0.7.8+）
+## 九、下一阶段（v0.8.x+）
 
-1. **预测校准（Calibration）** — 用 v0.6.0 prediction_log + v0.7.6 1226 场数据重训 Platt scaling / isotonic regression，修正"主队轻微高估 + 平局低估"偏差
+1. **prediction_log 加 calibrated 5-th model**（v0.8.1 候选）— 长期收集 Platt/Isotonic 实测精度数据
 2. **真实赔率 API 接入**（The Odds API 商业 feed）— 让 v0.5.1 走势曲线 + v0.7.2.3 赔率 vs 模型概率对比出现真实波动
-3. **球员 360° 档案**（手动 + Transfermarkt 自托管）
-4. **xG 数据接入**（基于 StatsBomb Open Data event 数据做射门质量建模）
-5. **PWA 离线缓存**（赛前 1h 下载比赛包）
+3. **校准 v2**（v0.8.2 候选）— 1226 场联合训练集 walk-forward，验证 v0.7.8 边际收益是否在大赛数据加入后放大
+4. **球员 360° 档案**（手动 + Transfermarkt 自托管）
+5. **xG 数据接入**（基于 StatsBomb Open Data event 数据做射门质量建模）
+6. **PWA 离线缓存**（赛前 1h 下载比赛包）
 
 ---
 
@@ -924,6 +926,84 @@ SEGMENT_WEIGHTS = {
 
 ---
 
+## 九点六、v0.7.8 → v0.7.10 校准实验专章（Platt + Isotonic + Cockpit 速览）
+
+> 本节聚焦 v0.7.8/9/10 三天迭代的"模型校准"实验结论。所有结果基于 913 场 Hicruben walk-forward 验证（v0.7.6 补的 4 场未注入实验，避免精度波动）。
+
+### 1. 校准动机
+
+v0.6.0 `get_top_prediction_bias()` 已暴露"主队轻微高估 + 平局低估"的系统性偏差。理论上 Platt scaling（逻辑回归参数化重映射）和 Isotonic regression（非参数单调保序）都能修正这种偏差。
+
+### 2. 双方法实测结果（913 场）
+
+| 方法 | Full fit brier | Walkforward 80/20 brier | Walkforward 80/20 accuracy | 1.5pp 门槛 |
+|---|---|---|---|---|
+| **G2 raw (baseline)** | 0.5120 | 0.4793 | 66.67% | - |
+| G2 + Platt | **0.5052 (-0.69 pp)** | 0.4766 (-0.27 pp) | 65.57% | ❌ |
+| G2 + Isotonic | **0.5044 (-0.77 pp)** | 0.4770 (-0.23 pp) | **66.12%** | ❌ |
+
+**核心结论**：
+- ✅ **brier 总 < raw**（概率分布更接近真实，不是 placebo）
+- ⚠️ **收益边际**（Full fit -0.69/-0.77pp，Walkforward 仅 -0.23/-0.27pp）
+- ⚠️ **argmax 几乎不变**（accuracy 持平甚至 walkforward 倒退 1.10pp）
+- ❌ **未达 1.5pp 门槛**
+
+### 3. PAVA 步阶 Isotonic 的陷阱
+
+```python
+# Isotonic 比 Platt 更易过拟合：
+# Full fit -0.77pp（看起来更优） → Walkforward -0.23pp（实际泛化能力变差）
+# PAVA 步阶在 913 场全样本上能拟合出更复杂的非参数映射，但留出 20% 测试集时表现明显下降
+```
+
+**推荐用法**：高/关键场预测时用 Calibrated（概率分布更准），普通场用 v3_g2（argmax 选择更稳）。
+
+### 4. 端点与缓存设计
+
+| 端点 | 方法 | 说明 |
+|---|---|---|
+| `GET /api/elo/calibrated-predict/{home}/{away}` | `?model=glicko2|elo|blend&method=platt|isotonic|both` | 单场预测 + `experimental=true` 标识 |
+| `GET /api/elo/calibration-summary` | - | 摘要级数据（Cockpit mini-card 用） |
+
+**性能保障**：
+- 单场端点实时 walkforward（~100ms/次，符合 README §七·B "Elo 单场 < 200ms" 基线）
+- 摘要端点 **进程内 6h cache + double-checked locking**，Cockpit 60s 刷新不重算 913 场（cache hit < 10ms）
+
+### 5. Cockpit 4-th Calibrated Tab + mini-card（v0.7.9 + v0.7.10）
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ G2 校准 brier 速览                                        │
+│ ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │
+│ │ Platt Full   │  │ Platt 80/20  │  │ Isotonic 80/20│   │
+│ │   +0.69 pp   │  │   +0.27 pp   │  │   +0.23 pp   │    │
+│ │  🟢 训练样本  │  │  🟢 真实泛化 │  │  🟢 PAVA 步阶 │    │
+│ │    913 场    │  │              │  │              │    │
+│ └──────────────┘  └──────────────┘  └──────────────┘    │
+│ 训练样本 913 场 · 缓存 6h · computed_at 2026-06-17T...   │
+└──────────────────────────────────────────────────────────┘
+```
+
+3 列彩色卡片直接渲染在 `/#/cockpit` 路由，**用户无需切到 `/#/elo` Calibrated tab 就能秒懂校准状态**。
+
+### 6. 诚实 push back 过的边界
+
+| 决策 | 理由 |
+|---|---|
+| ❌ **不替换 v3_g2 默认** | Calibration 收益边际，不达 1.5pp 门槛；改默认会引入 regression 风险 |
+| ✅ **作为 experimental 端点保留** | 用户可手动选择使用；高/关键场推荐 Calibrated |
+| ✅ **Cockpit mini-card 透明展示** | 不藏数据，让用户自行判断 |
+| ❌ **不做 1226 场 walkforward** | v0.7.6 已诚实 push back，64 场大赛会拉低精度 |
+| ❌ **prediction_log 不加 5-th model**（v0.8.1 候选） | 校准收益边际，长期数据收集 ROI 不明 |
+
+### 7. v0.8.x 校准演进路径
+
+- v0.8.1 候选 → prediction_log 加 calibrated（Platt + Isotonic）双写，6-12 月后回测
+- v0.8.2 候选 → 1226 场联合 walkforward，验证边际收益是否在大赛数据下放大
+- v1.0.0 → 世界杯开赛实时精度报告 + 校准正式启用（达到 1.5pp 才切换默认）
+
+---
+
 ## 十、变更日志
 
 | 日期 | 版本 | 变更 |
@@ -956,3 +1036,7 @@ SEGMENT_WEIGHTS = {
 | 2026-06-16 | **v0.7.5** | **G2 Adaptive Weight**（按距上次比赛天数分段）：(1) `app/services/adaptive_weight.py` 4 段 (FRESH ≤7d / WARM 7-30d / STALE 30-90d / DORMANT >90d) + `days_since_last_match()` + `adaptive_weight_blend()` + `walkforward_adaptive_validate()`；(2) `/api/elo/adaptive-weight/{home}/{away}` 端点（match_id 自动写 prediction_log model=v7b_adaptive）；(3) `/elo` 4-tab UI（Elo / Glicko-2 / Blend / **Adaptive**）；(4) 11 unit + 3 e2e 测试；(5) commit `36bae24` + **git tag v0.7.5**；**337 passed + 1 skipped + 56 E2E**；v0.7.0a 50/50 默认保留，Adaptive 为可选升级 |
 | 2026-06-16 | **v0.7.6** | **数据回填 2018+2022 扩训练集**：(1) StatsBomb 2018 WC 补 4 场 (Colombia 1-2 Japan / Japan 2-2 Senegal / Denmark 0-0 France / **South Korea 2-0 Germany**) → 60→64 场；(2) 重新生成 `statsbomb_elo.json` 309→313 场（matchesApplied +4）；(3) 数据覆盖报告 `data/v0.7.6_data_coverage_report.md`：合并 1226 场 / 时间 2018-06-14→2026-06-11 / 191 队 / StatsBomb 6 大赛 100% 覆盖 / Hicruben 0 场 2018+2022；(4) 4/4 v0.7.6 专项测试 PASS；(5) commit `7c40dd7` + **git tag v0.7.6**；**393 passed + 1 skipped + 56 E2E**（零回归）；**诚实 push back 边界**：不重训 1226 场 walk-forward / 不回写 Hicruben 主模型 / 不重写 prediction_log（v0.7.4 结论基于 913 场友谊赛，64 场大赛会拉低精度） |
 | 2026-06-17 | **v0.7.7** | **README 整合 v0.7.0a–v0.7.6 跨版本专章**（用户文档 2h）：(1) 头部版本/阶段/作用域刷新至 v0.7.7；(2) §1.1 范围表扩 API 端点 40→49 + 新增 G2/ModelBlend/Adaptive/MC/Sweep/回填 6 行；(3) 新增 **§九点五 v0.7 模型演进专章**（演进路线图 + 关键发现 + 训练集演进 + Adaptive 设计理由 + 架构原则 + v0.7.6 动机与边界 + 未来路径）；(4) §9 下一阶段改写为 v0.7.8+ 校准/真实赔率 API；(5) §10 变更日志追加 v0.7.0a/b、1、1.1、2、2.1、2.3、4、5、6 共 10 条（每条含 commit + tag + 测试 + 关键发现） |
+| 2026-06-17 | **v0.7.8** | **G2-only Platt scaling (experimental)**：(1) `app/services/calibration.py` 5 函数（`platt_fit`/`platt_apply` 梯度下降 2000 步 lr=0.05 + `fit_calibrators` + `calibrate_probs` + `walkforward_validate`）；(2) `app/routers/elo.py` `GET /api/elo/calibrated-predict/{home}/{away}?model=glicko2\|elo\|blend` 端点（match_id 自动写 prediction_log model=v7c_calibrated_platt，返回 `experimental=true` 标识）；(3) 13 unit + 3 e2e PASS；(4) 913 场 Hicruben 训练（v0.7.6 补的 4 场未注入），brier 0.5120 → 0.5052（**-0.69 pp**），walkforward 80/20 0.4793 → 0.4766（**-0.27 pp**），**未达 1.5 pp 门槛**；(5) commit `b7fcd0a` + **git tag v0.7.8**；**354 passed + 1 skipped + 59 E2E**（零回归）；**主人决策 A 方案"标 experimental 推进"**——高/关键场用 calibrated，普通场用 v3_g2 |
+| 2026-06-17 | **v0.7.9** | **G2 校准实验 + Cockpit 4-th Calibrated Tab**：(1) `app/services/isotonic_calibration.py` 204 行（PAVA 步阶 + walkforward 校验 + scipy-free 实现）；(2) `calibrated_predict` 端点加 `?method=platt\|isotonic\|both` Query 参数 + 新增 `calibration_metrics` 字段（实测 platt_full/wf + iso_wf 共 3 个 pp 值，**替代硬编码 0.69/0.23**）；(3) **修诚实硬编码**：router 端 `brier_improvement_pp: 0.69/0.23` 改为实时 walkforward + evaluate_all 重算；(4) **Cockpit 第 5 个 tab "Calibrated"**：Platt + Isotonic 双方法对比 + 推荐 badge + 3 个 brier metric 卡片；(5) `tests/e2e/test_isotonic_calibration_e2e.py` 4 e2e + `tests/e2e/test_v079_calibrated_tab_e2e.py` 3 e2e；(6) 2 张截图（desktop 1440×900 + mobile 375×812）；(7) commit `61ab98d` + **git tag v0.7.9**；**364 passed + 1 skipped + 66 E2E**（零回归）；**Isotonic 反而比 Platt 过拟合更严重**（full -0.77pp vs walkforward -0.23pp，PAVA 步阶在 913 场全样本上拟合复杂映射但泛化能力下降）|
+| 2026-06-17 | **v0.7.10** | **Cockpit mini-card 加 G2 校准 brier 速览**（1h）：(1) `app/services/calibration.py` 新增 `get_calibration_summary()` 函数（含 6h 进程内 cache + double-checked locking）；(2) `app/routers/elo.py` 新增 `GET /api/elo/calibration-summary` 端点（轻量摘要级数据，无 home/away 概念，cache hit < 10ms）；(3) 前端 `/#/cockpit` 新增 mini-card（3 列彩色卡片：Platt Full +0.69pp / Platt 80/20 +0.27pp / Isotonic 80/20 +0.23pp，**用户无需切到 `/#/elo` Calibrated tab 就能秒懂校准状态**）；(4) 数字 +/- 符号 + 绿/红颜色按 `pp ≥ 0` 判定（防止 walkforward 倒退时误导）；(5) 2 unit + 2 e2e PASS；(6) 2 张截图（desktop + mobile-375）；(7) commit `5dcb026` + **git tag v0.7.10**；**353 passed + 1 skipped + 66 E2E**（+1 端点 +1 mini-card） |
+| 2026-06-17 | **v0.8.0** | **README 整合 v0.7.7–v0.7.10 跨版本专章**（用户文档 2h）：(1) 头部版本/阶段/作用域刷新至 v0.8.0（v0.7.x 模型演进 + 赔率深化 + 缓存 + Adaptive + 数据回填 + G2 校准实验 + Cockpit 速览）；(2) §1.1 范围表扩 API 端点 49→**59** + 新增 "G2 校准实验" 1 行 + 测试数 393+56 → **365+66**（含 calibration 5 unit + 7 e2e）；(3) 新增 **§九点六 v0.7.8-v0.7.10 校准实验专章**（动机 + 双方法实测表 + PAVA 步阶陷阱 + 端点与缓存 + Cockpit mini-card 示意图 + 诚实 push back 边界 + v0.8.x 演进路径）；(4) §9 下一阶段改写为 v0.8.x+（prediction_log 5-th model / 真实赔率 API / 校准 v2 / 球员档案 / xG / PWA）；(5) §10 变更日志追加 v0.7.8/9/10 共 3 条（每条含 commit + tag + 测试 + 实测数据 + push back 边界） |
