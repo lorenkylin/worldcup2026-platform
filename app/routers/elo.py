@@ -416,6 +416,39 @@ def accuracy_stats(
     return compute_accuracy_stats(db, model_version=model_version, days=days)
 
 
+# === v0.11 Forward-Testing 真 forward 准确率 ===
+
+@router.get("/elo/live-accuracy")
+def live_accuracy(
+    is_live: Optional[bool] = Query(None, description="True=只看赛前实时预测 / False=backfill / None=全部"),
+    model_version: Optional[str] = Query(None, description="模型版本过滤"),
+    db: Session = Depends(get_db),
+) -> Dict:
+    """v0.11 Forward-Testing 端点: 真 forward 准确率 (赛前预测 + 已完赛).
+
+    关键区别 vs /elo/accuracy-stats:
+    - 该端点明确区分 backfill vs live (用 is_live 字段)
+    - 默认无参数: 返回 live+backfill 全部 + 状态
+    - is_live=true: 严格只算真 forward (lifespan startup + scheduler 6h 写)
+    - 返回 data_status: 'no_data' / 'live_only' / 'backfill_only' / 'mixed'
+    """
+    from app.services.prediction_log import compute_live_accuracy
+    return compute_live_accuracy(db, is_live=is_live, model_version=model_version)
+
+
+@router.get("/elo/live-window-accuracy")
+def live_window_accuracy(
+    days: int = Query(7, ge=1, le=90, description="近 N 天"),
+    db: Session = Depends(get_db),
+) -> Dict:
+    """v0.11 Forward-Testing mini-card: 近 N 天 live forward 准确率.
+
+    用于 Cockpit widget. 永远只算 is_live=True, 排除 backfill 干扰.
+    """
+    from app.services.prediction_log import compute_live_window_accuracy
+    return compute_live_window_accuracy(db, days=days)
+
+
 @router.get("/elo/top-bias")
 def top_bias(
     model_version: str = Query("v3_glicko2"),

@@ -337,6 +337,15 @@ class PredictionLog(Base):
     # 来源
     source = Column(String(20), default="hicruben")  # hicruben/statsbomb/glicko2
     settled_at = Column(DateTime, default=None)  # 结算时戳
+    # v0.11 Forward-Testing 字段
+    # is_live: True = 比赛开赛前由 scheduler/用户实时写入的预测
+    #         False (default) = backfill 历史回填 (scripts/backfill_prediction_log.py)
+    # 区分逻辑: 用 predicted_at vs match.kickoff_at, 预测在比赛前 = live
+    # 但 0.7.0b lifespan startup 也写预测, 比赛前 < 7 天也算 live
+    is_live = Column(Boolean, default=False, index=True)  # 区分 backfill vs live
+    # snapshot_id: 同一比赛同模型多次预测的快照组 (如赛前 7d/3d/1d 多次预测)
+    # 默认为 None, 表示该预测无快照组概念 (一次性写入)
+    snapshot_group = Column(String(40), default=None, index=True)  # 关联多次预测
 
     match = relationship("Match")
 

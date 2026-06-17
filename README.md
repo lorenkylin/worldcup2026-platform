@@ -1,10 +1,13 @@
 # 2026 FIFA World Cup 赛事分析平台 · 工程交付
 
-> ## 📡 **v0.10.0 — Observability 观测能力落地（数据新鲜度追踪，2026-06-17）**
+> ## 🎯 **v0.11.0 — Forward-Testing 真 forward 准确率（2026-06-17）**
+> 直面主人 3 个真问题之 #2 真实准确率. prediction_log 加 is_live 字段区分 backfill vs live,
+> `GET /api/elo/live-accuracy?is_live=true` + `GET /api/elo/live-window-accuracy?days=7` 两端点,
+> Cockpit "🎯 真 Forward 准确率" mini-card 一眼看出赛前的真预测 vs 完赛结果. **6/17 距开赛 17 天, 端点返回 backfill_only (历史 1829 场, G2 62.7% / Elo 56.7%)**.
+>
+> **📡 v0.10.0 — Observability 观测能力落地（数据新鲜度追踪，2026-06-17）**
 > 直面主人 3 个真问题之 #1 部署/可用性. scheduler 同步状态持久化 JSON, /health 暴露健康度,
 > Cockpit "📡 数据新鲜度" widget 一眼看出 worldcup26.ir 同步是否健康.
-> 6 天 19 tag, 459 测试零回归, 距世界杯开赛 17 天. 不再加新功能, 进入前向验证模式.
-> 详见 `deliverables/v0.9.0_stable.md` 收尾文档.
 
 > **文档版本**：v0.9.0（**STABLE 收尾** —— v0.8.1 校准实验 sunset + v0.8.0 README 整合 v0.7.7–v0.7.10，2026-06-17）
 > **阶段**：Phase 5 – Ship ✅ **完成**（v0.7.x 模型演进 + 赔率深化 + 缓存 + Adaptive Weight + 数据回填 + 校准实验 4 版 + Cockpit 速览 + **校准 sunset 决策**）

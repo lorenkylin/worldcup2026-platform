@@ -60,8 +60,14 @@ def record_prediction(
     elo_home: Optional[int] = None,
     elo_away: Optional[int] = None,
     source: str = "hicruben",
+    is_live: bool = False,
+    snapshot_group: Optional[str] = None,
 ) -> Optional[PredictionLog]:
     """记录一次预测到 log (dedup: 同 (match_id, model_version) 1 小时内不重复).
+
+    v0.11 Forward-Testing 字段:
+    - is_live: True=赛前实时预测 (lifespan/scheduler)/ False=backfill 历史回填
+    - snapshot_group: 同一比赛同模型多次预测的快照组 (e.g. 赛前 7d/3d/1d)
 
     Returns:
         新建的 PredictionLog, 或 None (已存在未结算的旧记录)
@@ -97,6 +103,8 @@ def record_prediction(
         elo_home=elo_home,
         elo_away=elo_away,
         source=source,
+        is_live=is_live,
+        snapshot_group=snapshot_group,
     )
     db.add(log)
     db.commit()
@@ -154,6 +162,208 @@ def settle_pending_predictions(db: Session) -> int:
     if settled_count > 0:
         db.commit()
     return settled_count
+
+
+def compute_live_accuracy(
+    db: Session,
+    is_live: Optional[bool] = None,
+    model_version: Optional[str] = None,
+) -> Dict:
+    """v0.11 Forward-Testing 核心: 计算真 forward 准确率.
+
+    与 compute_accuracy_stats() 的关键区别:
+    - 接受 is_live 参数: True 只看赛前实时预测 / False 只看 backfill / None 全部
+    - 真实 forward 准确率 = is_live=True + 已完赛比赛 的 accuracy
+
+    关键设计:
+    1. 真 forward 含义: 预测在比赛前 (scheduler 写) 且结果已知 (完赛)
+       - 自动满足: is_live=True + correct IS NOT NULL
+    2. 区分 backfill vs live: 用 is_live 字段
+    3. 返回每模型 + 整体 accuracy, brier, log_loss, sample size
+
+    Args:
+        db: Session
+        is_live: True/False 过滤 / None 全部
+        model_version: 指定模型 / None 全部
+
+    Returns:
+        {
+            "is_live_filter": bool | None,
+            "by_model": {
+                model_version: {
+                    "samples": int,
+                    "accuracy": float | None,
+                    "brier": float | None,
+                    "log_loss": float | None,
+                }
+            },
+            "overall": {
+                "samples": int,
+                "accuracy": float | None,
+                "brier": float | None,
+                "log_loss": float | None,
+            },
+            "data_status": "no_data" | "live_only" | "backfill_only" | "mixed",
+            "note": str,  # 给前端的人类可读提示
+        }
+    """
+    from sqlalchemy import func as sqlfunc
+
+    # 1. base query: 已完赛 (correct IS NOT NULL)
+    base = db.query(PredictionLog).filter(PredictionLog.correct.isnot(None))
+
+    # 2. is_live 过滤
+    if is_live is not None:
+        base = base.filter(PredictionLog.is_live == is_live)
+
+    # 3. model_version 过滤
+    if model_version is not None:
+        base = base.filter(PredictionLog.model_version == model_version)
+
+    rows = base.all()
+
+    if not rows:
+        return {
+            "is_live_filter": is_live,
+            "by_model": {},
+            "overall": {"samples": 0, "accuracy": None, "brier": None, "log_loss": None},
+            "data_status": "no_data",
+            "note": (
+                "无真 forward 数据。"
+                "原因是: scheduler 6h 跑 + lifespan startup 写预测 + wc26 sync 同步完赛结果."
+                "6 月 17 日距世界杯开赛 17 天, 所有比赛未完赛."
+                "开赛日 7 月 4 日后此端点会显示真 forward accuracy."
+            ),
+        }
+
+    # 4. 数据状态判断
+    n_live = sum(1 for r in rows if r.is_live)
+    n_backfill = len(rows) - n_live
+    if n_live == 0:
+        data_status = "backfill_only"
+    elif n_backfill == 0:
+        data_status = "live_only"
+    else:
+        data_status = "mixed"
+
+    # 5. 按模型分组
+    by_model: Dict[str, List[PredictionLog]] = {}
+    for r in rows:
+        by_model.setdefault(r.model_version, []).append(r)
+
+    def _aggregate(group: List[PredictionLog]) -> Dict:
+        if not group:
+            return {"samples": 0, "accuracy": None, "brier": None, "log_loss": None}
+        n = len(group)
+        n_correct = sum(r.correct for r in group if r.correct is not None)
+        briers = [r.brier_score for r in group if r.brier_score is not None]
+        log_losses = [r.log_loss for r in group if r.log_loss is not None]
+        return {
+            "samples": n,
+            "accuracy": round(n_correct / n, 4) if n > 0 else None,
+            "brier": round(sum(briers) / len(briers), 4) if briers else None,
+            "log_loss": round(sum(log_losses) / len(log_losses), 4) if log_losses else None,
+        }
+
+    by_model_stats = {m: _aggregate(g) for m, g in by_model.items()}
+
+    # 6. 整体
+    overall = _aggregate(rows)
+
+    # 7. 注释
+    if is_live is True:
+        note = (
+            f"真 forward 准确率 (is_live=True, 赛前实时预测): "
+            f"{overall['samples']} 场已完赛预测."
+        )
+    elif is_live is False:
+        note = (
+            f"Backfill 准确率 (is_live=False, 历史回填): "
+            f"{overall['samples']} 场."
+        )
+    else:
+        note = f"全部 (backfill + live): {overall['samples']} 场."
+
+    return {
+        "is_live_filter": is_live,
+        "by_model": by_model_stats,
+        "overall": overall,
+        "data_status": data_status,
+        "note": note,
+    }
+
+
+def compute_live_window_accuracy(
+    db: Session,
+    days: int = 7,
+) -> Dict:
+    """v0.11 Forward-Testing: 计算近 N 天 live forward 准确率.
+
+    用于 Cockpit mini-card, 避免历史 backfill 干扰.
+
+    Args:
+        db: Session
+        days: 近 N 天 (默认 7)
+
+    Returns:
+        {
+            "days": int,
+            "window_start": ISO8601,
+            "window_end": ISO8601,
+            "by_model": {model: {samples, accuracy, brier, log_loss}},
+            "overall": {samples, accuracy, brier, log_loss},
+            "note": str,
+        }
+    """
+    from datetime import timedelta
+
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(days=days)
+
+    base = (
+        db.query(PredictionLog)
+        .filter(PredictionLog.correct.isnot(None))
+        .filter(PredictionLog.is_live == True)  # noqa: E712 - SQLAlchemy 字段
+        .filter(PredictionLog.predicted_at >= window_start)
+    )
+    rows = base.all()
+
+    if not rows:
+        return {
+            "days": days,
+            "window_start": window_start.isoformat(),
+            "window_end": now.isoformat(),
+            "by_model": {},
+            "overall": {"samples": 0, "accuracy": None, "brier": None, "log_loss": None},
+            "note": (
+                f"近 {days} 天无 live forward 数据 (比赛未开赛或 scheduler 未跑)."
+            ),
+        }
+
+    by_model: Dict[str, List[PredictionLog]] = {}
+    for r in rows:
+        by_model.setdefault(r.model_version, []).append(r)
+
+    def _agg(group: List[PredictionLog]) -> Dict:
+        n = len(group)
+        n_correct = sum(r.correct for r in group if r.correct is not None)
+        briers = [r.brier_score for r in group if r.brier_score is not None]
+        log_losses = [r.log_loss for r in group if r.log_loss is not None]
+        return {
+            "samples": n,
+            "accuracy": round(n_correct / n, 4) if n > 0 else None,
+            "brier": round(sum(briers) / len(briers), 4) if briers else None,
+            "log_loss": round(sum(log_losses) / len(log_losses), 4) if log_losses else None,
+        }
+
+    return {
+        "days": days,
+        "window_start": window_start.isoformat(),
+        "window_end": now.isoformat(),
+        "by_model": {m: _agg(g) for m, g in by_model.items()},
+        "overall": _agg(rows),
+        "note": f"近 {days} 天 live forward, {len(rows)} 场已完赛预测.",
+    }
 
 
 def compute_accuracy_stats(
@@ -460,6 +670,7 @@ def auto_log_predictions(
                     elo_home=pred.get("elo_home"),
                     elo_away=pred.get("elo_away"),
                     source="hicruben",
+                    is_live=True,  # v0.11: lifespan/scheduler 自动写 = 实时预测
                 )
                 if log is not None:
                     added += 1

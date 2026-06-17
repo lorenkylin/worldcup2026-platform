@@ -1773,9 +1773,9 @@ async function renderCockpit() {
   app.classList.remove('max-w-2xl');
   app.classList.add('max-w-none', 'px-4');
 
-  let today, allMatches, groups, teams, accuracy, weightSweep, syncStatus;  // v0.10: 新增 syncStatus
+  let today, allMatches, groups, teams, accuracy, weightSweep, syncStatus, liveWindow, liveAll;  // v0.10/0.11
   try {
-    [today, allMatches, groups, teams, accuracy, weightSweep, syncStatus] = await Promise.all([
+    [today, allMatches, groups, teams, accuracy, weightSweep, syncStatus, liveWindow, liveAll] = await Promise.all([
       apiWithRetry('/matches/today'),
       apiWithRetry('/matches?limit=200'),
       apiWithRetry('/groups'),
@@ -1784,6 +1784,9 @@ async function renderCockpit() {
       apiWithRetry('/elo/weight-sweep').catch(() => null),
       // v0.10: 数据新鲜度 (公开端点,无 auth)
       apiWithRetry('/health/sync-status').catch(() => null),
+      // v0.11: 真 forward 准确率 mini-card
+      apiWithRetry('/elo/live-window-accuracy?days=7').catch(() => null),
+      apiWithRetry('/elo/live-accuracy?is_live=true').catch(() => null),
     ]);
   } catch (err) {
     app.classList.add('max-w-2xl');
@@ -1919,6 +1922,9 @@ async function renderCockpit() {
 
     <!-- v0.10 数据新鲜度 widget (主人知道 worldcup26.ir 是否还在正常同步) -->
     ${syncStatus ? renderFreshnessCard(syncStatus) : ''}
+
+    <!-- v0.11 真 forward 准确率 mini-card (与历史回填区分) -->
+    ${renderLiveAccuracyCard(liveWindow, liveAll)}
 
     <!-- 模型准确率 mini-card: 3 模型横评 -->
     ${accuracy && accuracy.n_settled > 0 ? `
@@ -2772,6 +2778,62 @@ function renderFreshnessCard(s) {
         <div class="mt-3 text-xs text-slate-500">
           阈值: 新鲜 &lt; 30 分钟 / 陈旧 30-60 分钟 / 严重 &gt; 60 分钟 · 端点 <code class="text-slate-400">GET /api/health/sync-status</code>
         </div>
+      </div>
+    </section>
+  `;
+}
+
+// v0.11: 真 forward 准确率 mini-card (Cockpit 顶部醒目位置)
+function renderLiveAccuracyCard(liveWindow, liveAll) {
+  if (!liveWindow && !liveAll) return '';
+  const w = liveWindow || {};
+  const a = liveAll || {};
+  const samples = (w.overall && w.overall.samples) || (a.overall && a.overall.samples) || 0;
+  const acc = (w.overall && w.overall.accuracy);
+  const brier = (w.overall && w.overall.brier);
+  const status = a.data_status || 'no_data';
+  const days = w.days || 7;
+  // 状态颜色
+  const accColor = !acc ? 'text-slate-500' : acc >= 0.6 ? 'text-emerald-400' : acc >= 0.5 ? 'text-amber-400' : 'text-rose-400';
+  const statusBadge = {
+    'no_data':       '<span class="text-slate-400">⏳ 等待开赛</span>',
+    'live_only':     '<span class="text-emerald-400">✅ 真 forward</span>',
+    'backfill_only': '<span class="text-amber-400">⚠️ 仅 backfill</span>',
+    'mixed':         '<span class="text-cyan-400">📊 混合</span>',
+  }[status] || '<span class="text-slate-500">—</span>';
+
+  return `
+    <section class="cockpit-section mb-4">
+      <h2 class="cockpit-section-title">🎯 真 Forward 准确率 (v0.11) ${statusBadge}</h2>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <!-- 整体 -->
+        <div class="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+          <div class="text-xs text-slate-400 mb-1">近 ${days} 天 (live only)</div>
+          <div class="text-3xl font-bold ${accColor}">
+            ${acc == null ? '—' : (acc * 100).toFixed(1) + '%'}
+          </div>
+          <div class="text-xs text-slate-500 mt-1">${samples} 场已完赛预测</div>
+        </div>
+        <!-- brier -->
+        <div class="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+          <div class="text-xs text-slate-400 mb-1">Brier Score ↓</div>
+          <div class="text-3xl font-bold text-cyan-300">
+            ${brier == null ? '—' : brier.toFixed(4)}
+          </div>
+          <div class="text-xs text-slate-500 mt-1">越低越准</div>
+        </div>
+        <!-- 数据状态 -->
+        <div class="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+          <div class="text-xs text-slate-400 mb-1">数据状态</div>
+          <div class="text-base font-semibold text-slate-200">${statusBadge}</div>
+          <div class="text-xs text-slate-500 mt-1">
+            ${status === 'no_data' ? '距开赛 17 天' : 'live/backfill ' + (a.by_model ? Object.keys(a.by_model).length : 0) + ' 模型'}
+          </div>
+        </div>
+      </div>
+      <div class="text-xs text-slate-500 mt-3">
+        💡 真 forward = lifespan startup / scheduler 6h 实时写入的预测.
+        端点: <code class="text-slate-400">GET /api/elo/live-window-accuracy?days=${days}</code> · <code class="text-slate-400">/api/elo/live-accuracy?is_live=true</code>
       </div>
     </section>
   `;
