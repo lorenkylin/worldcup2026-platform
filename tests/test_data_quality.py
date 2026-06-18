@@ -96,13 +96,21 @@ class TestSourcePriority:
         updated_at = data_quality.now_utc() - timedelta(hours=1)
         assert data_quality.can_overwrite("api-football", "worldcup26.ir", updated_at) is False
 
-    def test_worldcup26_can_overwrite_stale_api_football(self):
+    def test_worldcup26_cannot_overwrite_stale_api_football(self):
+        # v0.14.3: 低优先级源不再因过期而覆盖高优先级静态数据
         updated_at = data_quality.now_utc() - timedelta(hours=7)
-        assert data_quality.can_overwrite("api-football", "worldcup26.ir", updated_at) is True
+        assert data_quality.can_overwrite("api-football", "worldcup26.ir", updated_at) is False
 
     def test_manual_cannot_be_overwritten(self):
         assert data_quality.can_overwrite("manual", "api-football") is False
         assert data_quality.can_overwrite("manual", "worldcup26.ir") is False
+
+    def test_fixtures_cannot_be_overwritten_by_worldcup26(self):
+        assert data_quality.can_overwrite("fixtures", "worldcup26.ir") is False
+
+    def test_api_football_can_overwrite_fixtures(self):
+        # api-football 与 fixtures 同优先级 2，允许覆盖取最新
+        assert data_quality.can_overwrite("fixtures", "api-football") is True
 
     def test_same_source_can_overwrite(self):
         assert data_quality.can_overwrite("api-football", "api-football") is True

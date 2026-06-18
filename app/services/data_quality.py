@@ -28,8 +28,9 @@ class DataQualityError(Exception):
 
 # 数据源优先级：数字越大越权威，低优先级源不应覆盖高优先级源
 SOURCE_PRIORITY = {
-    "manual": 3,
-    "api-football": 2,
+    "manual": 4,
+    "api-football": 3,   # 官方实时 API
+    "fixtures": 2,       # 官方赛程 fixtures_raw.json，作为开球时间权威源
     "worldcup26.ir": 1,
 }
 
@@ -41,25 +42,22 @@ def can_overwrite(
     stale_threshold_seconds: float = 6 * 3600,
     now: Optional[datetime] = None,
 ) -> bool:
-    """判断 candidate_source 是否可以覆盖 existing_source 的数据.
+    """判断 candidate_source 是否可以覆盖 existing_source 的权威数据.
 
     规则：
     1. 同优先级允许覆盖（取最新）。
     2. 手动录入（manual）永远不被自动源覆盖。
-    3. 其他高优先级数据默认 6h 内不被低优先级覆盖；超过 6h 视为过期，允许兜底源刷新。
+    3. 低优先级源永远不允许覆盖高优先级源（避免 worldcup26.ir 覆盖 fixtures 赛程）。
+       比分/状态等可变字段由调用方单独处理，不通过本函数放行。
     4. 无数据源记录视为可覆盖。
     """
     if existing_source == "manual":
         return False
     existing_rank = SOURCE_PRIORITY.get(existing_source, 0)
     candidate_rank = SOURCE_PRIORITY.get(candidate_source, 0)
-    if candidate_rank >= existing_rank:
-        return True
-    if existing_updated_at is None:
-        return True
-    now = now or now_utc()
-    age = (now - as_utc(existing_updated_at)).total_seconds()
-    return age > stale_threshold_seconds
+    # v0.14.3: 低优先级源不允许覆盖高优先级源，避免 worldcup26.ir 覆盖 fixtures 权威赛程。
+    # 比分/状态等动态字段由调用方单独放行。无数据源（existing_source=None）视为可覆盖。
+    return candidate_rank >= existing_rank
 
 
 def parse_iso_timestamp(value: object) -> Optional[datetime]:

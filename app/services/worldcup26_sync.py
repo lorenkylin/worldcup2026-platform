@@ -418,43 +418,44 @@ def sync_matches(db: Session) -> int:
             continue
 
         match = db.query(Match).filter(Match.match_number == match_num).first()
+        is_new = False
         if not match:
             match = Match(match_number=match_num)
             db.add(match)
+            is_new = True
 
-        # 数据源优先级保护：manual 永不覆盖；api-football 在 6h 内不覆盖
-        if not data_quality.can_overwrite(
+        # 数据源优先级保护：manual/fixtures 等静态数据不被 worldcup26.ir 覆盖，
+        # 但比分/状态仍允许实时刷新。
+        allow_full = data_quality.can_overwrite(
             match.data_source, "worldcup26.ir", match.last_updated_at
-        ):
-            continue
+        ) or is_new
 
-        # 球队 ID 映射：用 fifa_code 联表（wc26 的 team_id 跟我们的 teams.id 不一致）
+        # 球队/球场映射（仅在允许全量覆盖或新建时写入）
         home_team_id = _to_int_or_none(g.get("home_team_id"))
         away_team_id = _to_int_or_none(g.get("away_team_id"))
-        if home_team_id:
-            home_fifa = wc26_id_to_fifa.get(home_team_id)
-            if home_fifa:
-                home = db.query(Team).filter(Team.fifa_code == home_fifa).first()
-                if home:
-                    match.home_team_id = home.id
-                    match.home_team_placeholder = ""
-        if away_team_id:
-            away_fifa = wc26_id_to_fifa.get(away_team_id)
-            if away_fifa:
-                away = db.query(Team).filter(Team.fifa_code == away_fifa).first()
-                if away:
-                    match.away_team_id = away.id
-                    match.away_team_placeholder = ""
-
-        # 球场（用 name_en 联表，wc26 stadium_id 跟我们的 Stadium.id 不一致）
         stadium_wc26_id = _to_int_or_none(g.get("stadium_id"))
         stadium = None
-        if stadium_wc26_id:
-            stadium_name = wc26_id_to_stadium_name.get(stadium_wc26_id)
-            if stadium_name:
-                stadium = db.query(Stadium).filter(Stadium.name_en == stadium_name).first()
-                if stadium:
-                    match.stadium_id = stadium.id
+        if allow_full:
+            if home_team_id:
+                home_fifa = wc26_id_to_fifa.get(home_team_id)
+                if home_fifa:
+                    home = db.query(Team).filter(Team.fifa_code == home_fifa).first()
+                    if home:
+                        match.home_team_id = home.id
+                        match.home_team_placeholder = ""
+            if away_team_id:
+                away_fifa = wc26_id_to_fifa.get(away_team_id)
+                if away_fifa:
+                    away = db.query(Team).filter(Team.fifa_code == away_fifa).first()
+                    if away:
+                        match.away_team_id = away.id
+                        match.away_team_placeholder = ""
+            if stadium_wc26_id:
+                stadium_name = wc26_id_to_stadium_name.get(stadium_wc26_id)
+                if stadium_name:
+                    stadium = db.query(Stadium).filter(Stadium.name_en == stadium_name).first()
+                    if stadium:
+                        match.stadium_id = stadium.id
 
         # 状态机保护
         is_finished = _to_bool(g.get("finished"))
@@ -468,33 +469,42 @@ def sync_matches(db: Session) -> int:
         if not data_quality.is_status_transition_allowed(match.status, new_status):
             continue
 
-        # 比分
+        # 比分（始终允许 worldcup26.ir 刷新）
         home_score = _to_int_or_none(g.get("home_score"))
         away_score = _to_int_or_none(g.get("away_score"))
-        if home_score is not None:
+        score_changed = False
+        if home_score is not None and match.home_score != home_score:
             match.home_score = home_score
-        if away_score is not None:
+            score_changed = True
+        if away_score is not None and match.away_score != away_score:
             match.away_score = away_score
+            score_changed = True
+        status_changed = match.status != new_status
+        if status_changed:
+            match.status = new_status
+            match.time_elapsed = time_elapsed or match.time_elapsed or ""
 
-        match.status = new_status
-        match.time_elapsed = time_elapsed or match.time_elapsed or ""
+        if allow_full:
+            # 阶段与轮次
+            match.stage = "小组赛" if g.get("type") == "group" else "淘汰赛"
+            match.group_name = g.get("group", match.group_name) or match.group_name
+            match.round_number = _to_int_or_none(g.get("matchday")) or match.round_number or 1
 
-        # 阶段与轮次
-        match.stage = "小组赛" if g.get("type") == "group" else "淘汰赛"
-        match.group_name = g.get("group", match.group_name) or match.group_name
-        match.round_number = _to_int_or_none(g.get("matchday")) or match.round_number or 1
+            # 开球时间：按球场本地时区解析后转 UTC 存储，并校验合理窗口
+            stadium_tz = stadium.timezone if stadium else "UTC"
+            kickoff = _parse_local_date(g.get("local_date", ""), stadium_tz)
+            if kickoff and data_quality.validate_kickoff_window(
+                kickoff.replace(tzinfo=timezone.utc), context=f"match {match_num}"
+            ):
+                match.kickoff_at = kickoff
 
-        # 开球时间：按球场本地时区解析后转 UTC 存储，并校验合理窗口
-        stadium_tz = stadium.timezone if stadium else "UTC"
-        kickoff = _parse_local_date(g.get("local_date", ""), stadium_tz)
-        if kickoff and data_quality.validate_kickoff_window(
-            kickoff.replace(tzinfo=timezone.utc), context=f"match {match_num}"
-        ):
-            match.kickoff_at = kickoff
-
-        match.data_source = "worldcup26.ir"
-        match.last_updated_at = now
-        count += 1
+            match.data_source = "worldcup26.ir"
+            match.last_updated_at = now
+            count += 1
+        elif score_changed or status_changed:
+            # 仅刷新比分/状态，不改变赛程权威源
+            match.last_updated_at = now
+            count += 1
 
     db.commit()
 
