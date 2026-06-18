@@ -9,7 +9,7 @@
 import json
 import re
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -360,6 +360,94 @@ def sync_stadiums(db: Session) -> int:
         count += 1
     db.commit()
     return count
+
+
+def extract_match_candidates(
+    g: dict,
+    wc26_id_to_fifa: Dict[int, str],
+    wc26_id_to_stadium_name: Dict[int, str],
+    db: Session,
+) -> List["FieldCandidate"]:
+    """从 worldcup26.ir 单条 game 提取字段候选值（v0.14.4 供字段仲裁器使用）."""
+    from app.services.field_arbiter import FieldCandidate
+
+    match_num = _to_int_or_none(g.get("id"))
+    if match_num is None:
+        return []
+
+    candidates: List[FieldCandidate] = []
+    now = data_quality.now_utc()
+
+    # 球队
+    home_team_id = _to_int_or_none(g.get("home_team_id"))
+    away_team_id = _to_int_or_none(g.get("away_team_id"))
+    if home_team_id:
+        home_fifa = wc26_id_to_fifa.get(home_team_id)
+        if home_fifa:
+            home = db.query(Team).filter(Team.fifa_code == home_fifa).first()
+            if home:
+                candidates.append(FieldCandidate("home_team_id", home.id, "worldcup26.ir", now))
+    if away_team_id:
+        away_fifa = wc26_id_to_fifa.get(away_team_id)
+        if away_fifa:
+            away = db.query(Team).filter(Team.fifa_code == away_fifa).first()
+            if away:
+                candidates.append(FieldCandidate("away_team_id", away.id, "worldcup26.ir", now))
+
+    # 球场
+    stadium_wc26_id = _to_int_or_none(g.get("stadium_id"))
+    if stadium_wc26_id:
+        stadium_name = wc26_id_to_stadium_name.get(stadium_wc26_id)
+        if stadium_name:
+            stadium = db.query(Stadium).filter(Stadium.name_en == stadium_name).first()
+            if stadium:
+                candidates.append(FieldCandidate("stadium_id", stadium.id, "worldcup26.ir", now))
+
+    # 状态
+    is_finished = _to_bool(g.get("finished"))
+    time_elapsed = g.get("time_elapsed", "")
+    if is_finished:
+        new_status = "finished"
+    elif time_elapsed and time_elapsed not in ("", "scheduled", "notstarted"):
+        new_status = "live"
+    else:
+        new_status = "scheduled"
+    candidates.append(FieldCandidate("status", new_status, "worldcup26.ir", now))
+    if time_elapsed:
+        candidates.append(FieldCandidate("time_elapsed", str(time_elapsed), "worldcup26.ir", now))
+
+    # 比分
+    home_score = _to_int_or_none(g.get("home_score"))
+    away_score = _to_int_or_none(g.get("away_score"))
+    if home_score is not None:
+        candidates.append(FieldCandidate("home_score", home_score, "worldcup26.ir", now))
+    if away_score is not None:
+        candidates.append(FieldCandidate("away_score", away_score, "worldcup26.ir", now))
+
+    # 阶段/小组/轮次
+    stage = "小组赛" if g.get("type") == "group" else "淘汰赛"
+    candidates.append(FieldCandidate("stage", stage, "worldcup26.ir", now))
+    group_name = g.get("group")
+    if group_name:
+        candidates.append(FieldCandidate("group_name", str(group_name).upper(), "worldcup26.ir", now))
+    round_number = _to_int_or_none(g.get("matchday"))
+    if round_number is not None:
+        candidates.append(FieldCandidate("round_number", round_number, "worldcup26.ir", now))
+
+    # 开球时间
+    # 需要 stadium timezone，先按 stadium_name 查找
+    stadium_tz = "UTC"
+    if stadium_wc26_id:
+        stadium_name = wc26_id_to_stadium_name.get(stadium_wc26_id)
+        if stadium_name:
+            stadium = db.query(Stadium).filter(Stadium.name_en == stadium_name).first()
+            if stadium:
+                stadium_tz = stadium.timezone or "UTC"
+    kickoff = _parse_local_date(g.get("local_date", ""), stadium_tz)
+    if kickoff:
+        candidates.append(FieldCandidate("kickoff_at", kickoff, "worldcup26.ir", now))
+
+    return candidates
 
 
 def sync_matches(db: Session) -> int:

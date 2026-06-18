@@ -20,6 +20,7 @@ from app.services.multi_source_sync import live_sync as multi_source_live_sync
 from app.services.h2h_backfill import backfill_h2h_history
 from app.services.recent_form import compute_and_persist_recent_form
 from app.services.stadium_geo import fill_stadium_coordinates
+from app.services.multi_source_arbitration import preview_arbitration
 
 
 router = APIRouter()
@@ -208,6 +209,25 @@ def run_backtest_endpoint(
             },
             "predictions_sample": report.predictions[:10],
         }
+
+
+@router.get("/arbitration")
+def sync_arbitration_preview(
+    _: None = Depends(verify_admin_token),
+) -> dict:
+    """多源字段级仲裁预览（只读，不写库）.
+
+    同时拉取 API-Football 与 worldcup26.ir 的原始数据，
+    按字段置信度做仲裁，返回每场比赛的字段决策与冲突情况。
+    """
+    db = SessionLocal()
+    try:
+        result = preview_arbitration(db)
+        return {"ok": True, "previewed_at": datetime.now(timezone.utc).isoformat(), "summary": result}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"仲裁预览失败：{str(exc)[:500]}")
+    finally:
+        db.close()
 
 
 @router.get("/status")

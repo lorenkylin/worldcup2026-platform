@@ -3,14 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <meta name="theme-color" content="#0f172a">
+  <meta name="theme-color" content="#030712">
   <meta name="description" content="2026 美加墨世界杯赛事分析与 AI 预测">
   <link rel="manifest" href="/static/manifest.json">
   <link rel="icon" href="/static/icons/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
   <title>2026 世界杯赛事分析</title>
   <script src="https://cdn.tailwindcss.com" onerror="this.src='/static/vendor/tailwindcss.js'"></script>
-  <link rel="stylesheet" href="/static/css/styles.css?v=0.14.3">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <style>
+    /* 首屏关键 CSS：避免字体加载前闪烁 */
+    html, body { background: #030712; }
+    body { font-family: "Inter", "Noto Sans SC", system-ui, sans-serif; }
+  </style>
+  <link rel="stylesheet" href="/static/css/styles.css?v=0.15.0">
   <!-- v0.5.1: Chart.js 用于赔率走势图; CDN 失败时回退到本地 vendor -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" onerror="this.src='/static/vendor/chart.umd.min.js'"></script>
 </head>
@@ -19,21 +27,24 @@
   <header class="sticky top-0 z-50 bg-slate-950/95 backdrop-blur border-b border-slate-800">
     <div class="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
       <div class="flex items-center gap-2">
-        <button onclick="toggleDrawer()" aria-label="菜单" class="lg:hidden -ml-1 p-2 rounded hover:bg-slate-800 text-slate-400 hover:text-emerald-400 transition">
+        <button onclick="toggleDrawer()" aria-label="菜单" class="lg:hidden -ml-1 p-2 rounded-xl hover:bg-slate-800/80 text-slate-400 hover:text-emerald-400 transition">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
         </button>
-        <a href="#/" class="flex items-center gap-2">
-          <span class="text-2xl">⚽</span>
-          <span class="font-bold text-emerald-400">2026 WC 分析</span>
+        <a href="#/" class="flex items-center gap-2 group">
+          <span class="text-2xl group-hover:scale-110 transition-transform">⚽</span>
+          <span class="font-extrabold text-gradient text-base tracking-tight">2026 WC 分析</span>
         </a>
       </div>
-      <div class="text-xs text-slate-500" id="data-status">数据加载中…</div>
+      <div class="text-xs" id="data-status">数据加载中…</div>
     </div>
   </header>
 
   <!-- 主内容 -->
   <main id="app" class="max-w-2xl mx-auto px-4 pt-4 pb-24">
-    <div class="text-center py-20 text-slate-400">加载中...</div>
+    <div class="flex flex-col items-center justify-center py-20 text-slate-400">
+      <div class="w-10 h-10 border-2 border-slate-700 border-t-emerald-400 rounded-full animate-spin mb-4" style="animation-duration:0.8s"></div>
+      <div class="text-sm">加载中...</div>
+    </div>
   </main>
 
   <!-- A11: 抽屉遮罩 -->
@@ -42,11 +53,11 @@
   <!-- A11: 侧滑抽屉 -->
   <aside id="drawer" class="drawer">
     <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
-      <span class="font-bold text-emerald-400 flex items-center gap-2"><span class="text-xl">⚽</span>2026 WC 分析</span>
-      <button onclick="toggleDrawer()" class="text-slate-400 hover:text-white text-xl p-1 rounded hover:bg-slate-800">✕</button>
+      <span class="font-extrabold text-gradient text-lg flex items-center gap-2"><span class="text-xl">⚽</span>2026 WC 分析</span>
+      <button onclick="toggleDrawer()" class="text-slate-400 hover:text-white hover:bg-slate-800/80 text-xl p-2 rounded-xl transition">✕</button>
     </div>
     <nav class="py-2">
-      <div class="px-5 pt-2 pb-1 text-xs text-slate-500 uppercase tracking-wider">主页面</div>
+      <div class="px-5 pt-3 pb-2 text-[11px] font-bold text-slate-500 uppercase tracking-widest">主页面</div>
       <a href="#/" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">🏠</span><span>首页</span></a>
       <a href="#/bracket" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">🏆</span><span>晋级路线图</span><span class="ml-auto text-xs text-amber-400">NEW</span></a>
       <a href="#/schedule" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">📅</span><span>赛程</span></a>
@@ -58,18 +69,21 @@
       <a href="#/odds" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">💰</span><span>赔率分析</span><span class="ml-auto text-xs text-amber-400">M3</span></a>
       <a href="#/accuracy" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">📊</span><span>准确率 Dashboard</span><span class="ml-auto text-xs text-emerald-400">v0.6</span></a>
       <a href="#/health" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">🔌</span><span>数据源健康</span><span class="ml-auto text-xs text-emerald-400">v0.6</span></a>
-      <div class="px-5 pt-4 pb-1 text-xs text-slate-500 uppercase tracking-wider">其他</div>
+      <div class="px-5 pt-4 pb-2 text-[11px] font-bold text-slate-500 uppercase tracking-widest">其他</div>
       <a href="#" onclick="showAbout();return false;" class="drawer-item"><span class="text-lg">ℹ️</span><span>关于本站</span></a>
       <a href="#" onclick="showDataSource();return false;" class="drawer-item"><span class="text-lg">📡</span><span>数据来源</span></a>
     </nav>
-    <div class="px-5 py-3 mt-auto border-t border-slate-800 text-xs text-slate-500">
-      数据更新于 <span id="drawer-update-time">--</span>
+    <div class="px-5 py-4 mt-auto border-t border-slate-800 text-xs text-slate-500 bg-slate-950/40">
+      <div class="flex items-center justify-between">
+        <span>数据更新于</span>
+        <span id="drawer-update-time" class="font-mono text-slate-400">--</span>
+      </div>
     </div>
   </aside>
 
-  <!-- 底部 Tab（B1 重新设计：5 按钮 64px 高） -->
-  <nav class="fixed bottom-0 left-0 right-0 z-50 bg-slate-950/95 backdrop-blur border-t border-slate-800">
-    <div class="max-w-2xl mx-auto grid grid-cols-5 tab-bar">
+  <!-- 底部 Tab（v0.15.0 悬浮胶囊风格） -->
+  <nav class="fixed bottom-0 left-0 right-0 z-50 px-4 pb-3 pointer-events-none">
+    <div class="max-w-2xl mx-auto grid grid-cols-5 tab-bar pointer-events-auto">
       <a href="#/" class="tab-item active"><span class="tab-icon">🏠</span><span class="tab-label">首页</span></a>
       <a href="#/bracket" class="tab-item"><span class="tab-icon">🏆</span><span class="tab-label">路线</span></a>
       <a href="#/schedule" class="tab-item"><span class="tab-icon">📅</span><span class="tab-label">赛程</span></a>
@@ -78,7 +92,7 @@
     </div>
   </nav>
 
-  <script src="/static/js/app.js?v=0.14.3"></script>
+  <script src="/static/js/app.js?v=0.15.0"></script>
   <script>
     // 标记数据状态
     fetch('/api/matches/today').then(r => r.ok ? r.json().then(d => {
@@ -87,11 +101,16 @@
       document.getElementById('data-status').textContent = '数据源离线';
     });
 
-    // Tab 激活态
+    // Tab 激活态 + 切换微动画
     function updateActiveTab() {
       const hash = location.hash || '#/';
       document.querySelectorAll('.tab-item').forEach(el => {
-        el.classList.toggle('active', el.getAttribute('href') === hash);
+        const active = el.getAttribute('href') === hash;
+        el.classList.toggle('active', active);
+        if (active) {
+          el.style.transform = 'translateY(-2px)';
+          setTimeout(() => el.style.transform = '', 180);
+        }
       });
     }
     window.addEventListener('hashchange', updateActiveTab);

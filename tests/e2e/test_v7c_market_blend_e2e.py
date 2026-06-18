@@ -51,7 +51,7 @@ def test_market_blend_endpoint_returns_market_component(page, base_url):
 
 def test_market_blend_writes_prediction_log(page, base_url):
     """带 match_id 时自动写 prediction_log."""
-    test_mid = 88890
+    test_mid = 27  # 使用已存在的 scheduled 比赛 ID (v0.15.0 修正)
     conn = sqlite3.connect(str(DB_PATH))
     try:
         cur = conn.cursor()

@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -22,6 +22,9 @@ from app.services.api_football import (
     fifa_code_from_team_name,
     normalize_team_name,
 )
+
+# v0.14.4: 字段仲裁器候选值类型（延迟导入避免循环）
+FieldCandidate = Any
 
 # API-Football 短状态 → 本地 status
 STATUS_SCHEDULED = {"NS", "TBD", "CANC", "POST", "SUSP", "INT", "ABD"}
@@ -129,6 +132,89 @@ def sync_teams(db: Session, client: Optional[ApiFootballClient] = None) -> Dict:
             skipped += 1
     db.commit()
     return {"updated": updated, "skipped": skipped, "source": "api-football"}
+
+
+def extract_match_candidates_from_fixture(
+    item: Dict[str, Any],
+    mapping: Dict[str, Team],
+    db: Session,
+) -> Tuple[Optional[int], List["FieldCandidate"]]:
+    """从 API-Football 单条 fixture 提取字段候选值（v0.14.4 供字段仲裁器使用）.
+
+    Returns:
+        (match_id, candidates) 若无法匹配本地比赛则 match_id 为 None.
+    """
+    from app.services.field_arbiter import FieldCandidate
+
+    fixture = item.get("fixture") or {}
+    teams = item.get("teams") or {}
+    goals = item.get("goals") or {}
+
+    fixture_id = fixture.get("id")
+    if not fixture_id:
+        return None, []
+
+    home_team_dict = teams.get("home") or {}
+    away_team_dict = teams.get("away") or {}
+    home_code = _fifa_code_for_team(home_team_dict, mapping)
+    away_code = _fifa_code_for_team(away_team_dict, mapping)
+    if not home_code or not away_code:
+        return None, []
+
+    fixture_dt = _parse_fixture_date(fixture.get("date"))
+    if not fixture_dt:
+        return None, []
+    fixture_date = fixture_dt.date()
+
+    match = (
+        db.query(Match)
+        .join(Team, Match.home_team_id == Team.id)
+        .filter(
+            Team.fifa_code == home_code,
+            Match.kickoff_at >= datetime.combine(fixture_date, datetime.min.time()),
+            Match.kickoff_at < datetime.combine(fixture_date + timedelta(days=1), datetime.min.time()),
+        )
+        .first()
+    )
+    if match:
+        away_team = db.query(Team).filter(Team.id == match.away_team_id).first()
+        if not away_team or (away_team.fifa_code or "").upper() != away_code:
+            match = None
+
+    if not match:
+        return None, []
+
+    candidates: List[FieldCandidate] = []
+    recorded_at = data_quality.as_utc(fixture_dt) or data_quality.now_utc()
+
+    # 球队
+    candidates.append(FieldCandidate("home_team_id", match.home_team_id, "api-football", recorded_at))
+    candidates.append(FieldCandidate("away_team_id", match.away_team_id, "api-football", recorded_at))
+
+    # 状态 / 时间
+    new_status = _map_status((fixture.get("status") or {}).get("short"))
+    candidates.append(FieldCandidate("status", new_status, "api-football", recorded_at))
+    time_elapsed = (fixture.get("status") or {}).get("elapsed")
+    if time_elapsed is not None:
+        candidates.append(FieldCandidate("time_elapsed", str(time_elapsed), "api-football", recorded_at))
+
+    # 比分
+    home_goals = goals.get("home")
+    away_goals = goals.get("away")
+    if home_goals is not None:
+        candidates.append(FieldCandidate("home_score", int(home_goals), "api-football", recorded_at))
+    if away_goals is not None:
+        candidates.append(FieldCandidate("away_score", int(away_goals), "api-football", recorded_at))
+
+    # 阶段/小组
+    stage = "小组赛" if (item.get("league") or {}).get("round", "").startswith("Group") else "淘汰赛"
+    candidates.append(FieldCandidate("stage", stage, "api-football", recorded_at))
+
+    # 开球时间
+    kickoff_utc = fixture_dt.replace(tzinfo=None)
+    candidates.append(FieldCandidate("kickoff_at", kickoff_utc, "api-football", recorded_at))
+
+    return match.id, candidates
 
 
 def sync_fixtures(
@@ -285,6 +371,7 @@ def sync_fixtures(
         "fixture_to_match": fixture_to_match,
         "source": "api-football",
         "quality": quality_summary,
+        "fixtures_raw": fixtures,  # v0.14.4 供多源字段仲裁使用
     }
 
 
@@ -484,5 +571,6 @@ def sync_all(db: Session, client: Optional[ApiFootballClient] = None) -> Dict:
     }
     summary["standings"] = sync_standings(db, client)
     summary["events"] = sync_events(db, fixture_result["fixture_to_match"], client)
+    summary["fixtures_raw"] = fixture_result.get("fixtures_raw", [])
     summary["synced_at"] = datetime.now(timezone.utc).isoformat()
     return summary

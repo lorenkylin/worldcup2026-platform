@@ -44,7 +44,7 @@ def _exec_db(sql: str, params: tuple = ()):
         conn.close()
 
 
-TEST_MATCH_ID = 88888  # 生产中不存在的 ID, 避免 dedup 干扰
+TEST_MATCH_ID = 25  # 使用已存在的 scheduled 比赛 ID, 避免外键约束导致写入失败 (v0.15.0 修正)
 
 
 def test_predict_blend_endpoint_returns_blended_probs(page, base_url):
@@ -153,7 +153,7 @@ def test_predict_blend_unknown_team_returns_404(page, base_url):
 
 def test_predict_blend_dedup_within_1_hour(page, base_url):
     """v0.7.0a-b: 同 (match_id, model) 1h 内重复请求只写 1 行."""
-    test_mid = 88889
+    test_mid = 26  # 使用已存在的 scheduled 比赛 ID (v0.15.0 修正)
     _exec_db(
         "DELETE FROM prediction_log WHERE match_id=? AND model_version='v7a_blend'",
         (test_mid,),

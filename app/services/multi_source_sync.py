@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models import Match
 from app.services import data_quality, sync_status
+from app.services.multi_source_arbitration import arbitrate_and_apply
 from app.services.stadium_geo import fill_stadium_coordinates
 from app.services.recent_form import compute_and_persist_recent_form
 
@@ -76,7 +77,8 @@ def _post_sync_hook(db: Session) -> Dict:
 def full_sync(db: Session) -> Dict:
     """一键全量同步.
 
-    先尝试 API-Football；失败或未启用则降级 worldcup26.ir；
+    v0.14.4 改进：API-Football 可用时，先同步非 match 数据，再与 worldcup26.ir
+    做字段级仲裁；失败或未启用则降级 worldcup26.ir。
     再失败则记录失败并返回错误信息，不抛异常导致调度器中断。
     """
     result: Dict = {"synced_at": datetime.now(timezone.utc).isoformat()}
@@ -90,12 +92,20 @@ def full_sync(db: Session) -> Dict:
                 raise data_quality.DataQualityError(
                     f"API-Football 数据质量不达标: {api_result.get('fixtures', {}).get('quality')}"
                 )
+
+            # v0.14.4: 字段级仲裁，用 API-Football 原始 fixtures + worldcup26.ir 数据
+            # 仲裁 match 字段，并记录冲突
+            arbitration = arbitrate_and_apply(
+                db, api_fixtures=api_result.get("fixtures_raw", [])
+            )
+
             hook = _post_sync_hook(db)
             result.update(
                 {
                     "ok": True,
                     "primary_source": "api-football",
                     "api_football": api_result,
+                    "arbitration": arbitration,
                     "hook": hook,
                 }
             )
@@ -132,7 +142,9 @@ def full_sync(db: Session) -> Dict:
 def live_sync(db: Session) -> Dict:
     """轻量实时同步：比分/状态.
 
-    - 若启用 API-Football 且未来/过去 3h 内有比赛，调用 fixtures 按日期刷新。
+    v0.14.4 改进：
+    - 若启用 API-Football 且未来/过去 3h 内有比赛，调用 fixtures 按日期刷新，
+      再与 worldcup26.ir 做字段级仲裁。
     - 失败或未启用则降级 worldcup26.ir 全量同步。
     """
     result: Dict = {"synced_at": datetime.now(timezone.utc).isoformat()}
@@ -151,6 +163,12 @@ def live_sync(db: Session) -> Dict:
                 raise data_quality.DataQualityError(
                     f"API-Football 实时数据质量不达标: {fixtures_result.get('quality')}"
                 )
+
+            # v0.14.4: 字段级仲裁
+            arbitration = arbitrate_and_apply(
+                db, api_fixtures=fixtures_result.get("fixtures_raw", [])
+            )
+
             result.update(
                 {
                     "ok": True,
@@ -161,6 +179,7 @@ def live_sync(db: Session) -> Dict:
                         "fixtures_not_found": fixtures_result["not_found"],
                         "quality": fixtures_result.get("quality", {}),
                     },
+                    "arbitration": arbitration,
                 }
             )
             sync_status.record_success(result)

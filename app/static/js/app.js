@@ -62,14 +62,14 @@ function fmtPct(v, digits = 1) { return v != null ? (v * 100).toFixed(digits) : 
 function fmtDecimal(v, digits = 2) { return v != null ? v.toFixed(digits) : '—'; }
 
 function statusBadge(status) {
-  if (status === 'live') return '<span class="badge-live inline-block px-2 py-0.5 rounded text-xs font-bold text-white">进行中</span>';
-  if (status === 'finished') return '<span class="inline-block px-2 py-0.5 rounded text-xs bg-slate-700 text-slate-300">已结束</span>';
-  return '<span class="inline-block px-2 py-0.5 rounded text-xs bg-slate-800 text-slate-400">未开始</span>';
+  if (status === 'live') return '<span class="badge-live inline-block px-2.5 py-0.5 rounded-md text-[11px] font-extrabold text-white tracking-wide">进行中</span>';
+  if (status === 'finished') return '<span class="inline-block px-2.5 py-0.5 rounded-md text-[11px] font-extrabold bg-slate-700/80 text-slate-200 tracking-wide border border-slate-600/50">已结束</span>';
+  return '<span class="inline-block px-2.5 py-0.5 rounded-md text-[11px] font-extrabold bg-slate-800/70 text-slate-400 tracking-wide border border-slate-700/50">未开始</span>';
 }
 
 function renderMatchScore(m) {
   if (m.status === 'finished' || (m.home_score !== null && m.away_score !== null)) {
-    return '<span class="text-2xl font-bold score-big text-white">' + m.home_score + ' : ' + m.away_score + '</span>';
+    return '<span class="text-2xl font-bold score-big">' + m.home_score + ' : ' + m.away_score + '</span>';
   }
   return '<span class="text-xl font-bold text-slate-500">VS</span>';
 }
@@ -78,24 +78,31 @@ function matchCard(m) {
   const { time, date, isToday } = fmtDate(m.kickoff_at);
   const home = m.home_team || { name_zh: m.home_team_placeholder || '待定', flag_emoji: '' };
   const away = m.away_team || { name_zh: m.away_team_placeholder || '待定', flag_emoji: '' };
+  const statusClass = m.status === 'live' ? 'live' : m.status === 'finished' ? 'finished' : '';
   return `
-    <a href="#/match/${m.id}" class="match-card block bg-slate-900 rounded-xl p-4 mb-3 border border-slate-800">
-      <div class="flex items-center justify-between mb-2">
-        <span class="text-xs text-slate-400">${isToday ? '今天' : date} ${time}</span>
+    <a href="#/match/${m.id}" class="match-card block ${statusClass}">
+      <div class="flex items-center justify-between mb-2.5">
+        <div class="flex items-center gap-2">
+          <span class="text-[11px] text-slate-400">${isToday ? '今天' : date}</span>
+          <span class="text-[11px] font-mono text-slate-300">${time}</span>
+        </div>
         ${statusBadge(m.status)}
       </div>
       <div class="flex items-center justify-between">
-        <div class="flex items-center gap-3 flex-1">
+        <div class="flex items-center gap-3 flex-1 min-w-0">
           <span class="team-flag">${home.flag_emoji || '🏳️'}</span>
-          <span class="font-medium truncate">${escapeHtml(home.name_zh)}</span>
+          <span class="font-semibold truncate text-slate-100">${escapeHtml(home.name_zh)}</span>
         </div>
-        <div class="px-4">${renderMatchScore(m)}</div>
-        <div class="flex items-center gap-3 flex-1 justify-end">
-          <span class="font-medium truncate">${escapeHtml(away.name_zh)}</span>
+        <div class="px-3">${renderMatchScore(m)}</div>
+        <div class="flex items-center gap-3 flex-1 justify-end min-w-0">
+          <span class="font-semibold truncate text-slate-100">${escapeHtml(away.name_zh)}</span>
           <span class="team-flag">${away.flag_emoji || '🏳️'}</span>
         </div>
       </div>
-      <div class="mt-2 text-xs text-slate-500 truncate">${m.stadium ? escapeHtml(m.stadium.name_en) : ''} · ${m.group_name ? m.group_name + '组' : m.stage}</div>
+      <div class="mt-2.5 text-[11px] text-slate-500 truncate flex items-center gap-1.5">
+        <span>🏟️</span>
+        <span>${m.stadium ? escapeHtml(m.stadium.name_en) : '待定球场'} · ${m.group_name ? m.group_name + '组' : m.stage}</span>
+      </div>
       ${m._odds ? renderOddsBadge(m._odds) : ''}
     </a>
   `;
@@ -118,8 +125,8 @@ function renderOddsBadge(odds) {
 function renderOddsDetail(oddsData, homeName, awayName) {
   if (!oddsData || !oddsData.has_odds) {
     return `
-      <div class="bg-slate-900 rounded-xl p-4 border border-slate-800 mb-4">
-        <h3 class="font-bold text-cyan-400 mb-2">💰 市场赔率</h3>
+      <div class="glass-card rounded-xl p-4 mb-4">
+        <h3 class="font-extrabold text-cyan-400 mb-2 flex items-center gap-2"><span>💰</span>市场赔率</h3>
         <div class="text-sm text-slate-500">该比赛暂无赔率（管理员可在后台录入）</div>
       </div>
     `;
@@ -129,19 +136,19 @@ function renderOddsDetail(oddsData, homeName, awayName) {
   const consensusOdds = consensus && consensus.odds ? consensus.odds : {};
   const cmpHtml = consensus ? `
     <div class="grid grid-cols-3 gap-2 mt-3 text-center text-xs">
-      <div class="bg-slate-950 rounded p-2">
+      <div class="bg-slate-950/60 rounded-lg p-2">
         <div class="text-slate-500">主胜概率</div>
-        <div class="text-base font-bold ${marketProb.home_prob > 0.5 ? 'text-emerald-400' : 'text-white'}">${fmtPct(marketProb.home_prob)}%</div>
+        <div class="text-base font-extrabold ${marketProb.home_prob > 0.5 ? 'text-emerald-400' : 'text-white'}">${fmtPct(marketProb.home_prob)}%</div>
         <div class="text-slate-500 text-[10px]">赔率 ${fmtDecimal(consensusOdds.home_win)}</div>
       </div>
-      <div class="bg-slate-950 rounded p-2">
+      <div class="bg-slate-950/60 rounded-lg p-2">
         <div class="text-slate-500">平局概率</div>
-        <div class="text-base font-bold ${marketProb.draw_prob > 0.3 ? 'text-emerald-400' : 'text-white'}">${fmtPct(marketProb.draw_prob)}%</div>
+        <div class="text-base font-extrabold ${marketProb.draw_prob > 0.3 ? 'text-emerald-400' : 'text-white'}">${fmtPct(marketProb.draw_prob)}%</div>
         <div class="text-slate-500 text-[10px]">赔率 ${fmtDecimal(consensusOdds.draw)}</div>
       </div>
-      <div class="bg-slate-950 rounded p-2">
+      <div class="bg-slate-950/60 rounded-lg p-2">
         <div class="text-slate-500">客胜概率</div>
-        <div class="text-base font-bold ${marketProb.away_prob > 0.5 ? 'text-emerald-400' : 'text-white'}">${fmtPct(marketProb.away_prob)}%</div>
+        <div class="text-base font-extrabold ${marketProb.away_prob > 0.5 ? 'text-emerald-400' : 'text-white'}">${fmtPct(marketProb.away_prob)}%</div>
         <div class="text-slate-500 text-[10px]">赔率 ${fmtDecimal(consensusOdds.away_win)}</div>
       </div>
     </div>
@@ -157,7 +164,7 @@ function renderOddsDetail(oddsData, homeName, awayName) {
     </div>
   ` : '';
   const bookmakersHtml = bookmakers.length > 1 ? `
-    <div class="mt-3 pt-3 border-t border-slate-800">
+    <div class="mt-3 pt-3 border-t border-slate-800/60">
       <div class="text-xs text-slate-500 mb-1">各博彩公司</div>
       <div class="space-y-1">
         ${bookmakers.map(b => {
@@ -177,8 +184,8 @@ function renderOddsDetail(oddsData, homeName, awayName) {
   ` : '';
 
   return `
-    <div class="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-4 border border-slate-700 mb-4">
-      <h3 class="font-bold text-cyan-400 mb-2">💰 市场赔率 · 多家公司共识</h3>
+    <div class="glass-card glow-border rounded-xl p-4 border border-cyan-500/15 mb-4">
+      <h3 class="font-extrabold text-cyan-400 mb-2 flex items-center gap-2"><span>💰</span>市场赔率 · 多家公司共识</h3>
       ${simulatedWarning}
       ${cmpHtml}
       ${bookmakersHtml}
@@ -204,10 +211,10 @@ async function renderHome() {
 
   $('#app').innerHTML = `
     <div class="flex items-center justify-between mb-4">
-      <h2 class="text-lg font-bold flex items-center gap-2">
-        <span class="w-1 h-5 bg-emerald-400 rounded"></span>今日赛程
+      <h2 class="text-lg font-extrabold flex items-center gap-2 tracking-tight">
+        <span class="w-1.5 h-6 bg-gradient-to-b from-emerald-400 to-emerald-600 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.4)]"></span>今日赛程
       </h2>
-      <button onclick="refreshCurrent()" class="text-xs text-slate-400 hover:text-emerald-400 transition flex items-center gap-1 px-2 py-1 rounded hover:bg-slate-900">
+      <button onclick="refreshCurrent()" class="text-xs text-slate-400 hover:text-emerald-400 transition flex items-center gap-1 px-3 py-1.5 rounded-full hover:bg-slate-900/80 border border-transparent hover:border-slate-700">
         <span>🔄</span><span>刷新</span>
       </button>
     </div>
@@ -218,11 +225,11 @@ async function renderHome() {
     ${focus ? `
     <section class="mb-6">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-lg font-bold flex items-center gap-2">
-          <span class="w-1 h-5 bg-amber-400 rounded"></span>焦点战预测
+        <h2 class="text-lg font-extrabold flex items-center gap-2 tracking-tight">
+          <span class="w-1.5 h-6 bg-gradient-to-b from-amber-400 to-amber-600 rounded-full shadow-[0_0_10px_rgba(245,158,11,0.35)]"></span>焦点战预测
           <span class="text-xs text-slate-500 font-normal">（${_homeFocusIdx + 1}/${today.length}）</span>
         </h2>
-        ${today.length > 1 ? `<button onclick="nextFocusMatch()" class="text-xs text-slate-400 hover:text-amber-400 transition flex items-center gap-1 px-2 py-1 rounded hover:bg-slate-900">
+        ${today.length > 1 ? `<button onclick="nextFocusMatch()" class="text-xs text-slate-400 hover:text-amber-400 transition flex items-center gap-1 px-3 py-1.5 rounded-full hover:bg-slate-900/80 border border-transparent hover:border-slate-700">
           <span>🎲</span><span>换一换</span>
         </button>` : ''}
       </div>
@@ -230,20 +237,20 @@ async function renderHome() {
     </section>` : ''}
 
     <section class="mb-6">
-      <a href="#/simulator" class="block bg-gradient-to-r from-violet-600/20 to-emerald-500/20 hover:from-violet-600/30 hover:to-emerald-500/30 transition rounded-xl p-4 border border-violet-500/30">
+      <a href="#/simulator" class="block glass-card glow-border rounded-xl p-4 border border-violet-500/30 group">
         <div class="flex items-center justify-between">
           <div>
-            <div class="font-bold text-violet-300 mb-1">🎲 出线模拟器 v0</div>
+            <div class="font-extrabold text-violet-300 mb-1 group-hover:text-violet-200 transition">🎲 出线模拟器 v0</div>
             <div class="text-xs text-slate-300">5000 次蒙特卡洛推演每队晋级概率</div>
           </div>
-          <span class="text-2xl">→</span>
+          <span class="text-2xl text-violet-400 group-hover:translate-x-1 transition-transform">→</span>
         </div>
       </a>
     </section>
 
     <section>
-      <h2 class="text-lg font-bold mb-3 flex items-center gap-2">
-        <span class="w-1 h-5 bg-blue-400 rounded"></span>小组积分榜
+      <h2 class="text-lg font-extrabold mb-3 flex items-center gap-2 tracking-tight">
+        <span class="w-1.5 h-6 bg-gradient-to-b from-blue-400 to-blue-600 rounded-full shadow-[0_0_10px_rgba(59,130,246,0.35)]"></span>小组积分榜
       </h2>
       ${renderGroupsMini(groups)}
     </section>
@@ -263,9 +270,9 @@ async function renderPredictionMini(matchId) {
       ? `<div class="text-xs text-emerald-400 mt-1">📈 ${p.home_recent_form ? '主 ' + escapeHtml(p.home_recent_form) : ''}${p.home_recent_form && p.away_recent_form ? ' / ' : ''}${p.away_recent_form ? '客 ' + escapeHtml(p.away_recent_form) : ''}</div>`
       : '';
     return `
-      <a href="#/match/${matchId}" class="block bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-4 border border-slate-700">
+      <a href="#/match/${matchId}" class="block glass-card glow-border rounded-xl p-4 border border-amber-500/15">
         <div class="flex justify-between items-center mb-2">
-          <span class="text-amber-400 tracking-widest">${stars}</span>
+          <span class="text-amber-400 tracking-widest text-sm">${stars}</span>
           <span class="text-xs text-slate-400">推荐比分 ${p.recommended_score || '—'}</span>
         </div>
         <div class="flex justify-between text-sm mb-3">
@@ -289,14 +296,25 @@ function renderGroupsMini(groups) {
   const keys = Object.keys(groups).sort();
   return keys.map(g => {
     const rows = groups[g].slice(0, 3);
+    const top1 = rows[0];
+    const top2 = rows[1];
+    const best3 = rows[2];
+    const rankColor = (i) => i === 0 ? 'text-emerald-400' : i === 1 ? 'text-emerald-300/90' : 'text-blue-300/80';
     return `
-      <a href="#/groups" class="block bg-slate-900 rounded-xl p-3 mb-3 border border-slate-800">
-        <div class="text-sm font-bold text-emerald-400 mb-2">${g}组</div>
+      <a href="#/groups" class="block glass-card rounded-xl p-3 mb-3 group hover:border-emerald-500/30">
+        <div class="flex items-center justify-between mb-2.5">
+          <div class="text-sm font-extrabold text-emerald-400 tracking-wide">${g}组</div>
+          <span class="text-[10px] text-slate-500">${rows.length} 队</span>
+        </div>
         <div class="space-y-2">
           ${rows.map((r, i) => `
-            <div class="flex justify-between text-sm">
-              <span class="text-slate-300">${i + 1}. ${r.team.flag_emoji || ''} ${escapeHtml(r.team.name_zh)}</span>
-              <span class="text-slate-400">${r.played}场 ${r.points}分</span>
+            <div class="flex justify-between items-center text-sm">
+              <span class="flex items-center gap-2 min-w-0">
+                <span class="text-xs font-mono ${rankColor(i)} w-4">${i + 1}</span>
+                <span class="team-flag text-base">${r.team.flag_emoji || '🏳️'}</span>
+                <span class="text-slate-200 truncate">${escapeHtml(r.team.name_zh)}</span>
+              </span>
+              <span class="text-xs text-slate-400 font-mono">${r.points}分</span>
             </div>
           `).join('')}
         </div>
@@ -374,10 +392,19 @@ async function renderSchedule() {
     { key: 'all', label: '全部', count: matches.length },
   ];
 
+  const chipClass = (active, today) => {
+    if (active) return 'bg-emerald-500 text-slate-950 font-extrabold shadow-[0_0_14px_rgba(16,185,129,0.35)]';
+    if (today) return 'glass-card text-emerald-400 border border-emerald-500/40 hover:border-emerald-500/60';
+    return 'glass-card text-slate-300 hover:border-emerald-500/30 hover:text-slate-100';
+  };
+
   $('#app').innerHTML = `
-    <div class="flex items-center justify-between mb-3">
-      <h2 class="text-lg font-bold">全部赛程 <span class="text-sm text-slate-500 font-normal">（${filtered.length} 场）</span></h2>
-      <button onclick="refreshCurrent()" class="text-xs text-slate-400 hover:text-emerald-400 transition flex items-center gap-1 px-2 py-1 rounded hover:bg-slate-900">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-extrabold flex items-center gap-2 tracking-tight">
+        <span class="w-1.5 h-6 bg-gradient-to-b from-emerald-400 to-emerald-600 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.4)]"></span>全部赛程
+        <span class="text-sm text-slate-500 font-normal">（${filtered.length} 场）</span>
+      </h2>
+      <button onclick="refreshCurrent()" class="text-xs text-slate-400 hover:text-emerald-400 transition flex items-center gap-1 px-3 py-1.5 rounded-full hover:bg-slate-900/80 border border-transparent hover:border-slate-700">
         <span>🔄</span><span>刷新</span>
       </button>
     </div>
@@ -385,8 +412,8 @@ async function renderSchedule() {
     <!-- A4: 粒度筛选 -->
     <div class="flex gap-2 mb-3 overflow-x-auto pb-1">
       ${filterChips.map(c => `
-        <button onclick="setScheduleFilter('${c.key}')" class="px-3 py-1.5 rounded-full text-xs whitespace-nowrap transition ${_scheduleFilter === c.key ? 'bg-emerald-500 text-slate-950 font-bold' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}">
-          ${c.label} <span class="opacity-70">${c.count}</span>
+        <button onclick="setScheduleFilter('${c.key}')" class="px-3.5 py-1.5 rounded-full text-xs whitespace-nowrap transition ${chipClass(_scheduleFilter === c.key)}">
+          ${c.label} <span class="opacity-70 font-mono">${c.count}</span>
         </button>
       `).join('')}
     </div>
@@ -398,7 +425,7 @@ async function renderSchedule() {
         const isActive = _scheduleDate === d;
         const isToday = d === todayStr;
         return `
-          <button onclick="setScheduleDate('${d}')" class="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs whitespace-nowrap transition ${isActive ? 'bg-amber-500 text-slate-950 font-bold' : isToday ? 'bg-slate-700 text-emerald-400 border border-emerald-500/40' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}">
+          <button onclick="setScheduleDate('${d}')" class="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs whitespace-nowrap transition ${isActive ? 'bg-amber-500 text-slate-950 font-extrabold shadow-[0_0_14px_rgba(245,158,11,0.35)]' : isToday ? 'glass-card text-emerald-400 border border-emerald-500/40' : 'glass-card text-slate-300 hover:border-amber-500/30 hover:text-slate-100'}">
             ${d.slice(5).replace('-', '/')} 周${wd}${isToday ? ' ·今天' : ''}
           </button>
         `;
@@ -409,7 +436,7 @@ async function renderSchedule() {
       <div class="space-y-5">
         ${Object.keys(byDate).map(date => `
           <div>
-            <div class="sticky top-14 z-30 bg-slate-950/95 py-2 text-sm font-bold text-emerald-400 border-b border-slate-800">${date}</div>
+            <div class="sticky top-14 z-30 glass-card py-2 px-3 text-sm font-extrabold text-emerald-400 border-b border-slate-800/50">${date}</div>
             ${byDate[date].map(m => matchCard(m)).join('')}
           </div>
         `).join('')}
@@ -426,29 +453,42 @@ async function renderGroups() {
     return;
   }
 
+  const rankBg = (i) => i < 2 ? 'bg-emerald-500/10' : i === 2 ? 'bg-blue-500/8' : 'bg-rose-500/8';
+
   $('#app').innerHTML = `
-    <h2 class="text-lg font-bold mb-4">小组赛积分榜 <span class="text-sm text-slate-500 font-normal">（${keys.length} 组）</span></h2>
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-extrabold flex items-center gap-2 tracking-tight">
+        <span class="w-1.5 h-6 bg-gradient-to-b from-emerald-400 to-emerald-600 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.4)]"></span>小组赛积分榜
+        <span class="text-sm text-slate-500 font-normal">（${keys.length} 组）</span>
+      </h2>
+      <button onclick="refreshCurrent()" class="text-xs text-slate-400 hover:text-emerald-400 transition flex items-center gap-1 px-3 py-1.5 rounded-full hover:bg-slate-900/80 border border-transparent hover:border-slate-700">
+        <span>🔄</span><span>刷新</span>
+      </button>
+    </div>
     <div class="space-y-4">
       ${keys.map(g => `
-        <div class="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
-          <div class="bg-slate-800 px-4 py-2 text-sm font-bold text-emerald-400">${g}组</div>
+        <div class="glass-card rounded-xl overflow-hidden group">
+          <div class="px-4 py-2.5 text-sm font-extrabold text-emerald-400 flex items-center justify-between" style="background: linear-gradient(90deg, rgba(16,185,129,0.12), transparent)">
+            <span>${g}组</span>
+            <span class="text-[10px] text-slate-500 font-normal">${groups[g].length} 队</span>
+          </div>
           <table class="w-full text-sm">
-            <thead class="text-xs text-slate-500 border-b border-slate-800">
-              <tr><th class="py-2 pl-4 text-left">球队</th><th class="py-2">赛</th><th class="py-2">胜/平/负</th><th class="py-2">净胜球</th><th class="py-2 pr-4">积分</th></tr>
+            <thead class="text-[11px] text-slate-500 border-b border-slate-800/60">
+              <tr><th class="py-2 pl-4 text-left font-semibold">球队</th><th class="py-2 font-semibold">赛</th><th class="py-2 font-semibold">胜/平/负</th><th class="py-2 font-semibold">净胜球</th><th class="py-2 pr-4 font-semibold">积分</th></tr>
             </thead>
             <tbody>
-              ${groups[g].map(r => `
-                <tr class="border-b border-slate-800/50 last:border-0">
-                  <td class="py-2 pl-4">
-                    <a href="#/team/${r.team.id}" class="flex items-center gap-2">
-                      <span>${r.team.flag_emoji || ''}</span>
-                      <span class="truncate">${escapeHtml(r.team.name_zh)}</span>
+              ${groups[g].map((r, i) => `
+                <tr class="border-b border-slate-800/40 last:border-0 ${rankBg(i)}">
+                  <td class="py-2.5 pl-4">
+                    <a href="#/team/${r.team.id}" class="flex items-center gap-2 hover:text-emerald-400 transition">
+                      <span class="team-flag text-base">${r.team.flag_emoji || '🏳️'}</span>
+                      <span class="truncate font-medium">${escapeHtml(r.team.name_zh)}</span>
                     </a>
                   </td>
-                  <td class="py-2 text-center text-slate-400">${r.played}</td>
-                  <td class="py-2 text-center text-slate-400">${r.won}/${r.drawn}/${r.lost}</td>
-                  <td class="py-2 text-center text-slate-400">${r.goals_for - r.goals_against}</td>
-                  <td class="py-2 pr-4 text-center font-bold text-white">${r.points}</td>
+                  <td class="py-2.5 text-center text-slate-400 font-mono">${r.played}</td>
+                  <td class="py-2.5 text-center text-slate-400 font-mono text-xs">${r.won}/${r.drawn}/${r.lost}</td>
+                  <td class="py-2.5 text-center text-slate-400 font-mono">${r.goals_for - r.goals_against}</td>
+                  <td class="py-2.5 pr-4 text-center font-extrabold text-white">${r.points}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -546,20 +586,22 @@ function _renderTeamsFiltered() {
 
   $('#app').innerHTML = `
     <div class="flex items-center justify-between mb-3">
-      <h2 class="text-lg font-bold">48 支球队 <span class="text-sm text-slate-500 font-normal">（${teams.length} 队）</span></h2>
-      <button onclick="refreshCurrent()" class="text-xs text-slate-400 hover:text-emerald-400 transition flex items-center gap-1 px-2 py-1 rounded hover:bg-slate-900">
+      <h2 class="text-lg font-extrabold flex items-center gap-2 tracking-tight">
+        <span class="w-1.5 h-6 bg-gradient-to-b from-emerald-400 to-emerald-600 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.4)]"></span>48 支球队
+        <span class="text-sm text-slate-500 font-normal">（${teams.length} 队）</span>
+      </h2>
+      <button onclick="refreshCurrent()" class="text-xs text-slate-400 hover:text-emerald-400 transition flex items-center gap-1 px-3 py-1.5 rounded-full hover:bg-slate-900/80 border border-transparent hover:border-slate-700">
         <span>🔄</span><span>刷新</span>
       </button>
     </div>
 
     <!-- A6: 搜索 + 排序 -->
-    <div class="flex gap-2 mb-3">
+    <div class="flex gap-2 mb-4">
       <input id="teams-search" type="text" placeholder="🔍 搜球队名 / FIFA code / 组别"
         value="${escapeHtml(_teamsKeyword)}"
         oninput="setTeamsKeyword(this.value)"
-        class="flex-1 min-w-0 bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
-      <select onchange="setTeamsSort(this.value)"
-        class="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 cursor-pointer">
+        class="flex-1 min-w-0" />
+      <select onchange="setTeamsSort(this.value)" class="cursor-pointer">
         ${sortOptions.map(s => `<option value="${s.key}" ${_teamsSort === s.key ? 'selected' : ''}>${s.label}</option>`).join('')}
       </select>
     </div>
@@ -567,11 +609,11 @@ function _renderTeamsFiltered() {
     ${teams.length ? `
       <div class="grid grid-cols-2 gap-3">
         ${teams.map(t => `
-          <a href="#/team/${t.id}" class="bg-slate-900 rounded-xl p-3 border border-slate-800 flex items-center gap-3 hover:border-slate-700 transition">
-            <span class="text-2xl">${t.flag_emoji || '🏳️'}</span>
+          <a href="#/team/${t.id}" class="glass-card rounded-xl p-3 flex items-center gap-3 group hover:border-emerald-500/30">
+            <span class="text-2xl group-hover:scale-110 transition-transform">${t.flag_emoji || '🏳️'}</span>
             <div class="flex-1 min-w-0">
-              <div class="font-medium truncate">${escapeHtml(t.name_zh)}</div>
-              <div class="text-xs text-slate-500 truncate">${t.group_name}组 · ${t.fifa_code} · Elo ${t.elo_rating}</div>
+              <div class="font-semibold truncate text-slate-100">${escapeHtml(t.name_zh)}</div>
+              <div class="text-[11px] text-slate-500 truncate">${t.group_name}组 · ${t.fifa_code} · Elo ${t.elo_rating}</div>
             </div>
           </a>
         `).join('')}
@@ -607,21 +649,21 @@ function renderFactorsBreakdown(factors, home, away) {
   const h2hSourceLabel = h2h.source === 'current' ? '本届' : h2h.source === 'history' ? '历史' : '无数据';
 
   return `
-    <details class="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl border border-slate-700 mb-4 overflow-hidden group" open>
-      <summary class="cursor-pointer p-3 flex items-center justify-between hover:bg-slate-800/50 transition">
+    <details class="glass-card glow-border rounded-xl border border-slate-700/60 mb-4 overflow-hidden group" open>
+      <summary class="cursor-pointer p-3 flex items-center justify-between hover:bg-slate-800/30 transition">
         <div class="flex items-center gap-2">
           <span class="text-base">⚙️</span>
-          <span class="text-sm font-medium text-slate-200">为什么这么预测？</span>
+          <span class="text-sm font-semibold text-slate-200">为什么这么预测？</span>
         </div>
         <span class="text-slate-500 text-xs group-open:rotate-180 transition-transform">▼</span>
       </summary>
 
-      <div class="px-4 pb-4 space-y-4 border-t border-slate-800 pt-3">
+      <div class="px-4 pb-4 space-y-4 border-t border-slate-800/60 pt-3">
         <!-- B1: Elo 实力差距 -->
         <div>
           <div class="flex items-center justify-between mb-1.5">
             <span class="text-xs text-slate-400">🏆 Elo 实力（B1）</span>
-            <span class="text-xs ${eloDiff > 0 ? 'text-emerald-400' : eloDiff < 0 ? 'text-rose-400' : 'text-slate-400'}">
+            <span class="text-xs ${eloDiff > 0 ? 'text-emerald-400' : eloDiff < 0 ? 'text-rose-400' : 'text-slate-400'} font-mono">
               ${eloDiff > 0 ? '+' : ''}${eloDiff} 分
             </span>
           </div>
@@ -641,7 +683,7 @@ function renderFactorsBreakdown(factors, home, away) {
         <div>
           <div class="flex items-center justify-between mb-1.5">
             <span class="text-xs text-slate-400">📈 近期状态（B2）</span>
-            <span class="text-xs ${formDiff == null ? 'text-slate-500' : formDiff > 0 ? 'text-emerald-400' : 'text-rose-400'}">
+            <span class="text-xs ${formDiff == null ? 'text-slate-500' : formDiff > 0 ? 'text-emerald-400' : 'text-rose-400'} font-mono">
               ${formDiff == null ? '数据不足' : (formDiff > 0 ? '+' : '') + formDiff + ' 分'}
             </span>
           </div>
@@ -681,7 +723,7 @@ function renderFactorsBreakdown(factors, home, away) {
         </div>
 
         <!-- 模型参数 -->
-        <div class="pt-2 border-t border-slate-800 flex items-center justify-between text-xs text-slate-500">
+        <div class="pt-2 border-t border-slate-800/60 flex items-center justify-between text-xs text-slate-500">
           <span>模型：Elo-Poisson v1</span>
           <span>λ(H) = ${lambda.home} | λ(A) = ${lambda.away} | base = ${lambda.base}</span>
         </div>
@@ -709,13 +751,26 @@ async function renderTeamDetail(id) {
       </a>
     </div>
 
-    <div class="bg-slate-900 rounded-xl p-6 mb-4 border border-slate-800 text-center">
-      <div class="text-5xl mb-2">${team.flag_emoji || '🏳️'}</div>
-      <h1 class="text-2xl font-bold">${escapeHtml(team.name_zh)}</h1>
-      <div class="text-slate-400 mt-1">${escapeHtml(team.name_en)} · ${team.fifa_code} · ${team.group_name}组</div>
-      <div class="mt-3 text-sm text-slate-500">Elo ${team.elo_rating} · FIFA 排名 ${team.fifa_rank || '待定'}</div>
+    <div class="glass-card rounded-2xl p-6 mb-4 text-center relative overflow-hidden">
+      <div class="absolute inset-0 hero-glow pointer-events-none"></div>
+      <div class="text-6xl mb-3 relative z-10 drop-shadow-[0_4px_10px_rgba(0,0,0,0.4)]">${team.flag_emoji || '🏳️'}</div>
+      <h1 class="text-2xl font-extrabold text-slate-50 relative z-10">${escapeHtml(team.name_zh)}</h1>
+      <div class="text-slate-400 mt-1.5 text-sm relative z-10">${escapeHtml(team.name_en)} · ${team.fifa_code} · ${team.group_name}组</div>
+      <div class="mt-4 flex items-center justify-center gap-4 relative z-10">
+        <div class="text-center">
+          <div class="text-xs text-slate-500">Elo</div>
+          <div class="text-lg font-extrabold text-emerald-400">${team.elo_rating}</div>
+        </div>
+        <div class="w-px h-8 bg-slate-700"></div>
+        <div class="text-center">
+          <div class="text-xs text-slate-500">FIFA 排名</div>
+          <div class="text-lg font-extrabold text-slate-200">${team.fifa_rank || '待定'}</div>
+        </div>
+      </div>
     </div>
-    <h2 class="text-lg font-bold mb-3">赛程（${matches.length} 场）</h2>
+    <h2 class="text-lg font-extrabold mb-3 flex items-center gap-2 tracking-tight">
+      <span class="w-1.5 h-6 bg-gradient-to-b from-emerald-400 to-emerald-600 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.4)]"></span>赛程（${matches.length} 场）
+    </h2>
     ${matches.length ? matches.map(m => matchCard(m)).join('') : renderEmpty('📅', '暂无比赛', '该球队暂未安排比赛', '#/schedule', '查看全部赛程')}
   `;
 }
@@ -823,9 +878,9 @@ let _oddsModelHistoryChart = null;
 
 function renderOddsModelHistoryCard() {
   return `
-    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800 mb-4">
+    <div class="glass-card rounded-xl p-4 mb-4">
       <div class="flex items-center justify-between mb-3">
-        <h3 class="font-bold text-amber-400">📊 赔率 vs 模型概率走势</h3>
+        <h3 class="font-extrabold text-amber-400 flex items-center gap-2"><span>📊</span>赔率 vs 模型概率走势</h3>
         <div class="text-xs text-slate-500">v0.7.2.3</div>
       </div>
       <div class="flex gap-1 mb-3">
@@ -976,9 +1031,9 @@ function renderOddsTrendCard() {
   // v0.5.1 返回赔率走势卡片 HTML(主胜/平/客胜 tab + canvas)
   // 占位符,渲染后由 loadOddsTrend(matchId) 填充
   return `
-    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800 mb-4">
+    <div class="glass-card rounded-xl p-4 mb-4">
       <div class="flex items-center justify-between mb-3">
-        <h3 class="font-bold text-cyan-400">📈 赔率走势 · 多公司时序</h3>
+        <h3 class="font-extrabold text-cyan-400 flex items-center gap-2"><span>📈</span>赔率走势 · 多公司时序</h3>
         <div class="text-xs text-slate-500">v0.5.1</div>
       </div>
       <div id="odds-trend-empty" class="text-sm text-slate-500 hidden">暂无赔率快照(可能尚未录入赔率或 6h 调度器尚未运行)</div>
@@ -1018,28 +1073,28 @@ async function renderMatchDetail(id) {
   const away = m.away_team || { name_zh: m.away_team_placeholder || '待定', flag_emoji: '' };
 
   const predHtml = prediction ? `
-    <div class="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-4 border border-slate-700 mb-4">
+    <div class="glass-card glow-border rounded-xl p-4 mb-4 border border-amber-500/20">
       <div class="flex justify-between items-center mb-3">
-        <h3 class="font-bold text-amber-400">AI 预测 v1 · Elo-Poisson</h3>
+        <h3 class="font-extrabold text-amber-400 flex items-center gap-2"><span>🧠</span>AI 预测 v1 · Elo-Poisson</h3>
         <span class="text-xs text-slate-400">推荐比分 ${prediction.recommended_score || '—'}</span>
       </div>
       <div class="grid grid-cols-3 gap-2 text-center mb-3">
-        <div class="bg-slate-950 rounded p-2"><div class="text-xs text-slate-500">主胜</div><div class="text-lg font-bold text-white">${prediction.home_win_prob ?? '—'}%</div></div>
-        <div class="bg-slate-950 rounded p-2"><div class="text-xs text-slate-500">平</div><div class="text-lg font-bold text-white">${prediction.draw_prob ?? '—'}%</div></div>
-        <div class="bg-slate-950 rounded p-2"><div class="text-xs text-slate-500">客胜</div><div class="text-lg font-bold text-white">${prediction.away_win_prob ?? '—'}%</div></div>
+        <div class="bg-slate-950/60 rounded-lg p-2"><div class="text-xs text-slate-500">主胜</div><div class="text-lg font-extrabold text-white">${prediction.home_win_prob ?? '—'}%</div></div>
+        <div class="bg-slate-950/60 rounded-lg p-2"><div class="text-xs text-slate-500">平</div><div class="text-lg font-extrabold text-white">${prediction.draw_prob ?? '—'}%</div></div>
+        <div class="bg-slate-950/60 rounded-lg p-2"><div class="text-xs text-slate-500">客胜</div><div class="text-lg font-extrabold text-white">${prediction.away_win_prob ?? '—'}%</div></div>
       </div>
       <div class="text-sm text-slate-300 mb-2">星级：${'★'.repeat(prediction.stars ?? 0)}${'☆'.repeat(5 - (prediction.stars ?? 0))}</div>
       <ul class="text-xs text-slate-400 space-y-1 mb-2">
         ${(prediction.reasons || []).map(r => '<li>· ' + escapeHtml(r) + '</li>').join('')}
       </ul>
-      <div class="mt-2 text-xs text-slate-500">${prediction.disclaimer || ''}</div>
+      <div class="mt-2 text-[11px] text-slate-500">${prediction.disclaimer || ''}</div>
     </div>
 
     ${prediction.home_recent_form || prediction.away_recent_form || prediction.h2h_summary ? `
-    <div class="grid grid-cols-2 gap-2 mb-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
       ${prediction.home_recent_form || prediction.away_recent_form ? `
-        <div class="bg-slate-900 rounded-xl p-3 border border-slate-800">
-          <div class="text-xs text-slate-500 mb-2">📈 近期状态</div>
+        <div class="glass-card rounded-xl p-3">
+          <div class="text-xs text-slate-500 mb-2 font-semibold">📈 近期状态</div>
           <div class="text-sm">
             <div class="text-slate-300">${escapeHtml(home.name_zh)}：<span class="${prediction.home_recent_form ? 'text-emerald-400 font-bold' : 'text-slate-500'}">${prediction.home_recent_form || '暂无数据'}</span></div>
             <div class="text-slate-300 mt-1">${escapeHtml(away.name_zh)}：<span class="${prediction.away_recent_form ? 'text-emerald-400 font-bold' : 'text-slate-500'}">${prediction.away_recent_form || '暂无数据'}</span></div>
@@ -1047,9 +1102,9 @@ async function renderMatchDetail(id) {
         </div>
       ` : '<div></div>'}
       ${prediction.h2h_summary ? `
-        <div class="bg-slate-900 rounded-xl p-3 border border-slate-800">
+        <div class="glass-card rounded-xl p-3">
           <div class="flex items-center justify-between mb-2">
-            <div class="text-xs text-slate-500">⚔️ 历史交锋</div>
+            <div class="text-xs text-slate-500 font-semibold">⚔️ 历史交锋</div>
             <a href="#/h2h/${home.fifa_code}/${away.fifa_code}" class="text-xs text-amber-400 hover:text-amber-300 transition">📜 完整历史 →</a>
           </div>
           <div class="text-sm text-amber-300">${escapeHtml(prediction.h2h_summary)}</div>
@@ -1063,11 +1118,11 @@ async function renderMatchDetail(id) {
   ` : '';
 
   const weatherHtml = weather && weather.available ? `
-    <div class="bg-slate-900 rounded-xl p-3 border border-slate-800 mb-4 flex items-center justify-between">
+    <div class="glass-card rounded-xl p-3 mb-4 flex items-center justify-between">
       <div>
         <div class="text-xs text-slate-500 mb-1">🌤️ ${escapeHtml(weather.stadium)} 当日天气</div>
         <div class="text-sm">
-          <span class="font-bold text-white">${weather.temperature != null ? weather.temperature.toFixed(1) + '°C' : '-'}</span>
+          <span class="font-extrabold text-white">${weather.temperature != null ? weather.temperature.toFixed(1) + '°C' : '-'}</span>
           <span class="text-slate-400 mx-2">·</span>
           <span class="text-slate-300">${weather.label}</span>
           ${weather.precipitation > 0 ? `<span class="text-blue-400 ml-2">降水 ${weather.precipitation}mm</span>` : ''}
@@ -1089,23 +1144,24 @@ async function renderMatchDetail(id) {
       <span class="text-xs text-slate-500">${positionLabel}</span>
     </div>
 
-    <div class="bg-slate-900 rounded-xl p-6 mb-4 border border-slate-800 text-center">
-      <div class="text-xs text-slate-500 mb-3">${date} ${time} · ${m.stadium ? escapeHtml(m.stadium.name_en) : ''}</div>
-      <div class="flex items-center justify-between">
-        <div class="flex-1">
-          <div class="text-4xl mb-2">${home.flag_emoji || '🏳️'}</div>
-          <div class="font-bold text-lg">${escapeHtml(home.name_zh)}</div>
+    <div class="glass-card rounded-2xl p-6 mb-4 text-center relative overflow-hidden">
+      <div class="absolute inset-0 hero-glow pointer-events-none"></div>
+      <div class="text-xs text-slate-500 mb-3 relative z-10">${date} ${time} · ${m.stadium ? escapeHtml(m.stadium.name_en) : ''}</div>
+      <div class="flex items-center justify-between relative z-10">
+        <div class="flex-1 min-w-0">
+          <div class="text-5xl mb-2 drop-shadow-[0_4px_10px_rgba(0,0,0,0.4)]">${home.flag_emoji || '🏳️'}</div>
+          <div class="font-extrabold text-lg truncate">${escapeHtml(home.name_zh)}</div>
         </div>
         <div class="px-4">
           ${renderMatchScore(m)}
           <div class="mt-2">${statusBadge(m.status)}</div>
         </div>
-        <div class="flex-1">
-          <div class="text-4xl mb-2">${away.flag_emoji || '🏳️'}</div>
-          <div class="font-bold text-lg">${escapeHtml(away.name_zh)}</div>
+        <div class="flex-1 min-w-0">
+          <div class="text-5xl mb-2 drop-shadow-[0_4px_10px_rgba(0,0,0,0.4)]">${away.flag_emoji || '🏳️'}</div>
+          <div class="font-extrabold text-lg truncate">${escapeHtml(away.name_zh)}</div>
         </div>
       </div>
-      <div class="mt-4 text-xs text-slate-500">数据来源：${m.data_source} · 更新于 ${new Date(m.last_updated_at).toLocaleString('zh-CN')}</div>
+      <div class="mt-4 text-[11px] text-slate-500 relative z-10">数据来源：${m.data_source} · 更新于 ${new Date(m.last_updated_at).toLocaleString('zh-CN')}</div>
     </div>
 
     ${predHtml}
@@ -1115,34 +1171,34 @@ async function renderMatchDetail(id) {
     ${renderOddsModelHistoryCard()}
     ${reviewHtml}
 
-    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800 mb-4">
-      <h3 class="font-bold mb-2">比赛事件</h3>
+    <div class="glass-card rounded-xl p-4 mb-4">
+      <h3 class="font-extrabold mb-3 flex items-center gap-2"><span>⚡</span>比赛事件</h3>
       ${renderEvents(m.events || [], m)}
     </div>
 
-    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800">
-      <h3 class="font-bold mb-2">赛后统计</h3>
+    <div class="glass-card rounded-xl p-4">
+      <h3 class="font-extrabold mb-3 flex items-center gap-2"><span>📊</span>赛后统计</h3>
       ${renderStats(m.stats || [], m)}
     </div>
 
     <!-- A7: 上一场 / 下一场 -->
     <div class="mt-6 grid grid-cols-2 gap-3">
       ${prev ? `
-        <a href="#/match/${prev.id}" class="bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl p-3 transition flex items-center gap-2 group">
-          <span class="text-slate-500 group-hover:text-emerald-400 text-lg">←</span>
+        <a href="#/match/${prev.id}" class="glass-card rounded-xl p-3 flex items-center gap-2 group hover:border-emerald-500/30">
+          <span class="text-slate-500 group-hover:text-emerald-400 text-lg transition">←</span>
           <div class="flex-1 min-w-0">
             <div class="text-xs text-slate-500">上一场 #${prev.match_number}</div>
-            <div class="text-sm truncate">${escapeHtml((prev.home_team && prev.home_team.name_zh) || '待定')} vs ${escapeHtml((prev.away_team && prev.away_team.name_zh) || '待定')}</div>
+            <div class="text-sm truncate text-slate-200">${escapeHtml((prev.home_team && prev.home_team.name_zh) || '待定')} vs ${escapeHtml((prev.away_team && prev.away_team.name_zh) || '待定')}</div>
           </div>
         </a>
       ` : '<div></div>'}
       ${next ? `
-        <a href="#/match/${next.id}" class="bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl p-3 transition flex items-center gap-2 group">
+        <a href="#/match/${next.id}" class="glass-card rounded-xl p-3 flex items-center gap-2 group hover:border-emerald-500/30">
           <div class="flex-1 min-w-0 text-right">
             <div class="text-xs text-slate-500">下一场 #${next.match_number}</div>
-            <div class="text-sm truncate">${escapeHtml((next.home_team && next.home_team.name_zh) || '待定')} vs ${escapeHtml((next.away_team && next.away_team.name_zh) || '待定')}</div>
+            <div class="text-sm truncate text-slate-200">${escapeHtml((next.home_team && next.home_team.name_zh) || '待定')} vs ${escapeHtml((next.away_team && next.away_team.name_zh) || '待定')}</div>
           </div>
-          <span class="text-slate-500 group-hover:text-emerald-400 text-lg">→</span>
+          <span class="text-slate-500 group-hover:text-emerald-400 text-lg transition">→</span>
         </a>
       ` : '<div></div>'}
     </div>
@@ -1190,34 +1246,35 @@ function renderPostMatchReview(m, prediction) {
     ? { color: 'emerald', label: '🎯 比分命中', desc: '推荐比分与实际完全一致' }
     : directionHit
     ? { color: 'amber', label: '✓ 方向命中', desc: '胜负方向正确，比分略有偏差' }
-    : { color: 'red', label: '✗ 偏离', desc: '胜负方向判断错误' };
+    : { color: 'rose', label: '✗ 偏离', desc: '胜负方向判断错误' };
 
   const actualGoals = actualHome + actualAway;
   const predGoals = pHome + pAway;
   const goalsDiff = actualGoals - predGoals;
 
   return `
-    <div class="bg-gradient-to-br from-${verdict.color}-500/10 to-slate-900 rounded-xl p-4 border border-${verdict.color}-500/30 mb-4">
-      <div class="flex justify-between items-center mb-3">
-        <h3 class="font-bold text-${verdict.color}-300">📋 赛后复盘</h3>
-        <span class="text-xs px-2 py-1 rounded bg-${verdict.color}-500/20 text-${verdict.color}-300">${verdict.label}</span>
+    <div class="glass-card glow-border rounded-xl p-4 border-${verdict.color}-500/30 mb-4 relative overflow-hidden">
+      <div class="absolute inset-0 hero-glow pointer-events-none"></div>
+      <div class="flex justify-between items-center mb-3 relative z-10">
+        <h3 class="font-extrabold text-${verdict.color}-300 flex items-center gap-2"><span>📋</span>赛后复盘</h3>
+        <span class="text-xs px-2 py-1 rounded-full bg-${verdict.color}-500/20 text-${verdict.color}-300 font-extrabold">${verdict.label}</span>
       </div>
-      <div class="grid grid-cols-3 gap-2 text-center mb-3 text-sm">
-        <div>
+      <div class="grid grid-cols-3 gap-2 text-center mb-3 text-sm relative z-10">
+        <div class="bg-slate-950/40 rounded-lg p-2">
           <div class="text-xs text-slate-500">预测比分</div>
-          <div class="font-bold text-white">${prediction.recommended_score}</div>
+          <div class="font-extrabold text-white font-mono">${prediction.recommended_score}</div>
         </div>
-        <div>
+        <div class="bg-slate-950/40 rounded-lg p-2">
           <div class="text-xs text-slate-500">实际比分</div>
-          <div class="font-bold text-white">${actualHome}:${actualAway}</div>
+          <div class="font-extrabold text-white font-mono">${actualHome}:${actualAway}</div>
         </div>
-        <div>
+        <div class="bg-slate-950/40 rounded-lg p-2">
           <div class="text-xs text-slate-500">进球差</div>
-          <div class="font-bold ${goalsDiff === 0 ? 'text-emerald-400' : goalsDiff > 0 ? 'text-amber-400' : 'text-slate-400'}">${goalsDiff > 0 ? '+' : ''}${goalsDiff}</div>
+          <div class="font-extrabold ${goalsDiff === 0 ? 'text-emerald-400' : goalsDiff > 0 ? 'text-amber-400' : 'text-slate-400'} font-mono">${goalsDiff > 0 ? '+' : ''}${goalsDiff}</div>
         </div>
       </div>
-      <div class="text-xs text-slate-300 mb-2">${verdict.desc}</div>
-      <div class="text-xs text-slate-500 space-y-1">
+      <div class="text-xs text-slate-300 mb-2 relative z-10">${verdict.desc}</div>
+      <div class="text-xs text-slate-500 space-y-1 relative z-10">
         <div>· 模型预测主胜 ${prediction.home_win_prob}%，实际${outcomeHit === 'home' ? '主胜' : outcomeHit === 'draw' ? '平局' : '客胜'}</div>
         <div>· 总进球 ${actualGoals} (预测 ${predGoals}) ${goalsDiff > 0 ? '比预测更开放' : goalsDiff < 0 ? '比预测更保守' : '符合预期'}</div>
         <div>· v0 模型仅基于 Elo；B1-B4 升级后将引入近期状态、历史交锋等</div>
@@ -1230,17 +1287,17 @@ function renderEvents(events, match) {
   if (!events.length) {
     return '<p class="text-sm text-slate-500">暂无事件数据。自动源失效时可通过后台手动录入。</p>';
   }
-  return '<ul class="text-sm divide-y divide-slate-800">' + events.map(ev => {
+  return '<ul class="text-sm divide-y divide-slate-800/60">' + events.map(ev => {
     const team = ev.team_id === match.home_team?.id ? match.home_team : match.away_team;
     const teamFlag = team?.flag_emoji || '🏳️';
     const teamName = team?.name_zh || '未知队';
     const icon = { goal: '⚽', yellow_card: '🟨', red_card: '🟥', substitution: '🔁' }[ev.event_type] || '•';
     const typeLabel = { goal: '进球', yellow_card: '黄牌', red_card: '红牌', substitution: '换人' }[ev.event_type] || ev.event_type;
-    return `<li class="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
+    return `<li class="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
       <span class="text-amber-400 font-mono w-8 text-right text-sm">${ev.minute}'</span>
       <span class="text-lg">${icon}</span>
       <div class="flex-1 min-w-0">
-        <div class="font-medium truncate">${escapeHtml(ev.player_name) || typeLabel}</div>
+        <div class="font-semibold truncate text-slate-100">${escapeHtml(ev.player_name) || typeLabel}</div>
         <div class="text-xs text-slate-500">${teamFlag} ${escapeHtml(teamName)} · ${typeLabel}${ev.extra_info ? ' · ' + escapeHtml(ev.extra_info) : ''}</div>
       </div>
     </li>`;
@@ -1265,11 +1322,11 @@ function renderStats(stats, match) {
     ['黄牌', homeStat.yellow_cards, awayStat.yellow_cards, ''],
     ['红牌', homeStat.red_cards, awayStat.red_cards, ''],
   ];
-  return '<div class="space-y-2">' + rows.map(([label, h, a, unit]) =>
+  return '<div class="space-y-3">' + rows.map(([label, h, a, unit]) =>
     '<div class="grid grid-cols-3 items-center text-sm">' +
-    '<span class="text-right text-slate-300">' + (h ?? '-') + unit + '</span>' +
+    '<span class="text-right text-slate-200 font-mono">' + (h ?? '-') + unit + '</span>' +
     '<span class="text-center text-xs text-slate-500">' + label + '</span>' +
-    '<span class="text-left text-slate-300">' + (a ?? '-') + unit + '</span>' +
+    '<span class="text-left text-slate-200 font-mono">' + (a ?? '-') + unit + '</span>' +
     '</div>'
   ).join('') + '</div>';
 }
@@ -1281,31 +1338,31 @@ async function renderSimulator() {
     return;
   }
   $('#app').innerHTML = `
-    <h2 class="text-lg font-bold mb-2 flex items-center gap-2">
-      <span class="w-1 h-5 bg-violet-400 rounded"></span>出线模拟器 v0
+    <h2 class="text-lg font-extrabold mb-2 flex items-center gap-2 tracking-tight">
+      <span class="w-1.5 h-6 bg-gradient-to-b from-violet-400 to-violet-600 rounded-full shadow-[0_0_10px_rgba(139,92,246,0.35)]"></span>出线模拟器 v0
     </h2>
     <p class="text-xs text-slate-400 mb-4">基于当前积分 + 剩余赛程 + Elo-Poisson 模型，运行 ${data.simulations} 次蒙特卡洛模拟。每组前 2 名 + 8 个最佳第 3 名（共 32 队）晋级淘汰赛。</p>
     <div class="space-y-4">
       ${data.groups.map(g => `
-        <div class="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
-          <div class="bg-gradient-to-r from-violet-600/30 to-emerald-500/20 px-4 py-2 flex items-center justify-between">
-            <span class="text-sm font-bold text-white">${g.group_name} 组</span>
+        <div class="glass-card rounded-xl overflow-hidden">
+          <div class="px-4 py-2.5 flex items-center justify-between" style="background: linear-gradient(90deg, rgba(139,92,246,0.18), rgba(16,185,129,0.10))">
+            <span class="text-sm font-extrabold text-white">${g.group_name} 组</span>
             <span class="text-xs text-slate-300">${g.teams.length} 队</span>
           </div>
-          <div class="divide-y divide-slate-800">
+          <div class="divide-y divide-slate-800/40">
             ${g.teams.map((t, i) => `
               <div class="px-4 py-2.5 flex items-center gap-3">
-                <span class="text-xs text-slate-500 w-4">${i + 1}</span>
+                <span class="text-xs text-slate-500 w-4 font-mono">${i + 1}</span>
                 <span class="text-lg">${t.flag_emoji || '🏳️'}</span>
                 <div class="flex-1 min-w-0">
-                  <div class="text-sm font-medium truncate">${escapeHtml(t.team_name)}</div>
-                  <div class="text-xs text-slate-500">${t.points}分 · 净胜球 ${t.goal_diff > 0 ? '+' : ''}${t.goal_diff}</div>
+                  <div class="text-sm font-semibold truncate text-slate-100">${escapeHtml(t.team_name)}</div>
+                  <div class="text-[11px] text-slate-500">${t.points}分 · 净胜球 ${t.goal_diff > 0 ? '+' : ''}${t.goal_diff}</div>
                 </div>
-                <div class="flex items-center gap-1">
+                <div class="flex items-center gap-2">
                   <div class="w-24 h-1.5 bg-slate-800 rounded-full overflow-hidden">
                     <div class="h-full bg-gradient-to-r from-emerald-400 to-amber-300" style="width: ${t.advance_overall_prob}%"></div>
                   </div>
-                  <span class="text-xs font-bold text-emerald-300 w-12 text-right">${t.advance_overall_prob}%</span>
+                  <span class="text-xs font-extrabold text-emerald-300 w-12 text-right font-mono">${t.advance_overall_prob}%</span>
                 </div>
               </div>
             `).join('')}
@@ -1315,20 +1372,21 @@ async function renderSimulator() {
     </div>
 
     <!-- v0.7.1 Monte Carlo Tournament 全模拟 -->
-    <div class="mt-8 p-4 bg-gradient-to-br from-amber-900/20 to-rose-900/20 rounded-xl border border-amber-500/30">
-      <h3 class="text-base font-bold mb-2 flex items-center gap-2">
-        <span class="w-1 h-5 bg-amber-400 rounded"></span>
+    <div class="mt-8 p-4 rounded-2xl border border-amber-500/30 relative overflow-hidden" style="background: linear-gradient(135deg, rgba(245,158,11,0.12), rgba(244,63,94,0.08))">
+      <div class="absolute inset-0 hero-glow pointer-events-none"></div>
+      <h3 class="text-base font-extrabold mb-2 flex items-center gap-2 relative z-10">
+        <span class="w-1.5 h-6 bg-gradient-to-b from-amber-400 to-amber-600 rounded-full shadow-[0_0_10px_rgba(245,158,11,0.35)]"></span>
         <span>🏆 整届模拟 v0.7.1</span>
         <span class="text-xs text-slate-400 font-normal ml-2">Monte Carlo · 整届 10000 次</span>
       </h3>
-      <p class="text-xs text-slate-400 mb-3">从组赛到决赛跑完所有 103 场比赛,统计每队 <b>夺冠 / 决赛 / 4 强 / 8 强 / 16 强</b> 概率 + 决赛对阵频次。</p>
-      <button id="mc-run-btn" onclick="runMonteCarlo()" class="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-white text-sm font-bold rounded-lg shadow-lg transition">
+      <p class="text-xs text-slate-400 mb-3 relative z-10">从组赛到决赛跑完所有 103 场比赛,统计每队 <b>夺冠 / 决赛 / 4 强 / 8 强 / 16 强</b> 概率 + 决赛对阵频次。</p>
+      <button id="mc-run-btn" onclick="runMonteCarlo()" class="relative z-10 w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-white text-sm font-extrabold rounded-full shadow-lg transition hover:shadow-amber-500/30">
         🎲 运行 Monte Carlo (10000 次)
       </button>
-      <div id="mc-result" class="mt-4"></div>
+      <div id="mc-result" class="mt-4 relative z-10"></div>
     </div>
 
-    <div class="mt-6 p-3 bg-slate-900 rounded-lg text-xs text-slate-500 border border-slate-800">
+    <div class="mt-6 p-3 glass-card rounded-xl text-xs text-slate-500">
       <div class="font-bold text-slate-400 mb-1">图例</div>
       <div>· 进度条长度 = 出线概率（直接晋级 + 最佳第 3 名）</div>
       <div>· 模拟方法：剩余比赛按 Elo-Poisson 随机生成比分,统计每队晋级次数</div>
@@ -1369,35 +1427,35 @@ function renderMonteCarloResult(data) {
   out.innerHTML = `
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <!-- 冠军榜 -->
-      <div class="bg-slate-900 rounded-lg p-3 border border-amber-500/20">
-        <h4 class="text-sm font-bold text-amber-300 mb-2 flex items-center gap-2">
+      <div class="glass-card rounded-xl p-3 border border-amber-500/20">
+        <h4 class="text-sm font-extrabold text-amber-300 mb-2 flex items-center gap-2">
           <span>🏆</span><span>夺冠概率 Top 8</span>
         </h4>
         <div class="space-y-1.5">
           ${champEntries.map(([code, p], i) => `
             <div class="flex items-center gap-2">
-              <span class="text-xs text-slate-500 w-4 text-right">${i + 1}</span>
+              <span class="text-xs text-slate-500 w-4 text-right font-mono">${i + 1}</span>
               <span class="text-sm font-mono w-10">${code}</span>
-              <div class="flex-1 h-2 bg-slate-800 rounded overflow-hidden">
+              <div class="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
                 <div class="h-full bg-gradient-to-r from-amber-400 to-rose-400" style="width: ${(p / maxProb * 100).toFixed(1)}%"></div>
               </div>
-              <span class="text-xs font-bold text-amber-200 w-12 text-right">${(p * 100).toFixed(1)}%</span>
+              <span class="text-xs font-extrabold text-amber-200 w-12 text-right font-mono">${(p * 100).toFixed(1)}%</span>
             </div>
           `).join('')}
         </div>
       </div>
 
       <!-- 决赛对阵 -->
-      <div class="bg-slate-900 rounded-lg p-3 border border-rose-500/20">
-        <h4 class="text-sm font-bold text-rose-300 mb-2 flex items-center gap-2">
+      <div class="glass-card rounded-xl p-3 border border-rose-500/20">
+        <h4 class="text-sm font-extrabold text-rose-300 mb-2 flex items-center gap-2">
           <span>🥊</span><span>决赛对阵 Top ${Math.min(5, finalList.length)}</span>
         </h4>
         <div class="space-y-1.5">
           ${finalList.slice(0, 5).map((m, i) => `
             <div class="flex items-center gap-2">
-              <span class="text-xs text-slate-500 w-4 text-right">${i + 1}</span>
-              <span class="text-sm font-mono">${m.home} <span class="text-slate-600">vs</span> ${m.away}</span>
-              <span class="text-xs text-slate-500 ml-auto">${(m.prob * 100).toFixed(1)}%</span>
+              <span class="text-xs text-slate-500 w-4 text-right font-mono">${i + 1}</span>
+              <span class="text-sm font-mono text-slate-200">${m.home} <span class="text-slate-600">vs</span> ${m.away}</span>
+              <span class="text-xs text-slate-500 ml-auto font-mono">${(m.prob * 100).toFixed(1)}%</span>
             </div>
           `).join('') || '<div class="text-xs text-slate-500">暂无数据</div>'}
         </div>
@@ -1478,18 +1536,18 @@ async function renderOdds() {
   // 顶部 value bet 提醒卡片 (v0.5.1 老功能,保留)
   const valueBets = data.items.filter(it => it.best_value && it.best_value_rate >= 0.05);
   const valueBetsHtml = valueBets.length > 0 ? `
-    <div class="bg-gradient-to-br from-amber-900/30 to-slate-900 rounded-xl p-4 border border-amber-700/50 mb-4">
+    <div class="rounded-2xl p-4 border border-amber-500/30 mb-4 relative overflow-hidden" style="background: linear-gradient(135deg, rgba(245,158,11,0.12), rgba(16,185,129,0.06))">
       <div class="flex items-center gap-2 mb-3">
         <span class="text-2xl">💎</span>
-        <h3 class="font-bold text-amber-400">价值投注 TOP ${valueBets.length}</h3>
+        <h3 class="font-extrabold text-amber-400">价值投注 TOP ${valueBets.length}</h3>
       </div>
       <div class="text-xs text-slate-400 mb-2">Elo 模型 vs 市场隐含概率,差异 ≥ 5%</div>
       <div class="space-y-2">
         ${valueBets.slice(0, 5).map(it => `
-          <a href="#/match/${it.match_id}" class="block bg-slate-900 rounded-lg p-3 hover:bg-slate-800 transition">
+          <a href="#/match/${it.match_id}" class="block glass-card rounded-lg p-3 hover:border-amber-500/30 group">
             <div class="flex items-center justify-between mb-1">
-              <span class="text-sm font-medium">${escapeHtml(it.home_team.name_zh)} <span class="text-slate-500">vs</span> ${escapeHtml(it.away_team.name_zh)}</span>
-              <span class="text-emerald-400 font-mono text-sm">+${(it.best_value_rate * 100).toFixed(1)}%</span>
+              <span class="text-sm font-medium text-slate-100">${escapeHtml(it.home_team.name_zh)} <span class="text-slate-500">vs</span> ${escapeHtml(it.away_team.name_zh)}</span>
+              <span class="text-emerald-400 font-mono text-sm font-extrabold">+${(it.best_value_rate * 100).toFixed(1)}%</span>
             </div>
             <div class="text-xs text-slate-400">
               模型看 <span class="text-amber-400">${it.best_value === 'home' ? '主胜' : it.best_value === 'draw' ? '平局' : '客胜'}</span>
@@ -1509,10 +1567,12 @@ async function renderOdds() {
   const itemsHtml = await renderOddsCardsWithModel(data.items, _oddsSelectedModel);
 
   $('#app').innerHTML = `
-    <h2 class="text-lg font-bold mb-2 flex items-center gap-2">
-      <span class="text-xl">💰</span><span>赔率分析</span>
-      <span class="text-xs text-slate-500 font-normal ml-auto">${data.count} 场</span>
-    </h2>
+    <div class="flex items-center justify-between mb-2">
+      <h2 class="text-lg font-extrabold flex items-center gap-2 tracking-tight">
+        <span class="text-xl">💰</span><span>赔率分析</span>
+      </h2>
+      <span class="text-xs text-slate-500 font-normal">${data.count} 场</span>
+    </div>
     <div class="mb-2">${freshnessHtml}</div>
     ${statusBarHtml}
     <div class="text-xs text-slate-400 mb-4">市场预期 vs Elo/Glicko-2/Blend 模型对比，识别市场定价偏离</div>
@@ -1526,7 +1586,7 @@ async function renderOdds() {
 // v0.7.2.1: 渲染"服务状态"小卡
 function renderOddsServiceStatusBar(status) {
   if (!status) {
-    return `<div data-testid="odds-status-bar" class="mb-3 text-xs text-amber-400 bg-amber-900/20 border border-amber-700/50 rounded-lg px-3 py-2 flex items-center gap-2">
+    return `<div data-testid="odds-status-bar" class="mb-3 text-xs text-amber-400 glass-card border-amber-700/50 rounded-lg px-3 py-2 flex items-center gap-2">
       <span>⚠️</span><span>赔率服务状态不可用</span>
     </div>`;
   }
@@ -1539,7 +1599,7 @@ function renderOddsServiceStatusBar(status) {
   const simulatedWarning = status.is_simulated
     ? `<span class="ml-2 px-1.5 py-0.5 rounded bg-amber-600/30 text-amber-300 border border-amber-500/40">模拟数据</span>`
     : '';
-  return `<div data-testid="odds-status-bar" class="mb-3 text-xs text-slate-300 bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 flex items-center gap-3">
+  return `<div data-testid="odds-status-bar" class="mb-3 text-xs text-slate-300 glass-card rounded-lg px-3 py-2 flex items-center gap-3">
     <span class="inline-block w-2 h-2 rounded-full ${status.is_simulated ? 'bg-amber-400' : 'bg-emerald-400'} ${status.is_simulated ? '' : 'animate-pulse'}"></span>
     <span>赔率服务: <span class="text-cyan-400 font-medium">${escapeHtml(provider)}</span>${simulatedWarning}</span>
     <span class="text-slate-500">${rateStr}</span>
@@ -1554,9 +1614,9 @@ async function renderModelValueBetsSection(model) {
     const items = data.items || data.value_bets || [];
     const tiers = ['edge', 'fair', 'all'];
     const tierLabels = { edge: '高价值 (≥5%)', fair: '中价值 (≥2%)', all: '任意' };
-    return `<div data-testid="odds-model-value-bets" class="bg-slate-900 rounded-xl p-4 mb-4 border border-slate-800">
+    return `<div data-testid="odds-model-value-bets" class="glass-card rounded-xl p-4 mb-4">
       <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
-        <h3 class="font-bold text-cyan-400 flex items-center gap-2">
+        <h3 class="font-extrabold text-cyan-400 flex items-center gap-2">
           <span>🎯</span><span>按模型筛选价值投注</span>
         </h3>
         <div class="flex items-center gap-2 text-xs">
@@ -1579,10 +1639,10 @@ async function renderModelValueBetsSection(model) {
             const marketProb = it.market_prob || 0;
             const edge = (modelProb - marketProb) * 100;
             const pick = it.recommendation || (edge > 0 ? '主胜' : '客胜');
-            return `<a href="#/match/${it.match_id}" class="block bg-slate-950 rounded-lg p-3 hover:bg-slate-800 transition">
+            return `<a href="#/match/${it.match_id}" class="block glass-card rounded-lg p-3 hover:border-cyan-500/30 group">
               <div class="flex items-center justify-between mb-1">
-                <span class="text-sm font-medium">${escapeHtml(it.home_team?.name_zh || '')} <span class="text-slate-500">vs</span> ${escapeHtml(it.away_team?.name_zh || '')}</span>
-                <span class="${edge >= 5 ? 'text-emerald-400' : 'text-amber-400'} font-mono text-sm">+${edge.toFixed(1)}%</span>
+                <span class="text-sm font-medium text-slate-100">${escapeHtml(it.home_team?.name_zh || '')} <span class="text-slate-500">vs</span> ${escapeHtml(it.away_team?.name_zh || '')}</span>
+                <span class="${edge >= 5 ? 'text-emerald-400' : 'text-amber-400'} font-mono text-sm font-extrabold">+${edge.toFixed(1)}%</span>
               </div>
               <div class="text-xs text-slate-400">
                 ${escapeHtml(model)} 模型看 <span class="text-cyan-400">${pick}</span>:
@@ -1618,9 +1678,9 @@ async function renderModelValueBetsTier(model, tier) {
     const data = await apiWithRetry(`/odds/value-bets-model?model=${model}&min_tier=${tier}`);
     const items = data.items || data.value_bets || [];
     const tierLabels = { edge: '高价值 (≥5%)', fair: '中价值 (≥2%)', all: '任意' };
-    return `<div data-testid="odds-model-value-bets" class="bg-slate-900 rounded-xl p-4 mb-4 border border-slate-800">
+    return `<div data-testid="odds-model-value-bets" class="glass-card rounded-xl p-4 mb-4">
       <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
-        <h3 class="font-bold text-cyan-400 flex items-center gap-2">
+        <h3 class="font-extrabold text-cyan-400 flex items-center gap-2">
           <span>🎯</span><span>按模型筛选价值投注</span>
         </h3>
         <div class="flex items-center gap-2 text-xs">
@@ -1643,10 +1703,10 @@ async function renderModelValueBetsTier(model, tier) {
             const marketProb = it.market_prob || 0;
             const edge = (modelProb - marketProb) * 100;
             const pick = it.recommendation || (edge > 0 ? '主胜' : '客胜');
-            return `<a href="#/match/${it.match_id}" class="block bg-slate-950 rounded-lg p-3 hover:bg-slate-800 transition">
+            return `<a href="#/match/${it.match_id}" class="block glass-card rounded-lg p-3 hover:border-cyan-500/30 group">
               <div class="flex items-center justify-between mb-1">
-                <span class="text-sm font-medium">${escapeHtml(it.home_team?.name_zh || '')} <span class="text-slate-500">vs</span> ${escapeHtml(it.away_team?.name_zh || '')}</span>
-                <span class="${edge >= 5 ? 'text-emerald-400' : 'text-amber-400'} font-mono text-sm">+${edge.toFixed(1)}%</span>
+                <span class="text-sm font-medium text-slate-100">${escapeHtml(it.home_team?.name_zh || '')} <span class="text-slate-500">vs</span> ${escapeHtml(it.away_team?.name_zh || '')}</span>
+                <span class="${edge >= 5 ? 'text-emerald-400' : 'text-amber-400'} font-mono text-sm font-extrabold">+${edge.toFixed(1)}%</span>
               </div>
               <div class="text-xs text-slate-400">
                 ${escapeHtml(model)} 模型看 <span class="text-cyan-400">${pick}</span>:
@@ -1687,7 +1747,7 @@ async function renderOddsCardsWithModel(items, model) {
     };
 
     return `
-      <div class="bg-slate-900 rounded-xl p-4 mb-3 border border-slate-800 hover:border-cyan-700 transition">
+      <div class="glass-card rounded-xl p-4 mb-3 hover:border-cyan-500/30 transition">
         <div class="flex items-center justify-between mb-2">
           <a href="#/match/${it.match_id}" class="text-xs text-slate-500 hover:text-cyan-400">${escapeHtml(it.stage)}${it.group_name ? ' · ' + it.group_name + '组' : ''}</a>
           <select class="bg-slate-950 border border-slate-700 rounded text-[10px] px-1.5 py-0.5" onchange="onOddsCardModelChange(this, ${it.match_id})">
@@ -1697,24 +1757,24 @@ async function renderOddsCardsWithModel(items, model) {
           </select>
         </div>
         <div class="flex items-center justify-between mb-2">
-          <span class="font-medium text-sm">${escapeHtml(it.home_team.name_zh)}</span>
+          <span class="font-semibold text-sm text-slate-100">${escapeHtml(it.home_team.name_zh)}</span>
           <span class="text-xs text-slate-500">VS</span>
-          <span class="font-medium text-sm">${escapeHtml(it.away_team.name_zh)}</span>
+          <span class="font-semibold text-sm text-slate-100">${escapeHtml(it.away_team.name_zh)}</span>
         </div>
         <div class="grid grid-cols-3 gap-2 text-center text-xs">
-          <div class="bg-slate-950 rounded p-2">
+          <div class="bg-slate-950/60 rounded-lg p-2">
             <div class="text-slate-500">主胜</div>
-            <div class="text-slate-300">${(it.market.home_prob * 100).toFixed(0)}%</div>
+            <div class="text-slate-200 font-semibold">${(it.market.home_prob * 100).toFixed(0)}%</div>
             <div class="text-cyan-400">${fmtVb(vbHome)}</div>
           </div>
-          <div class="bg-slate-950 rounded p-2">
+          <div class="bg-slate-950/60 rounded-lg p-2">
             <div class="text-slate-500">平</div>
-            <div class="text-slate-300">${(it.market.draw_prob * 100).toFixed(0)}%</div>
+            <div class="text-slate-200 font-semibold">${(it.market.draw_prob * 100).toFixed(0)}%</div>
             <div class="text-cyan-400">${fmtVb(vbDraw)}</div>
           </div>
-          <div class="bg-slate-950 rounded p-2">
+          <div class="bg-slate-950/60 rounded-lg p-2">
             <div class="text-slate-500">客胜</div>
-            <div class="text-slate-300">${(it.market.away_prob * 100).toFixed(0)}%</div>
+            <div class="text-slate-200 font-semibold">${(it.market.away_prob * 100).toFixed(0)}%</div>
             <div class="text-cyan-400">${fmtVb(vbAway)}</div>
           </div>
         </div>
@@ -1839,7 +1899,7 @@ async function renderElo() {
       <div class="flex items-center gap-3">
         <span class="text-2xl">📈</span>
         <div>
-          <div class="text-xl font-bold text-emerald-400">Elo 实力榜</div>
+          <div class="text-xl font-extrabold text-emerald-400">Elo 实力榜</div>
           <div class="text-xs text-slate-500">
             ${source === 'statsbomb'
               ? '基于 StatsBomb Open Data · 世界杯/欧洲杯/美洲杯/非洲杯 · 缺失球队 fallback 到 Hicruben'
@@ -1848,14 +1908,14 @@ async function renderElo() {
         </div>
       </div>
       <div class="flex items-center gap-2">
-        <div class="flex items-center bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
-          <button onclick="setEloSource('hicruben')" class="text-xs px-3 py-1.5 transition ${source === 'hicruben' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-emerald-400'}">Hicruben</button>
-          <button onclick="setEloSource('statsbomb')" class="text-xs px-3 py-1.5 transition ${source === 'statsbomb' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-emerald-400'}">StatsBomb</button>
+        <div class="flex items-center glass-card rounded-lg overflow-hidden p-0.5">
+          <button onclick="setEloSource('hicruben')" class="text-xs px-3 py-1.5 transition rounded-md ${source === 'hicruben' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-400 hover:text-emerald-400'}">Hicruben</button>
+          <button onclick="setEloSource('statsbomb')" class="text-xs px-3 py-1.5 transition rounded-md ${source === 'statsbomb' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-400 hover:text-emerald-400'}">StatsBomb</button>
         </div>
-        <button onclick="exportEloToCSV()" title="导出 48 队 Elo 评级 CSV" class="text-xs text-slate-400 hover:text-emerald-400 transition flex items-center gap-1 px-2 py-1 rounded hover:bg-slate-900 border border-slate-800">
+        <button onclick="exportEloToCSV()" title="导出 48 队 Elo 评级 CSV" class="text-xs text-slate-400 hover:text-emerald-400 transition flex items-center gap-1 px-3 py-1.5 rounded-full hover:bg-slate-900/80 border border-slate-800 hover:border-slate-700">
           <span>📥</span><span>导出 CSV</span>
         </button>
-        <button onclick="refreshCurrent()" class="text-xs text-slate-400 hover:text-emerald-400 transition flex items-center gap-1 px-2 py-1 rounded hover:bg-slate-900 border border-slate-800">
+        <button onclick="refreshCurrent()" class="text-xs text-slate-400 hover:text-emerald-400 transition flex items-center gap-1 px-3 py-1.5 rounded-full hover:bg-slate-900/80 border border-slate-800 hover:border-slate-700">
           <span>🔄</span><span>刷新</span>
         </button>
       </div>
@@ -1863,43 +1923,25 @@ async function renderElo() {
 
     <!-- KPI 卡片：48 队 / Top 1 / 强弱差 / 准确率 -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-3">
-        <div class="text-xs text-slate-500 mb-1">参赛队</div>
-        <div class="text-2xl font-bold text-slate-200">${rows.length}</div>
-        <div class="text-xs text-slate-500 mt-1">全部 48 队</div>
-      </div>
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-3">
-        <div class="text-xs text-slate-500 mb-1">Top 1 · ${rows[0] ? escapeHtml(rows[0].flag_emoji + ' ' + rows[0].name_zh) : '-'}</div>
-        <div class="text-2xl font-bold text-emerald-400">${rows[0] ? rows[0].elo : '-'}</div>
-        <div class="text-xs text-slate-500 mt-1">Elo 评分</div>
-      </div>
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-3">
-        <div class="text-xs text-slate-500 mb-1">强弱差</div>
-        <div class="text-2xl font-bold text-amber-400">${spread}</div>
-        <div class="text-xs text-slate-500 mt-1">${rows[0] ? escapeHtml(rows[0].name_zh) : '-'} - ${rows[rows.length - 1] ? escapeHtml(rows[rows.length - 1].name_zh) : '-'}</div>
-      </div>
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-3">
-        <div class="text-xs text-slate-500 mb-1">回测准确率</div>
-        <div class="text-2xl font-bold text-violet-400">${backtest.metrics ? backtest.metrics.accuracy_pct : '-'}%</div>
-        <div class="text-xs text-slate-500 mt-1">${backtest.evaluated || '-'} 场 walk-forward</div>
-      </div>
+      ${kpiCard('⚽', '参赛队', rows.length, '队', 'emerald', '全部 48 队')}
+      ${kpiCard(rows[0] ? rows[0].flag_emoji : '🏳️', 'Top 1', rows[0] ? rows[0].elo : '-', 'Elo', 'emerald', rows[0] ? escapeHtml(rows[0].name_zh) : '')}
+      ${kpiCard('📊', '强弱差', spread, '分', 'amber', `${rows[0] ? escapeHtml(rows[0].name_zh) : '-'} - ${rows[rows.length - 1] ? escapeHtml(rows[rows.length - 1].name_zh) : '-'}`)}
+      ${kpiCard('🎯', '回测准确率', backtest.metrics ? backtest.metrics.accuracy_pct : '-', '%', 'violet', `${backtest.evaluated || '-'} 场 walk-forward`)}
     </div>
 
     <!-- 1v1 对比器 -->
     <section class="cockpit-section mb-4">
       <h2 class="cockpit-section-title">⚔️ 1v1 实力对比</h2>
-      <div class="bg-slate-900 rounded-xl p-4 border border-slate-800">
+      <div class="glass-card rounded-xl p-4">
         <!-- v0.7.0a 模型切换 tab -->
         <div class="flex items-center gap-2 mb-3 flex-wrap">
           <span class="text-xs text-slate-500">模型:</span>
-          <div class="flex items-center bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
-            <button onclick="setEloModel('elo')" class="text-xs px-3 py-1.5 transition ${_eloModel === 'elo' ? 'bg-violet-600 text-white' : 'text-slate-400 hover:text-violet-400'}">📊 Elo M1 v1</button>
-            <button onclick="setEloModel('glicko2')" class="text-xs px-3 py-1.5 transition ${_eloModel === 'glicko2' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-cyan-400'}">⚡ Glicko-2 v3</button>
-            <button onclick="setEloModel('blend')" class="text-xs px-3 py-1.5 transition ${_eloModel === 'blend' ? 'bg-gradient-to-r from-violet-600 to-cyan-600 text-white' : 'text-slate-400 hover:text-violet-400'}">🧠 Blend ⭐ (默认)</button>
-            <button onclick="setEloModel('adaptive')" class="text-xs px-3 py-1.5 transition ${_eloModel === 'adaptive' ? 'bg-gradient-to-r from-emerald-600 to-cyan-600 text-white' : 'text-slate-400 hover:text-emerald-400'}">🌱 Adaptive <span class="text-[9px]">v7.5</span></button>
-            <button onclick="setEloModel('marketblend')" class="text-xs px-3 py-1.5 transition ${_eloModel === 'marketblend' ? 'bg-gradient-to-r from-amber-500 to-rose-500 text-white' : 'text-slate-400 hover:text-amber-400'}">💰 MarketBlend <span class="text-[9px]">v7c</span></button>
-            <!-- v0.8.1 关停: Calibrated 实验未达 1.5pp 门槛,UI 移除 -->
-
+          <div class="flex items-center glass-card rounded-lg overflow-hidden p-0.5">
+            <button onclick="setEloModel('elo')" class="text-xs px-3 py-1.5 transition rounded-md ${_eloModel === 'elo' ? 'bg-violet-600 text-white shadow-lg' : 'text-slate-400 hover:text-violet-400'}">📊 Elo M1 v1</button>
+            <button onclick="setEloModel('glicko2')" class="text-xs px-3 py-1.5 transition rounded-md ${_eloModel === 'glicko2' ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-400 hover:text-cyan-400'}">⚡ Glicko-2 v3</button>
+            <button onclick="setEloModel('blend')" class="text-xs px-3 py-1.5 transition rounded-md ${_eloModel === 'blend' ? 'bg-gradient-to-r from-violet-600 to-cyan-600 text-white shadow-lg' : 'text-slate-400 hover:text-violet-400'}">🧠 Blend ⭐ (默认)</button>
+            <button onclick="setEloModel('adaptive')" class="text-xs px-3 py-1.5 transition rounded-md ${_eloModel === 'adaptive' ? 'bg-gradient-to-r from-emerald-600 to-cyan-600 text-white shadow-lg' : 'text-slate-400 hover:text-emerald-400'}">🌱 Adaptive <span class="text-[9px]">v7.5</span></button>
+            <button onclick="setEloModel('marketblend')" class="text-xs px-3 py-1.5 transition rounded-md ${_eloModel === 'marketblend' ? 'bg-gradient-to-r from-amber-500 to-rose-500 text-white shadow-lg' : 'text-slate-400 hover:text-amber-400'}">💰 MarketBlend <span class="text-[9px]">v7c</span></button>
           </div>
           <span class="text-[10px] text-slate-500 hidden md:inline">
             ${_eloModel === 'elo' ? '· Hicruben Elo (v1)' : _eloModel === 'glicko2' ? '· 913 场 walk-forward · 准确率 62.7%' : _eloModel === 'adaptive' ? '· 按距上次比赛天数自动调 w_g2' : _eloModel === 'marketblend' ? '· Elo + Glicko-2 + 市场赔率 0.4/0.3/0.3' : '· Elo + Glicko-2 等权 (w_elo=0.5)'}
@@ -1908,14 +1950,14 @@ async function renderElo() {
         <div class="grid grid-cols-1 md:grid-cols-7 gap-3 items-center">
           <div class="md:col-span-3">
             <label class="text-xs text-slate-500 mb-1 block">主队</label>
-            <select id="elo-home" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none">
+            <select id="elo-home" class="w-full">
               ${rows.map(r => `<option value="${r.fifa_code}" ${r.fifa_code === initHome ? 'selected' : ''}>${r.flag_emoji} ${escapeHtml(r.name_zh)} (${r.elo})</option>`).join('')}
             </select>
           </div>
-          <div class="md:col-span-1 text-center text-2xl text-slate-500 font-bold">VS</div>
+          <div class="md:col-span-1 text-center text-2xl text-slate-500 font-extrabold">VS</div>
           <div class="md:col-span-3">
             <label class="text-xs text-slate-500 mb-1 block">客队</label>
-            <select id="elo-away" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none">
+            <select id="elo-away" class="w-full">
               ${rows.map(r => `<option value="${r.fifa_code}" ${r.fifa_code === initAway ? 'selected' : ''}>${r.flag_emoji} ${escapeHtml(r.name_zh)} (${r.elo})</option>`).join('')}
             </select>
           </div>
@@ -1928,7 +1970,7 @@ async function renderElo() {
     <section class="cockpit-section mb-4">
       <h2 class="cockpit-section-title">🏆 48 队 Elo 全榜</h2>
       <div class="text-xs text-slate-500 mb-2">▎ 实力分 = 相对 Top 1 的差距归一化（0-100）</div>
-      <div class="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
+      <div class="glass-card rounded-xl overflow-hidden">
         ${rows.map(r => _eloFullRow(r, topElo)).join('')}
       </div>
     </section>
@@ -1937,7 +1979,7 @@ async function renderElo() {
     <!-- StatsBomb 说明卡片 -->
     <section class="cockpit-section mb-4">
       <h2 class="cockpit-section-title">ℹ️ StatsBomb 数据说明</h2>
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs text-slate-400 space-y-2">
+      <div class="glass-card rounded-xl p-3 text-xs text-slate-400 space-y-2">
         <div>📡 数据源：<b class="text-slate-200">StatsBomb Open Data</b>（世界杯 2018/2022、欧洲杯 2020/2024、美洲杯 2024、非洲杯 2023）</div>
         <div>⚙️ 训练：K=60 · 中立场 home_bonus=0 · 按比赛日期排序更新</div>
         <div>📝 许可：公开使用需标注 StatsBomb 并使用其 logo</div>
@@ -1955,7 +1997,7 @@ async function renderElo() {
         ${_backtestCard('Brier', backtest.metrics ? backtest.metrics.brier : '-', '越低越好', 'rose')}
         ${_backtestCard('ECE', (backtest.metrics ? backtest.metrics.ece_pct : '-') + '%', '校准误差', 'violet')}
       </div>
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs text-slate-400 space-y-1">
+      <div class="glass-card rounded-xl p-3 text-xs text-slate-400 space-y-1">
         <div>📅 数据范围：<b class="text-slate-200">${backtest.date_range ? backtest.date_range[0] : '-'} ~ ${backtest.date_range ? backtest.date_range[1] : '-'}</b></div>
         <div>🧪 评估：<b class="text-slate-200">${backtest.evaluated || '-'}</b> 场（burn-in ${backtest.burn_in || '-'} 场后）</div>
         <div>⚙️ 参数：K=${backtest.parameters ? backtest.parameters.k_factor : '-'} · 主队加成=${backtest.parameters ? backtest.parameters.home_bonus : '-'} · ρ=${backtest.parameters ? backtest.parameters.dc_rho : '-'}</div>
@@ -1971,8 +2013,8 @@ async function renderElo() {
         ⚡ Glicko-2 评分榜 (48 队) <span id="g2-toggle-icon" class="text-slate-500 text-xs">${_g2Open ? '▼' : '▶'}</span>
         <span class="text-[10px] text-slate-500 font-normal ml-2">· 比 Elo M1 准确率高 4-5 pp</span>
       </h2>
-      <div id="g2-ratings-section" class="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden ${_g2Open ? '' : 'hidden'}">
-        <div class="text-[10px] text-slate-500 px-3 py-2 border-b border-slate-800 flex items-center justify-between">
+      <div id="g2-ratings-section" class="glass-card rounded-xl overflow-hidden ${_g2Open ? '' : 'hidden'}">
+        <div class="text-[10px] text-slate-500 px-3 py-2 border-b border-slate-800/60 flex items-center justify-between">
           <span>▎ 按 Glicko-2 评分降序 · 913 场 walk-forward · 截至 2026-06-11</span>
           <span class="text-cyan-400 font-mono">训练指标: 62.7% / RPS 0.17</span>
         </div>
@@ -1990,7 +2032,7 @@ async function renderElo() {
               </a>
               <span class="text-[10px] text-cyan-400 w-12 text-right" title="Rating Deviation 不确定度">±${r.rd.toFixed(0)}</span>
               <div class="flex-1 max-w-[140px]">
-                <div class="h-2 bg-slate-800 rounded overflow-hidden">
+                <div class="h-2 bg-slate-800 rounded-full overflow-hidden">
                   <div class="h-full bg-gradient-to-r from-cyan-500 to-emerald-400" style="width:${score.toFixed(0)}%"></div>
                 </div>
               </div>
@@ -2456,21 +2498,21 @@ function _eloFullRow(r, topElo) {
     : form >= 10 ? 'text-emerald-400'
     : form >= 5 ? 'text-amber-400'
     : 'text-rose-400';
-  const groupBadge = r.group_name !== '-' ? `<span class="text-[10px] bg-slate-800 px-1.5 py-0.5 rounded text-slate-400 ml-1">${r.group_name}</span>` : '';
+  const groupBadge = r.group_name !== '-' ? `<span class="text-[10px] bg-slate-800/70 px-1.5 py-0.5 rounded text-slate-400 ml-1 border border-slate-700">${r.group_name}</span>` : '';
   return `
-    <div class="elo-full-row flex items-center gap-3 px-3 py-2 border-b border-slate-800/50 hover:bg-slate-800/30 transition">
+    <div class="elo-full-row flex items-center gap-3 px-3 py-2.5 border-b border-slate-800/40 hover:bg-slate-800/30 transition">
       <span class="text-slate-500 font-mono w-6 text-right text-xs">${r.rank}</span>
       <span class="team-flag text-xl">${r.flag_emoji}</span>
       <a href="#/team/${r.fifa_code}" class="font-medium text-sm flex-1 min-w-0 truncate hover:text-emerald-400 transition">
         ${escapeHtml(r.name_zh)}${groupBadge}
       </a>
-      <span class="text-xs ${formColor} w-10 text-right" title="近 5 场得分">${formText}</span>
+      <span class="text-xs ${formColor} w-10 text-right font-mono" title="近 5 场得分">${formText}</span>
       <div class="flex-1 max-w-[140px]">
-        <div class="h-2 bg-slate-800 rounded overflow-hidden">
+        <div class="h-1.5 bg-slate-800 rounded-full overflow-hidden">
           <div class="h-full bg-gradient-to-r from-emerald-500 to-amber-400" style="width:${score.toFixed(0)}%"></div>
         </div>
       </div>
-      <span class="text-emerald-400 font-bold font-mono w-12 text-right">${r.elo}</span>
+      <span class="text-emerald-400 font-extrabold font-mono w-12 text-right">${r.elo}</span>
     </div>
   `;
 }
@@ -2484,9 +2526,9 @@ function _backtestCard(label, value, sub, color) {
     violet: 'text-violet-400 border-violet-500/30',
   };
   return `
-    <div class="bg-slate-900 border ${colorMap[color]} rounded-xl p-3">
+    <div class="glass-card border ${colorMap[color]} rounded-xl p-3">
       <div class="text-xs text-slate-500 mb-1">${label}</div>
-      <div class="text-xl font-bold ${colorMap[color].split(' ')[0]}">${value}</div>
+      <div class="text-xl font-extrabold ${colorMap[color].split(' ')[0]}">${value}</div>
       <div class="text-xs text-slate-500 mt-1">${sub}</div>
     </div>
   `;
@@ -2545,13 +2587,13 @@ function renderFreshnessCard(s) {
   return `
     <section class="cockpit-section mb-4">
       <h2 class="cockpit-section-title">📡 数据新鲜度 (v0.10)</h2>
-      <div class="bg-gradient-to-br ${c.bg} border ${c.border} rounded-xl p-4">
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="rounded-2xl border ${c.border} p-4 relative overflow-hidden" style="background: linear-gradient(135deg, ${c.bg.includes('emerald') ? 'rgba(16,185,129,0.10)' : c.bg.includes('amber') ? 'rgba(245,158,11,0.10)' : c.bg.includes('rose') ? 'rgba(244,63,94,0.10)' : 'rgba(100,116,139,0.10)'}, transparent)">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 relative z-10">
           <div>
             <div class="text-xs text-slate-500 mb-1">同步状态</div>
             <div class="flex items-center gap-2">
               <span class="text-2xl">${c.icon}</span>
-              <span class="text-lg font-bold ${c.text}">${c.label}</span>
+              <span class="text-lg font-extrabold ${c.text}">${c.label}</span>
             </div>
           </div>
           <div>
@@ -2570,8 +2612,8 @@ function renderFreshnessCard(s) {
             <div class="text-xs text-slate-500">${s.total_successes}✓ / ${s.total_failures}✗</div>
           </div>
         </div>
-        ${s.last_error ? `<div class="mt-3 text-xs text-rose-400 bg-rose-950/30 rounded px-3 py-2">⚠ 最近错误: ${s.last_error}</div>` : ''}
-        <div class="mt-3 text-xs text-slate-500">
+        ${s.last_error ? `<div class="mt-3 text-xs text-rose-400 bg-rose-950/30 rounded px-3 py-2 relative z-10">⚠ 最近错误: ${s.last_error}</div>` : ''}
+        <div class="mt-3 text-xs text-slate-500 relative z-10">
           阈值: 新鲜 &lt; 30 分钟 / 陈旧 30-60 分钟 / 严重 &gt; 60 分钟 · 端点 <code class="text-slate-400">GET /api/health/sync-status</code>
         </div>
       </div>
@@ -2603,23 +2645,23 @@ function renderLiveAccuracyCard(liveWindow, liveAll) {
       <h2 class="cockpit-section-title">🎯 真 Forward 准确率 (v0.11) ${statusBadge}</h2>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
         <!-- 整体 -->
-        <div class="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+        <div class="glass-card rounded-xl p-4">
           <div class="text-xs text-slate-400 mb-1">近 ${days} 天 (live only)</div>
-          <div class="text-3xl font-bold ${accColor}">
+          <div class="text-3xl font-extrabold ${accColor}">
             ${acc == null ? '—' : (acc * 100).toFixed(1) + '%'}
           </div>
           <div class="text-xs text-slate-500 mt-1">${samples} 场已完赛预测</div>
         </div>
         <!-- brier -->
-        <div class="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+        <div class="glass-card rounded-xl p-4">
           <div class="text-xs text-slate-400 mb-1">Brier Score ↓</div>
-          <div class="text-3xl font-bold text-cyan-300">
+          <div class="text-3xl font-extrabold text-cyan-300">
             ${brier == null ? '—' : brier.toFixed(4)}
           </div>
           <div class="text-xs text-slate-500 mt-1">越低越准</div>
         </div>
         <!-- 数据状态 -->
-        <div class="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+        <div class="glass-card rounded-xl p-4">
           <div class="text-xs text-slate-400 mb-1">数据状态</div>
           <div class="text-base font-semibold text-slate-200">${statusBadge}</div>
           <div class="text-xs text-slate-500 mt-1">
@@ -2638,7 +2680,7 @@ function renderLiveAccuracyCard(liveWindow, liveAll) {
 // v0.6.0: 模型准确率 mini-card (Cockpit 用)
 function accuracyMiniCard(label, m, color) {
   if (!m) {
-    return `<div class="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center text-slate-500 text-xs">
+    return `<div class="glass-card rounded-xl p-4 text-center text-slate-500 text-xs">
       <div class="mb-1">${label}</div>
       <div>暂无数据</div>
     </div>`;
@@ -2652,13 +2694,13 @@ function accuracyMiniCard(label, m, color) {
     : color === 'violet' ? 'border-violet-500/30'
     : 'border-slate-700';
   return `
-    <div class="bg-slate-900/50 border ${accent} rounded-xl p-4">
+    <div class="glass-card border ${accent} rounded-xl p-4">
       <div class="flex items-center justify-between mb-2">
         <span class="text-sm text-slate-300 font-semibold">${label}</span>
         <span class="text-xs text-slate-500">n=${m.n}</span>
       </div>
       <div class="flex items-baseline gap-2 mb-3">
-        <span class="text-3xl font-bold ${colorCls}">${acc ?? '—'}</span>
+        <span class="text-3xl font-extrabold ${colorCls}">${acc ?? '—'}</span>
         <span class="text-xs text-slate-500">准确率</span>
       </div>
       <div class="grid grid-cols-3 gap-2 text-xs">
@@ -2707,7 +2749,7 @@ function focusCard(m) {
     ? `${m.home_score} : ${m.away_score}` : 'VS';
   const scoreColor = m.status === 'finished' ? 'text-white' : 'text-slate-500';
   return `
-    <a href="#/match/${m.id}" class="block bg-slate-900 hover:bg-slate-800 rounded-xl p-3 border border-slate-800 transition">
+    <a href="#/match/${m.id}" class="block glass-card rounded-xl p-3 hover:border-emerald-500/30 transition">
       <div class="flex items-center justify-between mb-2">
         <span class="text-xs text-slate-500">${full} 北京</span>
         <span class="text-xs ${m.status === 'finished' ? 'text-slate-400' : 'text-emerald-400'}">${cd || statusBadgeText(m.status)}</span>
@@ -2715,11 +2757,11 @@ function focusCard(m) {
       <div class="flex items-center justify-between gap-2">
         <div class="flex items-center gap-2 flex-1 min-w-0">
           <span class="team-flag text-xl">${home.flag_emoji || '🏳️'}</span>
-          <span class="font-medium text-sm truncate">${escapeHtml(home.name_zh)}</span>
+          <span class="font-semibold text-sm truncate text-slate-100">${escapeHtml(home.name_zh)}</span>
         </div>
-        <div class="text-xl font-bold ${scoreColor} score-big px-2">${score}</div>
+        <div class="text-xl font-extrabold ${scoreColor} score-big px-2">${score}</div>
         <div class="flex items-center gap-2 flex-1 min-w-0 justify-end">
-          <span class="font-medium text-sm truncate">${escapeHtml(away.name_zh)}</span>
+          <span class="font-semibold text-sm truncate text-slate-100">${escapeHtml(away.name_zh)}</span>
           <span class="team-flag text-xl">${away.flag_emoji || '🏳️'}</span>
         </div>
       </div>
@@ -2738,20 +2780,20 @@ function groupHeatCell(g, rows) {
   // rows 已按名次排好（API 排序）
   const sorted = rows.slice(0, 4);
   return `
-    <div class="bg-slate-900 rounded border border-slate-800 overflow-hidden">
-      <div class="text-center text-xs font-bold text-emerald-400 bg-slate-800/50 py-0.5">${g}</div>
+    <div class="glass-card rounded overflow-hidden">
+      <div class="text-center text-xs font-extrabold text-emerald-400 py-0.5" style="background: linear-gradient(90deg, rgba(16,185,129,0.15), transparent)">${g}</div>
       ${sorted.map((r, idx) => {
         const pos = idx + 1;
         const colorMap = {
-          1: 'bg-emerald-500/20 text-emerald-300',
-          2: 'bg-emerald-500/10 text-emerald-400/80',
-          3: 'bg-blue-500/15 text-blue-300',
-          4: 'bg-rose-500/15 text-rose-300/70',
+          1: 'bg-emerald-500/15 text-emerald-300',
+          2: 'bg-emerald-500/8 text-emerald-400/80',
+          3: 'bg-blue-500/10 text-blue-300',
+          4: 'bg-rose-500/10 text-rose-300/70',
         };
         return `
-          <div class="${colorMap[pos]} px-1 py-0.5 text-[10px] flex justify-between items-center border-t border-slate-800/50">
+          <div class="${colorMap[pos]} px-1.5 py-0.5 text-[10px] flex justify-between items-center border-t border-slate-800/40">
             <span class="truncate flex-1">${r.team.flag_emoji || ''} ${escapeHtml(r.team.name_zh)}</span>
-            <span class="font-bold ml-1">${r.points}</span>
+            <span class="font-extrabold ml-1 font-mono">${r.points}</span>
           </div>
         `;
       }).join('')}
@@ -2765,17 +2807,17 @@ function eloRow(rank, t, maxElo, minElo) {
   const form = t.recent_form_points;
   const formText = form === null || form === undefined ? '新' : `近 ${form}/15`;
   return `
-    <a href="#/team/${t.id}" class="block bg-slate-900 hover:bg-slate-800 rounded p-1.5 border border-slate-800 transition">
+    <a href="#/team/${t.id}" class="block glass-card rounded-lg p-1.5 hover:border-emerald-500/30 transition">
       <div class="flex items-center justify-between text-xs mb-0.5">
         <span class="flex items-center gap-1.5 min-w-0">
           <span class="text-slate-500 font-mono w-5 text-right">${rank}</span>
           <span class="team-flag text-base">${t.flag_emoji || '🏳️'}</span>
-          <span class="font-medium truncate">${escapeHtml(t.name_zh)}</span>
+          <span class="font-semibold truncate text-slate-100">${escapeHtml(t.name_zh)}</span>
         </span>
-        <span class="text-emerald-400 font-bold font-mono">${elo}</span>
+        <span class="text-emerald-400 font-extrabold font-mono">${elo}</span>
       </div>
       <div class="flex items-center gap-2">
-        <div class="flex-1 h-1.5 bg-slate-800 rounded overflow-hidden">
+        <div class="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
           <div class="h-full bg-gradient-to-r from-emerald-500 to-amber-400" style="width:${widthPct.toFixed(0)}%"></div>
         </div>
         <span class="text-[10px] text-slate-500 w-12 text-right">${formText}</span>
@@ -2786,7 +2828,7 @@ function eloRow(rank, t, maxElo, minElo) {
 
 function hourCell(h, bucket) {
   const n = bucket.length;
-  const intensity = n === 0 ? 'bg-slate-900' : n === 1 ? 'bg-emerald-500/30' : n === 2 ? 'bg-emerald-500/50' : 'bg-emerald-500/80';
+  const intensity = n === 0 ? 'bg-slate-900/40 border-slate-800/40' : n === 1 ? 'bg-emerald-500/20 border-emerald-500/30' : n === 2 ? 'bg-emerald-500/35 border-emerald-500/40' : 'bg-emerald-500/60 border-emerald-500/50';
   const heightClass = n === 0 ? 'h-10' : n === 1 ? 'h-12' : n === 2 ? 'h-14' : 'h-16';
   const list = bucket.slice(0, 3).map(m => {
     const home = (m.home_team || { name_zh: m.home_team_placeholder || '?' }).name_zh;
@@ -2795,7 +2837,7 @@ function hourCell(h, bucket) {
   }).join('');
   const more = n > 3 ? `<div class="text-[10px] text-slate-400">+${n - 3} 场</div>` : '';
   return `
-    <div class="${intensity} ${heightClass} rounded border border-slate-800/50 p-1 flex flex-col justify-end" title="+${h}h: ${n} 场">
+    <div class="${intensity} ${heightClass} rounded-lg border p-1 flex flex-col justify-end backdrop-blur-sm" title="+${h}h: ${n} 场">
       <div class="text-[10px] text-slate-500 font-mono">+${h}h</div>
       ${list}${more}
     </div>
@@ -2804,10 +2846,10 @@ function hourCell(h, bucket) {
 
 function stadiumCard(s) {
   const todayBadge = s.todayCount > 0
-    ? `<span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded">今日 ${s.todayCount} 场</span>`
+    ? `<span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-500/30">今日 ${s.todayCount} 场</span>`
     : `<span class="text-[10px] text-slate-600">今日无</span>`;
   return `
-    <div class="bg-slate-900 rounded-lg p-2 border border-slate-800">
+    <div class="glass-card rounded-lg p-2">
       <div class="flex items-start justify-between mb-1">
         <div class="font-bold text-xs text-slate-200 truncate">${escapeHtml(s.info.name_en)}</div>
         ${todayBadge}
@@ -2816,7 +2858,7 @@ function stadiumCard(s) {
       <div class="flex items-center gap-2 mt-1.5 text-[10px]">
         <span class="text-slate-400">已踢 <b class="text-white">${s.finished}</b></span>
         <span class="text-slate-400">总 <b class="text-white">${s.total}</b></span>
-        <div class="flex-1 h-1 bg-slate-800 rounded overflow-hidden">
+        <div class="flex-1 h-1 bg-slate-800 rounded-full overflow-hidden">
           <div class="h-full bg-emerald-500" style="width:${s.total ? (s.finished / s.total * 100).toFixed(0) : 0}%"></div>
         </div>
       </div>
@@ -2880,7 +2922,10 @@ function showSkeleton(type) {
       <div class="skeleton-shimmer" style="height:200px;border-radius:12px"></div>
       <div class="skeleton-shimmer" style="height:280px;border-radius:12px"></div>
     </div>`,
-    'generic': `<div class="text-center py-12 text-slate-500">加载中...</div>`,
+    'generic': `<div class="flex flex-col items-center justify-center py-16 text-slate-500">
+      <div class="w-10 h-10 border-2 border-slate-700 border-t-emerald-400 rounded-full animate-spin mb-4" style="animation-duration:0.8s"></div>
+      <div class="text-sm">加载中...</div>
+    </div>`,
   };
   $('#app').innerHTML = map[type] || map['generic'];
 }
@@ -2953,11 +2998,12 @@ function renderNotFound() {
  */
 function renderEmpty(emoji, title, hint, ctaHash, ctaLabel) {
   return `
-    <div class="state-card state-card-empty text-center">
-      <div class="text-5xl mb-3">${emoji}</div>
-      <div class="text-base text-slate-300 mb-1">${escapeHtml(title)}</div>
-      ${hint ? `<div class="text-xs text-slate-500 mb-4">${escapeHtml(hint)}</div>` : '<div class="mb-4"></div>'}
-      ${ctaHash && ctaLabel ? `<a href="${ctaHash}" class="btn-primary text-sm">${escapeHtml(ctaLabel)}</a>` : ''}
+    <div class="state-card state-card-empty text-center relative overflow-hidden">
+      <div class="absolute inset-0 hero-glow pointer-events-none"></div>
+      <div class="text-5xl mb-3 relative z-10">${emoji}</div>
+      <div class="text-base font-extrabold text-slate-200 mb-1 relative z-10">${escapeHtml(title)}</div>
+      ${hint ? `<div class="text-xs text-slate-500 mb-4 relative z-10">${escapeHtml(hint)}</div>` : '<div class="mb-4 relative z-10"></div>'}
+      ${ctaHash && ctaLabel ? `<a href="${ctaHash}" class="btn-primary text-sm relative z-10">${escapeHtml(ctaLabel)}</a>` : ''}
     </div>
   `;
 }
@@ -3107,6 +3153,13 @@ document.addEventListener('keydown', (e) => {
     if (drawer && drawer.classList.contains('open')) toggleDrawer();
   }
 });
+
+// v0.15.0: 滚动时 header 加深阴影
+document.addEventListener('scroll', () => {
+  const header = document.querySelector('header.sticky');
+  if (!header) return;
+  header.classList.toggle('scrolled', window.scrollY > 4);
+}, { passive: true });
 
 // ============================================
 // 🏆 B1 路线图（晋级路线图，2026 美加墨世界杯 48 队）
@@ -3591,7 +3644,7 @@ async function renderH2H() {
       <div class="flex items-center gap-3">
         <span class="text-2xl">⚔️</span>
         <div>
-          <div class="text-xl font-bold text-emerald-400">历史交锋</div>
+          <div class="text-xl font-extrabold text-emerald-400">历史交锋</div>
           <div class="text-xs text-slate-500">39 队 · 109 对历史对决 · 2018+2022 世界杯种子 + 2026 已完赛</div>
         </div>
       </div>
@@ -3600,9 +3653,9 @@ async function renderH2H() {
     <!-- 选队 select -->
     <section class="cockpit-section mb-4">
       <h2 class="cockpit-section-title">🎯 选择球队</h2>
-      <div class="bg-slate-900 rounded-xl p-3 border border-slate-800">
+      <div class="glass-card rounded-xl p-3">
         <label class="text-xs text-slate-500 mb-1 block">查看该队与所有对手的历史交锋</label>
-        <select id="h2h-team-select" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none">
+        <select id="h2h-team-select" class="w-full">
           ${teams.map(t => `<option value="${t.fifa_code}" ${t.fifa_code === defaultCode ? 'selected' : ''}>${t.flag_emoji || '🏳️'} ${escapeHtml(t.name_zh)} (${t.fifa_code} · ${t.group_name || '-'})</option>`).join('')}
         </select>
       </div>
@@ -3650,7 +3703,7 @@ async function _renderH2HList(teamCode) {
   }
 
   if (!data.opponents || data.opponents.length === 0) {
-    listEl.innerHTML = '<div class="bg-slate-900 rounded-xl p-8 text-center border border-slate-800"><div class="text-4xl mb-2">🤷</div><div class="text-slate-400">该队暂无历史交锋对手</div><div class="text-xs text-slate-600 mt-1">（2018+2022 世界杯 + 2026 已完赛范围内）</div></div>';
+    listEl.innerHTML = '<div class="glass-card rounded-2xl p-8 text-center"><div class="text-4xl mb-2">🤷</div><div class="text-slate-400">该队暂无历史交锋对手</div><div class="text-xs text-slate-600 mt-1">（2018+2022 世界杯 + 2026 已完赛范围内）</div></div>';
     // 更新 total
     const totalEl = document.getElementById('h2h-total');
     if (totalEl) totalEl.textContent = '0';
@@ -3665,17 +3718,17 @@ async function _renderH2HList(teamCode) {
     <div class="text-xs text-slate-500 mb-2">▎ 共 ${data.opponents_count} 个对手（按对决数倒序）</div>
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
       ${data.opponents.map(o => `
-        <a href="#/h2h/${teamCode}/${o.fifa_code}" class="block bg-slate-900 border border-slate-800 rounded-xl p-3 hover:border-emerald-700 hover:bg-slate-800 transition">
+        <a href="#/h2h/${teamCode}/${o.fifa_code}" class="block glass-card rounded-xl p-3 hover:border-emerald-500/30 group">
           <div class="flex items-center justify-between mb-1">
             <div class="flex items-center gap-2 min-w-0 flex-1">
-              <span class="text-2xl shrink-0">${o.flag_emoji || '🏳️'}</span>
+              <span class="text-2xl shrink-0 group-hover:scale-110 transition-transform">${o.flag_emoji || '🏳️'}</span>
               <div class="min-w-0">
                 <div class="text-sm font-bold text-slate-200 truncate">${escapeHtml(o.name_zh)}</div>
                 <div class="text-xs text-slate-500 truncate">${o.fifa_code}${o.name_en ? ' · ' + escapeHtml(o.name_en) : ''}</div>
               </div>
             </div>
             <div class="text-right shrink-0 ml-2">
-              <div class="text-2xl font-bold text-emerald-400">${o.matches_count}</div>
+              <div class="text-2xl font-extrabold text-emerald-400 font-mono">${o.matches_count}</div>
               <div class="text-[10px] text-slate-500">对决</div>
             </div>
           </div>
@@ -3727,7 +3780,7 @@ async function renderH2HDetail(code1, code2) {
 
   // 场次列表（按日期倒序，已经 server 排序好）
   const matchesHtml = matches.length === 0
-    ? `<div class="bg-slate-900 rounded-xl p-8 text-center border border-slate-800">
+    ? `<div class="glass-card rounded-2xl p-8 text-center">
          <div class="text-4xl mb-2">🤝</div>
          <div class="text-slate-400">两队暂无历史交锋数据</div>
          <div class="text-xs text-slate-600 mt-1">（2018+2022 世界杯 + 2026 已完赛）</div>
@@ -3743,7 +3796,7 @@ async function renderH2HDetail(code1, code2) {
           ? `<span class="text-xs px-1.5 py-0.5 rounded bg-emerald-900/40 text-emerald-300">本届</span>`
           : `<span class="text-xs px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">历史</span>`;
         return `
-          <div class="bg-slate-900 rounded-xl p-3 border border-slate-800 flex items-center gap-3">
+          <div class="glass-card rounded-xl p-3 flex items-center gap-3">
             <div class="text-center min-w-[60px]">
               <div class="text-xs text-slate-500">${m.match_date.slice(0, 10)}</div>
               <div class="text-[10px] text-slate-600">${m.match_date.slice(11, 16) || ''}</div>
@@ -3755,9 +3808,9 @@ async function renderH2HDetail(code1, code2) {
                 <span class="text-xs text-slate-400">${escapeHtml(m.stage || '')}</span>
               </div>
               <div class="flex items-center gap-2 mt-1">
-                <span class="text-sm font-bold ${c1ScoreColor}">${m.code1_score}</span>
+                <span class="text-sm font-extrabold ${c1ScoreColor} font-mono">${m.code1_score}</span>
                 <span class="text-slate-500">-</span>
-                <span class="text-sm font-bold ${c2ScoreColor}">${m.code2_score}</span>
+                <span class="text-sm font-extrabold ${c2ScoreColor} font-mono">${m.code2_score}</span>
                 <span class="text-xs text-slate-500">${escapeHtml(t1.flag_emoji)} ${escapeHtml(t1.name_zh)}</span>
                 <span class="text-xs text-slate-600">vs</span>
                 <span class="text-xs text-slate-500">${escapeHtml(t2.flag_emoji)} ${escapeHtml(t2.name_zh)}${homeTag}</span>
@@ -3780,10 +3833,11 @@ async function renderH2HDetail(code1, code2) {
     </div>
 
     <!-- P1.3: 头部两队对比 -->
-    <div class="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-5 border border-slate-700 mb-4">
-      <div class="text-center mb-3">
+    <div class="glass-card glow-border rounded-2xl p-5 border border-slate-700/60 mb-4 relative overflow-hidden">
+      <div class="absolute inset-0 hero-glow pointer-events-none"></div>
+      <div class="text-center mb-3 relative z-10">
         <div class="text-xs text-slate-500 mb-1">⚔️ 历史交锋详情</div>
-        <h1 class="text-2xl font-bold text-white">
+        <h1 class="text-2xl font-extrabold text-white">
           <span>${escapeHtml(t1.flag_emoji || '🏳️')} ${escapeHtml(t1.name_zh)}</span>
           <span class="text-slate-500 mx-2">VS</span>
           <span>${escapeHtml(t2.flag_emoji || '🏳️')} ${escapeHtml(t2.name_zh)}</span>
@@ -3795,11 +3849,11 @@ async function renderH2HDetail(code1, code2) {
 
       <!-- 胜负条（基于 code1 视角） -->
       ${summary.total > 0 ? `
-        <div class="mt-4">
+        <div class="mt-4 relative z-10">
           <div class="flex items-center justify-between text-xs mb-1.5">
-            <span class="text-emerald-400 font-bold">${escapeHtml(t1.name_zh)} ${summary.code1_wins} 胜</span>
+            <span class="text-emerald-400 font-extrabold">${escapeHtml(t1.name_zh)} ${summary.code1_wins} 胜</span>
             <span class="text-slate-400">${summary.draws} 平</span>
-            <span class="text-rose-400 font-bold">${summary.code2_wins} 胜 ${escapeHtml(t2.name_zh)}</span>
+            <span class="text-rose-400 font-extrabold">${summary.code2_wins} 胜 ${escapeHtml(t2.name_zh)}</span>
           </div>
           <div class="h-3 bg-slate-800 rounded-full overflow-hidden flex">
             <div class="bg-emerald-500 transition-all" style="width: ${w1Pct}%"></div>
@@ -3811,12 +3865,14 @@ async function renderH2HDetail(code1, code2) {
           </div>
         </div>
       ` : `
-        <div class="text-center text-sm text-slate-500 mt-4">两队暂无历史交锋</div>
+        <div class="text-center text-sm text-slate-500 mt-4 relative z-10">两队暂无历史交锋</div>
       `}
     </div>
 
     <!-- P1.3: 场次列表 -->
-    <h2 class="text-lg font-bold mb-3">📜 完整交锋记录（${summary.total} 场）</h2>
+    <h2 class="text-lg font-extrabold mb-3 flex items-center gap-2 tracking-tight">
+      <span class="w-1.5 h-6 bg-gradient-to-b from-emerald-400 to-emerald-600 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.4)]"></span>📜 完整交锋记录（${summary.total} 场）
+    </h2>
     <div class="space-y-2">
       ${matchesHtml}
     </div>
@@ -3923,6 +3979,11 @@ async function router() {
     $('#app').innerHTML = renderError(err, router);
     console.error('[router]', hash, err);
   }
+  // v0.15.0: 页面内容进入动画
+  const app = $('#app');
+  if (app && app.firstElementChild) {
+    app.firstElementChild.classList.add('page-enter');
+  }
 }
 
 window.addEventListener('hashchange', router);
@@ -3944,45 +4005,45 @@ async function renderAccuracy() {
     apiWithRetry('/elo/glicko2-metrics'),
   ]);
 
-  const overallColor = (acc) => acc == null ? '#999' : acc >= 0.60 ? '#16a34a' : acc >= 0.55 ? '#d97706' : '#dc2626';
+  const overallColor = (acc) => acc == null ? 'text-slate-400' : acc >= 0.60 ? 'text-emerald-400' : acc >= 0.55 ? 'text-amber-400' : 'text-rose-400';
   const modelCard = (label, m, color) => `
-    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+    <div class="glass-card rounded-2xl p-4">
       <div class="text-xs text-slate-500 mb-1">${label}</div>
-      <div class="text-3xl font-bold" style="color:${overallColor(m.accuracy)}">${m.accuracy == null ? '—' : (m.accuracy * 100).toFixed(1) + '%'}</div>
+      <div class="text-3xl font-extrabold ${overallColor(m.accuracy)}">${m.accuracy == null ? '—' : (m.accuracy * 100).toFixed(1) + '%'}</div>
       <div class="text-xs text-slate-500 mt-2">n_settled=${m.n_settled} / n_total=${m.n_total}</div>
       <div class="grid grid-cols-3 gap-2 mt-3 text-xs">
-        <div><div class="text-slate-400">RPS</div><div class="font-semibold">${m.rps == null ? '—' : m.rps.toFixed(4)}</div></div>
-        <div><div class="text-slate-400">Brier</div><div class="font-semibold">${m.brier == null ? '—' : m.brier.toFixed(4)}</div></div>
-        <div><div class="text-slate-400">LogLoss</div><div class="font-semibold">${m.log_loss == null ? '—' : m.log_loss.toFixed(4)}</div></div>
+        <div><div class="text-slate-500">RPS</div><div class="font-semibold text-slate-200">${m.rps == null ? '—' : m.rps.toFixed(4)}</div></div>
+        <div><div class="text-slate-500">Brier</div><div class="font-semibold text-slate-200">${m.brier == null ? '—' : m.brier.toFixed(4)}</div></div>
+        <div><div class="text-slate-500">LogLoss</div><div class="font-semibold text-slate-200">${m.log_loss == null ? '—' : m.log_loss.toFixed(4)}</div></div>
       </div>
     </div>
   `;
 
   const compareRow = (label, m, _order) => {
     if (!m || m.n_settled == null) {
-      return `<tr class="border-t border-slate-100 text-slate-400">
+      return `<tr class="border-t border-slate-800/50 text-slate-400">
         <td class="py-2">${label}</td>
         <td class="text-right">—</td><td class="text-right">—</td><td class="text-right">—</td><td class="text-right">—</td><td class="text-right">—</td>
-        <td class="text-center"><span class="text-xs px-2 py-0.5 bg-slate-100 rounded">无数据</span></td>
+        <td class="text-center"><span class="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-400">无数据</span></td>
       </tr>`;
     }
     const acc = m.accuracy;
     const rating = acc == null ? '无数据'
-      : acc >= 0.60 ? { txt: '优', cls: 'bg-emerald-100 text-emerald-700' }
-      : acc >= 0.55 ? { txt: '良', cls: 'bg-amber-100 text-amber-700' }
-      : { txt: '待优化', cls: 'bg-rose-100 text-rose-700' };
+      : acc >= 0.60 ? { txt: '优', cls: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' }
+      : acc >= 0.55 ? { txt: '良', cls: 'bg-amber-500/20 text-amber-300 border border-amber-500/30' }
+      : { txt: '待优化', cls: 'bg-rose-500/20 text-rose-300 border border-rose-500/30' };
     const accColor = acc == null ? 'text-slate-400'
-      : acc >= 0.60 ? 'text-emerald-700 font-bold'
-      : acc >= 0.55 ? 'text-amber-700 font-bold'
-      : 'text-rose-700 font-bold';
-    return `<tr class="border-t border-slate-100 hover:bg-slate-50">
-      <td class="py-2 font-medium">${label}</td>
-      <td class="text-right font-mono">${m.n_settled}</td>
+      : acc >= 0.60 ? 'text-emerald-400 font-extrabold'
+      : acc >= 0.55 ? 'text-amber-400 font-extrabold'
+      : 'text-rose-400 font-extrabold';
+    return `<tr class="border-t border-slate-800/50 hover:bg-slate-800/30 transition">
+      <td class="py-2 font-medium text-slate-200">${label}</td>
+      <td class="text-right font-mono text-slate-300">${m.n_settled}</td>
       <td class="text-right font-mono ${accColor}">${acc == null ? '—' : (acc * 100).toFixed(1) + '%'}</td>
-      <td class="text-right font-mono text-slate-600">${m.rps == null ? '—' : m.rps.toFixed(4)}</td>
-      <td class="text-right font-mono text-slate-600">${m.brier == null ? '—' : m.brier.toFixed(4)}</td>
-      <td class="text-right font-mono text-slate-600">${m.log_loss == null ? '—' : m.log_loss.toFixed(4)}</td>
-      <td class="text-center"><span class="text-xs px-2 py-0.5 rounded ${rating.cls || 'bg-slate-100 text-slate-500'}">${rating.txt}</span></td>
+      <td class="text-right font-mono text-slate-400">${m.rps == null ? '—' : m.rps.toFixed(4)}</td>
+      <td class="text-right font-mono text-slate-400">${m.brier == null ? '—' : m.brier.toFixed(4)}</td>
+      <td class="text-right font-mono text-slate-400">${m.log_loss == null ? '—' : m.log_loss.toFixed(4)}</td>
+      <td class="text-center"><span class="text-xs px-2 py-0.5 rounded ${rating.cls || 'bg-slate-800 text-slate-400'}">${rating.txt}</span></td>
     </tr>`;
   };
 
@@ -3991,37 +4052,37 @@ async function renderAccuracy() {
     const label = {home: '🏠 主胜', draw: '🤝 平局', away: '✈️ 客胜'};
     return order.map(o => {
       const x = byOut[o];
-      return `<tr class="border-t border-slate-100"><td class="py-2">${label[o]}</td><td>${x ? x.n : 0}</td><td>${x ? (x.accuracy * 100).toFixed(1) + '%' : '—'}</td></tr>`;
+      return `<tr class="border-t border-slate-800/50"><td class="py-2 text-slate-300">${label[o]}</td><td class="text-slate-300">${x ? x.n : 0}</td><td class="${x && x.accuracy >= 0.6 ? 'text-emerald-400' : x && x.accuracy >= 0.55 ? 'text-amber-400' : 'text-slate-300'}">${x ? (x.accuracy * 100).toFixed(1) + '%' : '—'}</td></tr>`;
     }).join('');
   };
 
   const byModelRows = (byModel) => Object.entries(byModel).map(([k, v]) => `
-    <tr class="border-t border-slate-100">
-      <td class="py-2 font-mono text-xs">${k}</td>
-      <td>${v.n}</td>
-      <td>${(v.accuracy * 100).toFixed(1)}%</td>
-      <td>${v.brier.toFixed(4)}</td>
-      <td>${v.log_loss.toFixed(4)}</td>
+    <tr class="border-t border-slate-800/50">
+      <td class="py-2 font-mono text-xs text-slate-300">${k}</td>
+      <td class="text-slate-300">${v.n}</td>
+      <td class="${v.accuracy >= 0.6 ? 'text-emerald-400' : v.accuracy >= 0.55 ? 'text-amber-400' : 'text-rose-400'}">${(v.accuracy * 100).toFixed(1)}%</td>
+      <td class="text-slate-300">${v.brier.toFixed(4)}</td>
+      <td class="text-slate-300">${v.log_loss.toFixed(4)}</td>
     </tr>
   `).join('');
 
   const biasRows = (bias || []).map(b => {
     const surprisePct = (b.surprise_score * 100).toFixed(0);
-    return `<tr class="border-t border-slate-100">
-      <td class="py-2">#${b.match_id}</td>
-      <td><span class="font-mono">${b.predicted_outcome}</span></td>
-      <td><span class="font-mono">${b.actual_outcome}</span></td>
-      <td>${(b.confidence * 100).toFixed(1)}%</td>
-      <td>${(b.actual_p * 100).toFixed(1)}%</td>
-      <td><span class="text-red-600 font-semibold">${surprisePct}%</span></td>
+    return `<tr class="border-t border-slate-800/50">
+      <td class="py-2 text-slate-300">#${b.match_id}</td>
+      <td><span class="font-mono text-slate-300">${b.predicted_outcome}</span></td>
+      <td><span class="font-mono text-slate-300">${b.actual_outcome}</span></td>
+      <td class="text-slate-300">${(b.confidence * 100).toFixed(1)}%</td>
+      <td class="text-slate-300">${(b.actual_p * 100).toFixed(1)}%</td>
+      <td><span class="text-rose-400 font-semibold">${surprisePct}%</span></td>
     </tr>`;
   }).join('');
 
   $('#app').innerHTML = `
     <div class="max-w-6xl mx-auto p-4">
       <div class="flex items-center justify-between mb-4">
-        <h1 class="text-2xl font-bold text-slate-800">📊 预测准确率 Dashboard</h1>
-        <a href="#/" class="text-sm text-blue-600 hover:underline">← 返回首页</a>
+        <h1 class="text-2xl font-extrabold text-slate-100 flex items-center gap-2"><span>📊</span>预测准确率 Dashboard</h1>
+        <a href="#/" class="text-sm text-emerald-400 hover:text-emerald-300 transition">← 返回首页</a>
       </div>
 
       <!-- KPI 行: 3 个模型对比 -->
@@ -4032,10 +4093,10 @@ async function renderAccuracy() {
       </div>
 
       <!-- 3 模型横评对比表 -->
-      <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 mb-6">
-        <h2 class="text-lg font-semibold text-slate-800 mb-3">📈 3 模型横评对比表</h2>
+      <div class="glass-card rounded-2xl p-4 mb-6">
+        <h2 class="text-lg font-extrabold text-slate-100 mb-3 flex items-center gap-2"><span>📈</span>3 模型横评对比表</h2>
         <table class="w-full text-sm">
-          <thead class="text-xs text-slate-500 border-b-2 border-slate-200">
+          <thead class="text-xs text-slate-500 border-b-2 border-slate-800/60">
             <tr>
               <th class="text-left py-2">模型</th>
               <th class="text-right">n_settled</th>
@@ -4060,19 +4121,19 @@ async function renderAccuracy() {
       <!-- 按 actual_outcome 分组 -->
       ${all.n_settled > 0 ? `
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
-            <h2 class="text-lg font-semibold text-slate-800 mb-3">按实际结果分组 (全部模型)</h2>
+          <div class="glass-card rounded-2xl p-4">
+            <h2 class="text-lg font-extrabold text-slate-100 mb-3">按实际结果分组 (全部模型)</h2>
             <table class="w-full text-sm">
-              <thead class="text-xs text-slate-500 border-b border-slate-200">
+              <thead class="text-xs text-slate-500 border-b border-slate-800/60">
                 <tr><th class="text-left py-2">结果</th><th>n</th><th>准确率</th></tr>
               </thead>
               <tbody>${byOutcomeRows(all.by_outcome)}</tbody>
             </table>
           </div>
-          <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
-            <h2 class="text-lg font-semibold text-slate-800 mb-3">按模型分组 (已结算)</h2>
+          <div class="glass-card rounded-2xl p-4">
+            <h2 class="text-lg font-extrabold text-slate-100 mb-3">按模型分组 (已结算)</h2>
             <table class="w-full text-sm">
-              <thead class="text-xs text-slate-500 border-b border-slate-200">
+              <thead class="text-xs text-slate-500 border-b border-slate-800/60">
                 <tr><th class="text-left py-2">模型</th><th>n</th><th>Acc</th><th>Brier</th><th>LogLoss</th></tr>
               </thead>
               <tbody>${byModelRows(all.by_model)}</tbody>
@@ -4080,43 +4141,43 @@ async function renderAccuracy() {
           </div>
         </div>
       ` : `
-        <div class="bg-amber-50 border border-amber-200 rounded-2xl p-6 text-center mb-6">
+        <div class="rounded-2xl p-6 text-center mb-6 border border-amber-500/30" style="background: linear-gradient(135deg, rgba(245,158,11,0.10), transparent)">
           <div class="text-3xl mb-2">⏳</div>
-          <div class="text-slate-700 font-semibold mb-1">暂无已结算预测</div>
-          <div class="text-sm text-slate-600">预测日志正在积累中. 已完赛的 MEX 2-0 RSA 比赛将在 15 分钟内被调度器结算.</div>
+          <div class="text-slate-200 font-semibold mb-1">暂无已结算预测</div>
+          <div class="text-sm text-slate-500">预测日志正在积累中. 已完赛的 MEX 2-0 RSA 比赛将在 15 分钟内被调度器结算.</div>
         </div>
       `}
 
       <!-- Glicko-2 walk-forward 历史基线 -->
-      <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 mb-6">
-        <h2 class="text-lg font-semibold text-slate-800 mb-2">🎯 Glicko-2 训练基线 (913 场 walk-forward)</h2>
+      <div class="glass-card rounded-2xl p-4 mb-6">
+        <h2 class="text-lg font-extrabold text-slate-100 mb-2 flex items-center gap-2"><span>🎯</span>Glicko-2 训练基线 (913 场 walk-forward)</h2>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-          <div class="bg-slate-50 p-3 rounded-lg">
+          <div class="bg-slate-950/40 p-3 rounded-lg">
             <div class="text-xs text-slate-500">准确率</div>
-            <div class="text-2xl font-bold text-slate-800">${g2Metrics?.metrics?.accuracy != null ? (g2Metrics.metrics.accuracy * 100).toFixed(1) + '%' : '—'}</div>
+            <div class="text-2xl font-extrabold text-slate-100">${g2Metrics?.metrics?.accuracy != null ? (g2Metrics.metrics.accuracy * 100).toFixed(1) + '%' : '—'}</div>
           </div>
-          <div class="bg-slate-50 p-3 rounded-lg">
+          <div class="bg-slate-950/40 p-3 rounded-lg">
             <div class="text-xs text-slate-500">RPS</div>
-            <div class="text-2xl font-bold text-slate-800">${g2Metrics?.metrics?.rps != null ? g2Metrics.metrics.rps.toFixed(4) : '—'}</div>
+            <div class="text-2xl font-extrabold text-slate-100">${g2Metrics?.metrics?.rps != null ? g2Metrics.metrics.rps.toFixed(4) : '—'}</div>
           </div>
-          <div class="bg-slate-50 p-3 rounded-lg">
+          <div class="bg-slate-950/40 p-3 rounded-lg">
             <div class="text-xs text-slate-500">Brier</div>
-            <div class="text-2xl font-bold text-slate-800">${g2Metrics?.metrics?.brier != null ? g2Metrics.metrics.brier.toFixed(4) : '—'}</div>
+            <div class="text-2xl font-extrabold text-slate-100">${g2Metrics?.metrics?.brier != null ? g2Metrics.metrics.brier.toFixed(4) : '—'}</div>
           </div>
-          <div class="bg-slate-50 p-3 rounded-lg">
+          <div class="bg-slate-950/40 p-3 rounded-lg">
             <div class="text-xs text-slate-500">LogLoss</div>
-            <div class="text-2xl font-bold text-slate-800">${g2Metrics?.metrics?.log_loss != null ? g2Metrics.metrics.log_loss.toFixed(4) : '—'}</div>
+            <div class="text-2xl font-extrabold text-slate-100">${g2Metrics?.metrics?.log_loss != null ? g2Metrics.metrics.log_loss.toFixed(4) : '—'}</div>
           </div>
         </div>
-        <div class="text-xs text-slate-500 mt-3">训练数据: Hicruben 913 场国际赛 (2023-11 ~ 2026-06). 较 Elo M1 准确率提升 <span class="text-green-600 font-bold">+${g2Metrics?.metrics?.accuracy != null ? ((g2Metrics.metrics.accuracy - 0.5663) * 100).toFixed(1) + ' pp' : '—'}</span>.</div>
+        <div class="text-xs text-slate-500 mt-3">训练数据: Hicruben 913 场国际赛 (2023-11 ~ 2026-06). 较 Elo M1 准确率提升 <span class="text-emerald-400 font-bold">+${g2Metrics?.metrics?.accuracy != null ? ((g2Metrics.metrics.accuracy - 0.5663) * 100).toFixed(1) + ' pp' : '—'}</span>.</div>
       </div>
 
       <!-- 偏差分析 -->
-      <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
-        <h2 class="text-lg font-semibold text-slate-800 mb-3">🚨 Glicko-2 Top 5 偏差场次</h2>
+      <div class="glass-card rounded-2xl p-4">
+        <h2 class="text-lg font-extrabold text-slate-100 mb-3 flex items-center gap-2"><span>🚨</span>Glicko-2 Top 5 偏差场次</h2>
         ${bias && bias.length > 0 ? `
           <table class="w-full text-sm">
-            <thead class="text-xs text-slate-500 border-b border-slate-200">
+            <thead class="text-xs text-slate-500 border-b border-slate-800/60">
               <tr><th class="text-left py-2">Match</th><th>预测</th><th>实际</th><th>Confidence</th><th>实际P</th><th>Surprise</th></tr>
             </thead>
             <tbody>${biasRows}</tbody>
@@ -4126,9 +4187,9 @@ async function renderAccuracy() {
       </div>
 
       <!-- 数据源健康 -->
-      <div class="mt-6 bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
-        <h2 class="text-lg font-semibold text-slate-800 mb-3">🔌 数据源健康</h2>
-        <a href="#/health" class="text-sm text-blue-600 hover:underline" onclick="location.hash='#/'; setTimeout(() => location.hash='#/health', 100)">查看 4 源实时状态 →</a>
+      <div class="mt-6 glass-card rounded-2xl p-4">
+        <h2 class="text-lg font-extrabold text-slate-100 mb-3 flex items-center gap-2"><span>🔌</span>数据源健康</h2>
+        <a href="#/health" class="text-sm text-emerald-400 hover:text-emerald-300 transition" onclick="location.hash='#/'; setTimeout(() => location.hash='#/health', 100)">查看 4 源实时状态 →</a>
         <div class="text-xs text-slate-500 mt-2">worldcup26.ir 主源 + football-data.org 增强 + StatsBomb 对比 + worldcupstats.football 备份</div>
       </div>
     </div>
@@ -4144,57 +4205,57 @@ async function renderHealth() {
     $('#app').innerHTML = `<div class="p-8 text-center text-red-600">数据源健康检查失败: ${e.message}</div>`;
     return;
   }
-  const statusColor = (s) => s === 'ok' ? 'text-green-600 bg-green-50' : s === 'degraded' ? 'text-amber-600 bg-amber-50' : s === 'timeout' ? 'text-orange-600 bg-orange-50' : 'text-red-600 bg-red-50';
-  const statusBadge = (s) => `<span class="px-2 py-0.5 rounded-full text-xs font-bold ${statusColor(s)}">${s.toUpperCase()}</span>`;
+  const statusColor = (s) => s === 'ok' ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/30' : s === 'degraded' ? 'text-amber-400 bg-amber-500/10 border border-amber-500/30' : s === 'timeout' ? 'text-orange-400 bg-orange-500/10 border border-orange-500/30' : 'text-rose-400 bg-rose-500/10 border border-rose-500/30';
+  const statusBadge = (s) => `<span class="px-2 py-0.5 rounded-full text-xs font-extrabold ${statusColor(s)}">${s.toUpperCase()}</span>`;
   const overallBadge = (o) => {
     const map = {
-      all_ok: ['bg-green-100 text-green-800', '✅ 全部正常'],
-      minor_issue: ['bg-amber-100 text-amber-800', '⚠️ 小问题'],
-      degraded: ['bg-orange-100 text-orange-800', '🟠 降级'],
-      critical: ['bg-red-100 text-red-800', '🔴 严重'],
+      all_ok: ['bg-emerald-500/15 text-emerald-300 border border-emerald-500/30', '✅ 全部正常'],
+      minor_issue: ['bg-amber-500/15 text-amber-300 border border-amber-500/30', '⚠️ 小问题'],
+      degraded: ['bg-orange-500/15 text-orange-300 border border-orange-500/30', '🟠 降级'],
+      critical: ['bg-rose-500/15 text-rose-300 border border-rose-500/30', '🔴 严重'],
     };
-    const [cls, text] = map[o] || ['', o];
-    return `<span class="px-3 py-1 rounded-full text-sm font-bold ${cls}">${text}</span>`;
+    const [cls, text] = map[o] || ['bg-slate-800 text-slate-300', o];
+    return `<span class="px-3 py-1 rounded-full text-sm font-extrabold ${cls}">${text}</span>`;
   };
   const sourceCards = (data.sources || []).map(s => `
-    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+    <div class="glass-card rounded-2xl p-4">
       <div class="flex items-start justify-between mb-2">
         <div>
-          <div class="font-semibold text-slate-800 text-sm">${s.name}</div>
+          <div class="font-semibold text-slate-100 text-sm">${s.name}</div>
           <div class="text-xs text-slate-500 mt-1">${s.description || ''}</div>
         </div>
         ${statusBadge(s.status)}
       </div>
-      <div class="grid grid-cols-3 gap-2 text-xs text-slate-600 mt-3">
-        <div><span class="text-slate-400">延迟</span><br><span class="font-mono">${s.latency_ms}ms</span></div>
-        <div><span class="text-slate-400">状态码</span><br><span class="font-mono">${s.status_code || '—'}</span></div>
-        <div><span class="text-slate-400">类型</span><br><span class="font-mono">${s.type}</span></div>
+      <div class="grid grid-cols-3 gap-2 text-xs text-slate-400 mt-3">
+        <div><span class="text-slate-500">延迟</span><br><span class="font-mono text-slate-200">${s.latency_ms}ms</span></div>
+        <div><span class="text-slate-500">状态码</span><br><span class="font-mono text-slate-200">${s.status_code || '—'}</span></div>
+        <div><span class="text-slate-500">类型</span><br><span class="font-mono text-slate-200">${s.type}</span></div>
       </div>
-      ${s.requires_token ? '<div class="text-xs text-amber-600 mt-2">🔑 需要 API token</div>' : ''}
-      ${s.error ? `<div class="text-xs text-red-600 mt-2 font-mono">${s.error}</div>` : ''}
+      ${s.requires_token ? '<div class="text-xs text-amber-400 mt-2">🔑 需要 API token</div>' : ''}
+      ${s.error ? `<div class="text-xs text-rose-400 mt-2 font-mono">${s.error}</div>` : ''}
     </div>
   `).join('');
 
   $('#app').innerHTML = `
     <div class="max-w-5xl mx-auto p-4">
       <div class="flex items-center justify-between mb-4">
-        <h1 class="text-2xl font-bold text-slate-800">🔌 数据源健康</h1>
-        <a href="#/" class="text-sm text-blue-600 hover:underline">← 返回首页</a>
+        <h1 class="text-2xl font-extrabold text-slate-100 flex items-center gap-2"><span>🔌</span>数据源健康</h1>
+        <a href="#/" class="text-sm text-emerald-400 hover:text-emerald-300 transition">← 返回首页</a>
       </div>
-      <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 mb-4 flex items-center justify-between">
+      <div class="glass-card rounded-2xl p-4 mb-4 flex items-center justify-between">
         <div>
           <div class="text-sm text-slate-500">总体状态</div>
-          <div class="text-2xl font-bold mt-1">${overallBadge(data.overall)}</div>
+          <div class="text-2xl font-extrabold mt-1">${overallBadge(data.overall)}</div>
         </div>
-        <div class="text-right text-sm text-slate-600">
-          <div>OK: <span class="font-bold text-green-600">${data.summary.ok}</span> / ${data.summary.total}</div>
-          <div>Degraded: <span class="text-amber-600">${data.summary.degraded}</span></div>
-          <div>Down: <span class="text-red-600">${data.summary.down}</span></div>
-          ${data.avg_latency_ms ? `<div class="mt-1 text-xs text-slate-400">avg ${data.avg_latency_ms}ms</div>` : ''}
+        <div class="text-right text-sm text-slate-400">
+          <div>OK: <span class="font-extrabold text-emerald-400">${data.summary.ok}</span> / ${data.summary.total}</div>
+          <div>Degraded: <span class="text-amber-400">${data.summary.degraded}</span></div>
+          <div>Down: <span class="text-rose-400">${data.summary.down}</span></div>
+          ${data.avg_latency_ms ? `<div class="mt-1 text-xs text-slate-500">avg ${data.avg_latency_ms}ms</div>` : ''}
         </div>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">${sourceCards}</div>
-      <div class="text-xs text-slate-400 mt-4">检测时间: ${data.checked_at}</div>
+      <div class="text-xs text-slate-500 mt-4">检测时间: ${data.checked_at}</div>
     </div>
   `;
 }

@@ -1,6 +1,6 @@
 # 2026 FIFA World Cup 平台 · 生产部署检查清单
 
-> 适用版本：v0.14.3 及后续
+> 适用版本：v0.15.0 及后续
 > 目标环境：Fly.io / Docker / VPS
 
 ---
@@ -11,7 +11,7 @@
 
 - [ ] 本地分支干净：`git status` 无未提交改动
 - [ ] 目标 commit/tag 正确：`git log --oneline -3`
-- [ ] 已打 tag（可选但推荐）：`git tag v0.14.x && git push origin v0.14.x`
+- [ ] 已打 tag（可选但推荐）：`git tag v0.15.0 && git push origin v0.15.0`
 
 ### 1.2 环境变量 `.env`
 
@@ -75,7 +75,7 @@ docker run --rm -v ./data:/data -p 8000:8000 wc2026:test
 
 ```bash
 curl http://localhost:8000/health
-# 期望返回 200，version=0.14.3，scheduler_running=true
+# 期望返回 200，version=0.15.0，scheduler_running=true
 curl http://localhost:8000/api/teams | jq length  # 48
 curl http://localhost:8000/api/matches | jq length # 104
 ```

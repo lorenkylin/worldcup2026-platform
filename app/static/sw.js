@@ -9,7 +9,7 @@
  * 缓存版本：wc2026-v3
  */
 
-const CACHE_VERSION = 'wc2026-v3';  // v0.14.3: remove cockpit, simplify bottom tab
+const CACHE_VERSION = 'wc2026-v4';  // v0.15.0: master UI visual upgrade
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const API_CACHE = `${CACHE_VERSION}-api`;
 
