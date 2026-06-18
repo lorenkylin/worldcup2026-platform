@@ -77,17 +77,21 @@ def main():
     conn.commit()
     print(f'✅ teams 表更新 {len(updates)} 队')
 
-    # 4. 写入 team_elo_ratings 历史表
-    c.execute('SELECT COUNT(*) FROM team_elo_ratings')
-    history_before = c.fetchone()[0]
-    c.executemany('''
-        INSERT INTO team_elo_ratings (team_id, as_of_date, rating, rank, source, scraped_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', history_rows)
-    conn.commit()
-    c.execute('SELECT COUNT(*) FROM team_elo_ratings')
-    history_after = c.fetchone()[0]
-    print(f'✅ team_elo_ratings 写入: {history_before} → {history_after}')
+    # 4. 写入 team_elo_ratings 历史表（v0.14.3 后已清理该死表，保留兼容逻辑）
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='team_elo_ratings'")
+    if c.fetchone():
+        c.execute('SELECT COUNT(*) FROM team_elo_ratings')
+        history_before = c.fetchone()[0]
+        c.executemany('''
+            INSERT INTO team_elo_ratings (team_id, as_of_date, rating, rank, source, scraped_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', history_rows)
+        conn.commit()
+        c.execute('SELECT COUNT(*) FROM team_elo_ratings')
+        history_after = c.fetchone()[0]
+        print(f'✅ team_elo_ratings 写入: {history_before} → {history_after}')
+    else:
+        print('ℹ️ team_elo_ratings 表已不存在，跳过历史表写入（v0.14.3+ 为预期行为）')
 
     # 5. 验证
     print('\n=== 48 队 Elo Top 10 ===')

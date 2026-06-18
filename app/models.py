@@ -5,7 +5,18 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, Text, Index
+from sqlalchemy import (
+    CheckConstraint,
+    Column,
+    Integer,
+    String,
+    Float,
+    DateTime,
+    Boolean,
+    ForeignKey,
+    Text,
+    Index,
+)
 from sqlalchemy.orm import relationship
 
 from app.db import Base
@@ -98,7 +109,11 @@ class MatchEvent(Base):
 
 
 class MatchStats(Base):
-    """赛后基础统计."""
+    """赛后基础统计.
+
+    注(v0.14.3): 当前无自动同步来源，仅通过管理后台 (/api/admin/matches/{id}/stats)
+    手动录入；上线初期该表可能为空，前端已做“暂无数据”提示，不影响核心功能。
+    """
 
     __tablename__ = "match_stats"
 
@@ -134,6 +149,19 @@ class Standing(Base):
     goals_against = Column(Integer, default=0)
     points = Column(Integer, default=0)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        CheckConstraint("played >= 0", name="ck_standings_played_nonneg"),
+        CheckConstraint("won >= 0", name="ck_standings_won_nonneg"),
+        CheckConstraint("drawn >= 0", name="ck_standings_drawn_nonneg"),
+        CheckConstraint("lost >= 0", name="ck_standings_lost_nonneg"),
+        CheckConstraint(
+            "won + drawn + lost = played", name="ck_standings_match_count"
+        ),
+        CheckConstraint(
+            "points = won * 3 + drawn", name="ck_standings_points_formula"
+        ),
+    )
 
 
 class ApiUsageLog(Base):
@@ -254,36 +282,6 @@ class OddsSnapshot(Base):
     source = Column(String(20), default="snapshot")  # snapshot/manual/api
 
     match = relationship("Match")
-
-
-class TeamEloRating(Base):
-    """M1 球队历史评分（多源聚合）—— 历史保留表.
-
-    注(v0.13): 当前运行时代码直接使用 data/seed/hicruben/results.json 与
-    data/seed/statsbomb/statsbomb_elo.json,不再读取本表。本表仅作为 M1 历史
-    数据保留,供旧脚本/报告追溯,未来若接入"评分时间序列"功能可重新启用。
-
-    字段语义：
-    - team_id：teams.id 外键，48 支参赛队
-    - as_of_date：评分生效日期（按月粒度）
-    - rating：评分值（Elo 用 1500 基线；FIFA 排名 1-210）
-    - rank：当月官方排名（1 表示世界第一；可为 NULL）
-    - source：数据来源（wikipedia / fifa / elo）
-    - scraped_at：爬取入库时间（UTC）
-    """
-
-
-    __tablename__ = "team_elo_ratings"
-
-    id = Column(Integer, primary_key=True, index=True)
-    team_id = Column(Integer, ForeignKey("teams.id"), nullable=False, index=True)
-    as_of_date = Column(DateTime, nullable=False, index=True)
-    rating = Column(Float, nullable=False)
-    rank = Column(Integer, default=None)
-    source = Column(String(20), nullable=False, default="wikipedia")  # wikipedia/fifa/elo
-    scraped_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-
-    team = relationship("Team")
 
 
 class PredictionLog(Base):

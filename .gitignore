@@ -107,3 +107,6 @@ fly.toml.local
 .fly/
 # 数据迁移 tar 包 (migrate_data_to_fly.sh 输出)
 /tmp/wc2026_data_*.tar.gz
+
+# 本地临时目录
+tmp/

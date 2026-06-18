@@ -53,7 +53,7 @@ class MatchEventOut(BaseModel):
 
 
 class MatchStatsOut(BaseModel):
-    """比赛统计输出模型."""
+    """比赛统计输出模型（当前仅后台手动录入，可能为空）."""
 
     model_config = ConfigDict(from_attributes=True)
 

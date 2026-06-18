@@ -256,3 +256,75 @@ def test_auto_log_predictions_probabilities_valid():
                 assert 0.0 <= p <= 1.0, f"{log.model_version}.{field}={p} 越界"
     finally:
         db.close()
+
+
+class TestSnapshotGroup:
+    """snapshot_group 自动分组逻辑."""
+
+    def test_compute_snapshot_group_time_windows(self):
+        """各时间窗口边界计算正确."""
+        from app.services.prediction_log import _compute_snapshot_group
+
+        kickoff = datetime(2026, 7, 4, 20, 0, tzinfo=timezone.utc)
+        cases = [
+            # 赛前
+            (kickoff - timedelta(days=10), "pre_7d"),
+            (kickoff - timedelta(days=7, seconds=1), "pre_7d"),
+            (kickoff - timedelta(days=7), "pre_3d"),
+            (kickoff - timedelta(days=4), "pre_3d"),
+            (kickoff - timedelta(days=3, seconds=1), "pre_3d"),
+            (kickoff - timedelta(days=3), "pre_1d"),
+            (kickoff - timedelta(days=2), "pre_1d"),
+            (kickoff - timedelta(days=1, seconds=1), "pre_1d"),
+            (kickoff - timedelta(days=1), "pre_1h"),
+            (kickoff - timedelta(hours=12), "pre_1h"),
+            (kickoff - timedelta(seconds=1), "pre_1h"),
+            (kickoff, "pre_1h"),
+            # 赛中
+            (kickoff + timedelta(seconds=1), "live"),
+            (kickoff + timedelta(hours=2, minutes=59), "live"),
+            # 赛后
+            (kickoff + timedelta(hours=3), "post"),
+            (kickoff + timedelta(days=1), "post"),
+        ]
+        for predicted_at, expected in cases:
+            assert _compute_snapshot_group(predicted_at, kickoff) == expected, (
+                f"predicted_at={predicted_at}, expected={expected}"
+            )
+
+    def test_compute_snapshot_group_missing_time(self):
+        """缺失 predicted_at 或 kickoff_at 时返回 None."""
+        from app.services.prediction_log import _compute_snapshot_group
+
+        now = datetime.now(timezone.utc)
+        assert _compute_snapshot_group(None, now) is None
+        assert _compute_snapshot_group(now, None) is None
+        assert _compute_snapshot_group(None, None) is None
+
+    def test_compute_snapshot_group_naive_datetime(self):
+        """naive UTC 与 aware UTC 可混用."""
+        from app.services.prediction_log import _compute_snapshot_group
+
+        kickoff = datetime(2026, 7, 4, 20, 0)  # naive UTC
+        predicted = datetime(2026, 7, 1, 20, 0, tzinfo=timezone.utc)  # aware UTC
+        # 正好 3 天 -> pre_1d
+        assert _compute_snapshot_group(predicted, kickoff) == "pre_1d"
+        predicted2 = datetime(2026, 7, 1, 19, 59, 59, tzinfo=timezone.utc)
+        assert _compute_snapshot_group(predicted2, kickoff) == "pre_3d"
+
+    def test_auto_log_predictions_sets_snapshot_group(self):
+        """auto_log_predictions 写入时会自动设置 snapshot_group."""
+        from app.services.prediction_log import auto_log_predictions
+
+        db = app_db.SessionLocal()
+        try:
+            _add_future_match(db, match_id=200, days_from_now=2)
+            result = auto_log_predictions(db)
+            assert result["predictions_added"] == 3
+            logs = db.query(PredictionLog).filter(PredictionLog.match_id == 200).all()
+            assert len(logs) == 3
+            for log in logs:
+                # 2 天后属于 pre_1d 窗口
+                assert log.snapshot_group == "pre_1d"
+        finally:
+            db.close()

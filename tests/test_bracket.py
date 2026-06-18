@@ -58,7 +58,7 @@ def _seed_standings(db, standings_config) -> None:
             team = team_map[code]
             won = points // 3
             drawn = (points % 3) // 1
-            lost = 2 - won - drawn  # 默认 3 场赛制简化
+            lost = 3 - won - drawn  # 默认 3 场赛制简化
             rows.append(
                 Standing(
                     group_name=group,

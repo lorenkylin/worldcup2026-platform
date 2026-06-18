@@ -35,6 +35,53 @@ def _outcome_to_letter(outcome: str) -> str:
     return {"home": "H", "draw": "D", "away": "A"}.get(outcome, "?")
 
 
+def _normalize_utc_datetime(dt: Optional[datetime]) -> Optional[datetime]:
+    """把 aware UTC 或 naive UTC 统一转成 naive UTC,便于做时间差计算."""
+    if dt is None:
+        return None
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _compute_snapshot_group(
+    predicted_at: Optional[datetime],
+    kickoff_at: Optional[datetime],
+) -> Optional[str]:
+    """根据 predicted_at 与 kickoff_at 的相对时间,自动决定 snapshot_group.
+
+    窗口划分(赛前):
+      > 7 天        -> pre_7d
+      3-7 天        -> pre_3d
+      1-3 天        -> pre_1d
+      0-24 小时     -> pre_1h
+    赛中/赛后:
+      开赛后 3 小时内 -> live
+      开赛后 3 小时+  -> post
+    缺时间信息      -> None
+    """
+    predicted_at = _normalize_utc_datetime(predicted_at)
+    kickoff_at = _normalize_utc_datetime(kickoff_at)
+    if predicted_at is None or kickoff_at is None:
+        return None
+
+    delta = kickoff_at - predicted_at
+    if delta > timedelta(days=7):
+        return "pre_7d"
+    if delta > timedelta(days=3):
+        return "pre_3d"
+    if delta > timedelta(days=1):
+        return "pre_1d"
+    if delta >= timedelta(0):
+        return "pre_1h"
+
+    # predicted_at 在开球之后
+    post_delta = predicted_at - kickoff_at
+    if post_delta < timedelta(hours=3):
+        return "live"
+    return "post"
+
+
 def _compute_brier(p_h: float, p_d: float, p_a: float, outcome: str) -> float:
     """3-class Brier score (0=perfect, 2=worst)."""
     yh = 1.0 if outcome == "home" else 0.0
@@ -72,9 +119,12 @@ def record_prediction(
     Returns:
         新建的 PredictionLog, 或 None (已存在未结算的旧记录)
     """
+    # 统一使用同一个 now,避免 dedup 与写入时间戳不一致
+    now = datetime.now(timezone.utc)
+
     # Dedup: 1 小时内同 (match, model) 已有未结算记录则跳过
     from datetime import timedelta
-    one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+    one_hour_ago = now - timedelta(hours=1)
     existing = (
         db.query(PredictionLog)
         .filter(
@@ -87,6 +137,11 @@ def record_prediction(
     if existing:
         return None
 
+    # 未显式传入 snapshot_group 时,根据 predicted_at 与 kickoff_at 自动计算
+    if snapshot_group is None:
+        match = db.query(Match).filter(Match.id == match_id).first()
+        snapshot_group = _compute_snapshot_group(now, match.kickoff_at if match else None)
+
     predicted_outcome = (
         "H" if pred_home_win >= pred_draw and pred_home_win >= pred_away_win
         else ("D" if pred_draw >= pred_away_win else "A")
@@ -95,7 +150,7 @@ def record_prediction(
     log = PredictionLog(
         match_id=match_id,
         model_version=model_version,
-        predicted_at=datetime.now(timezone.utc),
+        predicted_at=now,
         pred_home_win=pred_home_win,
         pred_draw=pred_draw,
         pred_away_win=pred_away_win,

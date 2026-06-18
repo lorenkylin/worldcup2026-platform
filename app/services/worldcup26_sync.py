@@ -48,6 +48,60 @@ def _to_int_or_none(v) -> Optional[int]:
     return int(v)
 
 
+def _normalize_standing_values(
+    played: Optional[int],
+    won: Optional[int],
+    drawn: Optional[int],
+    lost: Optional[int],
+    points: Optional[int],
+) -> Optional[tuple[int, int, int, int, int]]:
+    """校验并修正积分榜数值，返回标准化元组；无法修正返回 None.
+
+    规则：
+    - 所有计数非负
+    - won + drawn + lost = played
+    - points = won * 3 + drawn
+
+    当 w/d/l 之和不等于 played 时，依次尝试用 played 反推 lost/drawn/won；
+    仍无法得到非负整数解则视为不可修正。
+    """
+    p_raw = _to_int_or_none(played)
+    w_raw = _to_int_or_none(won)
+    d_raw = _to_int_or_none(drawn)
+    l_raw = _to_int_or_none(lost)
+
+    # 任何核心计数为负数均视为不可修正（源数据损坏），直接跳过/删除
+    if any(v is not None and v < 0 for v in (p_raw, w_raw, d_raw, l_raw)):
+        return None
+
+    p = max(0, p_raw or 0)
+    w = max(0, w_raw or 0)
+    d = max(0, d_raw or 0)
+    l = max(0, l_raw or 0)
+
+    if w + d + l != p:
+        # 优先相信 played + won + drawn，反推 lost
+        new_l = p - w - d
+        if new_l >= 0:
+            l = new_l
+        else:
+            # 其次相信 played + won + lost，反推 drawn
+            new_d = p - w - l
+            if new_d >= 0:
+                d = new_d
+            else:
+                # 最后相信 played + drawn + lost，反推 won
+                new_w = p - d - l
+                if new_w >= 0:
+                    w = new_w
+                else:
+                    return None
+
+    # 积分必须严格按胜平公式计算
+    pts = w * 3 + d
+    return p, w, d, l, pts
+
+
 def _parse_local_date(date_str: str, stadium_tz: str = "UTC") -> Optional[datetime]:
     """解析 local_date 并转换为 UTC naive 存储.
 
@@ -590,13 +644,24 @@ def sync_standings(db: Session) -> int:
         if not standing:
             standing = Standing(group_name=group_name, team_id=team_id)
             db.add(standing)
-        standing.played = _to_int_or_none(t.get("mp")) or 0
-        standing.won = _to_int_or_none(t.get("w")) or 0
-        standing.drawn = _to_int_or_none(t.get("d")) or 0
-        standing.lost = _to_int_or_none(t.get("l")) or 0
+        normalized = _normalize_standing_values(
+            _to_int_or_none(t.get("mp")),
+            _to_int_or_none(t.get("w")),
+            _to_int_or_none(t.get("d")),
+            _to_int_or_none(t.get("l")),
+            _to_int_or_none(t.get("pts")),
+        )
+        if normalized is None:
+            print(
+                f"[sync_standings] 跳过：group={group_name} team_id={team_id} "
+                "积分数据无法修正"
+            )
+            continue
+        standing.played, standing.won, standing.drawn, standing.lost, standing.points = (
+            normalized
+        )
         standing.goals_for = _to_int_or_none(t.get("gf")) or 0
         standing.goals_against = _to_int_or_none(t.get("ga")) or 0
-        standing.points = _to_int_or_none(t.get("pts")) or 0
         standing.updated_at = now
         count += 1
     db.commit()
