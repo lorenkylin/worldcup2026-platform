@@ -1,6 +1,6 @@
 # 2026 FIFA World Cup 平台 · 生产部署检查清单
 
-> 适用版本：v0.14.2 及后续
+> 适用版本：v0.14.3 及后续
 > 目标环境：Fly.io / Docker / VPS
 
 ---
@@ -55,7 +55,7 @@ docker run --rm -v ./data:/data -p 8000:8000 wc2026:test
 
 ```bash
 curl http://localhost:8000/health
-# 期望返回 200，version=0.14.2，scheduler_running=true
+# 期望返回 200，version=0.14.3，scheduler_running=true
 curl http://localhost:8000/api/teams | jq length  # 48
 curl http://localhost:8000/api/matches | jq length # 104
 ```
