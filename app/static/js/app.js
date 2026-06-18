@@ -61,6 +61,43 @@ function escapeHtml(str) {
 function fmtPct(v, digits = 1) { return v != null ? (v * 100).toFixed(digits) : '—'; }
 function fmtDecimal(v, digits = 2) { return v != null ? v.toFixed(digits) : '—'; }
 
+// 中文显示辅助函数
+function stageName(stage) {
+  const map = {
+    group: '小组赛',
+    r32: '32 强',
+    r16: '16 强',
+    qf: '8 强',
+    sf: '半决赛',
+    final: '决赛',
+    third_place: '季军赛',
+  };
+  return map[stage] || stage || '待定';
+}
+function modelLabel(m) {
+  const map = {
+    elo: 'Elo 模型',
+    glicko2: 'Glicko-2 模型',
+    blend: '融合模型 (Blend)',
+    adaptive: '自适应融合模型',
+    marketblend: '市场融合模型 (MarketBlend)',
+  };
+  return map[m] || m;
+}
+function outcomeZh(o) {
+  return { home: '主胜', draw: '平局', away: '客胜' }[o] || o;
+}
+function dataSourceName(s) {
+  const map = {
+    'worldcupstats.football': '世界杯统计数据源',
+    'manual': '人工录入',
+    'fifa': 'FIFA 官方',
+    'api-football': 'API-Football',
+    'open-meteo': 'Open-Meteo',
+  };
+  return map[s] || s;
+}
+
 function statusBadge(status) {
   if (status === 'live') return '<span class="badge-live inline-block px-2.5 py-0.5 rounded-md text-[11px] font-extrabold text-white tracking-wide">进行中</span>';
   if (status === 'finished') return '<span class="inline-block px-2.5 py-0.5 rounded-md text-[11px] font-extrabold bg-slate-700/80 text-slate-200 tracking-wide border border-slate-600/50">已结束</span>';
@@ -101,7 +138,7 @@ function matchCard(m) {
       </div>
       <div class="mt-2.5 text-[11px] text-slate-500 truncate flex items-center gap-1.5">
         <span>🏟️</span>
-        <span>${m.stadium ? escapeHtml(m.stadium.name_en) : '待定球场'} · ${m.group_name ? m.group_name + '组' : m.stage}</span>
+        <span>${m.stadium ? escapeHtml(m.stadium.name_zh || m.stadium.name_en) : '待定球场'} · ${m.group_name ? m.group_name + '组' : stageName(m.stage)}</span>
       </div>
       ${m._odds ? renderOddsBadge(m._odds) : ''}
     </a>
@@ -152,7 +189,7 @@ function renderOddsDetail(oddsData, homeName, awayName) {
         <div class="text-slate-500 text-[10px]">赔率 ${fmtDecimal(consensusOdds.away_win)}</div>
       </div>
     </div>
-    <div class="text-xs text-slate-500 text-right mt-1">博彩公司利润 (vig) ${fmtPct(marketProb.total_vig)}%</div>
+    <div class="text-xs text-slate-500 text-right mt-1">博彩公司利润（抽水）${fmtPct(marketProb.total_vig)}%</div>
   ` : '';
 
   // 列出各家赔率
@@ -189,7 +226,7 @@ function renderOddsDetail(oddsData, homeName, awayName) {
       ${simulatedWarning}
       ${cmpHtml}
       ${bookmakersHtml}
-      <div class="text-[10px] text-slate-500 mt-2">赔率为 decimal 欧式赔率，市场概率已去除博彩公司利润(vig)。仅供分析，不构成投注建议。</div>
+      <div class="text-[10px] text-slate-500 mt-2">赔率为十进制欧式赔率，市场概率已去除博彩公司利润（抽水）。仅供分析，不构成投注建议。</div>
     </div>
   `;
 }
@@ -200,14 +237,19 @@ function renderOddsDetail(oddsData, homeName, awayName) {
 let _homeFocusIdx = 0;
 
 async function renderHome() {
-  const [today, groups] = await Promise.all([
+  const [today, teams, valueBets] = await Promise.all([
     apiWithRetry('/matches/today'),
-    apiWithRetry('/groups'),
+    apiWithRetry('/teams?limit=48'),
+    apiWithRetry('/odds/value-bets?min_rate=0.05&limit=10').catch(() => ({ items: [] })),
   ]);
+  const teamMap = {};
+  (teams || []).forEach(t => { teamMap[t.fifa_code] = t; });
+
   // A2: 选下一场作为焦点（轮询）
   if (_homeFocusIdx >= today.length) _homeFocusIdx = 0;
   const focus = today[_homeFocusIdx];
-  const predictionHtml = focus ? await renderPredictionMini(focus.id) : '';
+  const focusHtml = focus ? await renderFocusPrediction(focus, teamMap, today.length) : '';
+  const topPicksHtml = renderTopPicks(valueBets, teamMap);
 
   $('#app').innerHTML = `
     <div class="flex items-center justify-between mb-4">
@@ -222,19 +264,9 @@ async function renderHome() {
       ${today.length ? today.map(m => matchCard(m)).join('') : renderEmpty('📅', '今日无比赛', '赛事还没开始，看看明日赛程吧', '#/schedule', '查看完整赛程')}
     </section>
 
-    ${focus ? `
-    <section class="mb-6">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="text-lg font-extrabold flex items-center gap-2 tracking-tight">
-          <span class="w-1.5 h-6 bg-gradient-to-b from-amber-400 to-amber-600 rounded-full shadow-[0_0_10px_rgba(245,158,11,0.35)]"></span>焦点战预测
-          <span class="text-xs text-slate-500 font-normal">（${_homeFocusIdx + 1}/${today.length}）</span>
-        </h2>
-        ${today.length > 1 ? `<button onclick="nextFocusMatch()" class="text-xs text-slate-400 hover:text-amber-400 transition flex items-center gap-1 px-3 py-1.5 rounded-full hover:bg-slate-900/80 border border-transparent hover:border-slate-700">
-          <span>🎲</span><span>换一换</span>
-        </button>` : ''}
-      </div>
-      ${predictionHtml}
-    </section>` : ''}
+    ${focusHtml}
+
+    ${topPicksHtml}
 
     <section class="mb-6">
       <a href="#/simulator" class="block glass-card glow-border rounded-xl p-4 border border-violet-500/30 group">
@@ -247,49 +279,161 @@ async function renderHome() {
         </div>
       </a>
     </section>
-
-    <section>
-      <h2 class="text-lg font-extrabold mb-3 flex items-center gap-2 tracking-tight">
-        <span class="w-1.5 h-6 bg-gradient-to-b from-blue-400 to-blue-600 rounded-full shadow-[0_0_10px_rgba(59,130,246,0.35)]"></span>小组积分榜
-      </h2>
-      ${renderGroupsMini(groups)}
-    </section>
   `;
 }
 
-async function renderPredictionMini(matchId) {
+async function renderFocusPrediction(m, teamMap, totalToday) {
   try {
-    const p = await apiWithRetry('/matches/' + matchId + '/prediction');
+    const p = await apiWithRetry('/matches/' + m.id + '/prediction');
+    const { time, date } = fmtDate(m.kickoff_at);
+    const home = m.home_team || { name_zh: m.home_team_placeholder || '待定', flag_emoji: '🏳️' };
+    const away = m.away_team || { name_zh: m.away_team_placeholder || '待定', flag_emoji: '🏳️' };
+    const hWin = p.home_win_prob ?? 0;
+    const draw = p.draw_prob ?? 0;
+    const aWin = p.away_win_prob ?? 0;
+    const probs = { home: hWin, draw, away };
+    const maxKey = Object.keys(probs).reduce((a, b) => probs[a] > probs[b] ? a : b);
+    const winnerText = { home: '主胜', draw: '平局', away: '客胜' }[maxKey];
+    const winnerColor = { home: 'text-emerald-400', draw: 'text-amber-400', away: 'text-rose-400' }[maxKey];
     const starCount = p.stars ?? 0;
     const stars = '★'.repeat(starCount) + '☆'.repeat(5 - starCount);
     const reasons = p.reasons || [];
     const h2hBadge = p.h2h_summary
-      ? `<div class="text-xs text-amber-300 mt-2">⚔️ ${escapeHtml(p.h2h_summary)}</div>`
+      ? `<div class="text-sm text-amber-300 mt-3">⚔️ ${escapeHtml(p.h2h_summary)}</div>`
       : '';
     const formBadges = (p.home_recent_form || p.away_recent_form)
-      ? `<div class="text-xs text-emerald-400 mt-1">📈 ${p.home_recent_form ? '主 ' + escapeHtml(p.home_recent_form) : ''}${p.home_recent_form && p.away_recent_form ? ' / ' : ''}${p.away_recent_form ? '客 ' + escapeHtml(p.away_recent_form) : ''}</div>`
+      ? `<div class="text-sm text-emerald-400 mt-2">📈 ${p.home_recent_form ? '主 ' + escapeHtml(p.home_recent_form) : ''}${p.home_recent_form && p.away_recent_form ? ' / ' : ''}${p.away_recent_form ? '客 ' + escapeHtml(p.away_recent_form) : ''}</div>`
       : '';
     return `
-      <a href="#/match/${matchId}" class="block glass-card glow-border rounded-xl p-4 border border-amber-500/15">
-        <div class="flex justify-between items-center mb-2">
-          <span class="text-amber-400 tracking-widest text-sm">${stars}</span>
-          <span class="text-xs text-slate-400">推荐比分 ${p.recommended_score || '—'}</span>
+      <section class="mb-6">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-lg font-extrabold flex items-center gap-2 tracking-tight">
+            <span class="w-1.5 h-6 bg-gradient-to-b from-amber-400 to-amber-600 rounded-full shadow-[0_0_10px_rgba(245,158,11,0.35)]"></span>焦点战预测
+            <span class="text-xs text-slate-500 font-normal">（${_homeFocusIdx + 1}/${Math.max(1, totalToday || 1)}）</span>
+          </h2>
+          ${totalToday > 1 ? `<button onclick="nextFocusMatch()" class="text-xs text-slate-400 hover:text-amber-400 transition flex items-center gap-1 px-3 py-1.5 rounded-full hover:bg-slate-900/80 border border-transparent hover:border-slate-700">
+            <span>🎲</span><span>换一换</span>
+          </button>` : ''}
         </div>
-        <div class="flex justify-between text-sm mb-3">
-          <span>主胜 <b class="text-white">${p.home_win_prob ?? '—'}%</b></span>
-          <span>平 <b class="text-white">${p.draw_prob ?? '—'}%</b></span>
-          <span>客胜 <b class="text-white">${p.away_win_prob ?? '—'}%</b></span>
+        <div class="glass-card glow-border rounded-2xl p-5 border border-amber-500/20 relative overflow-hidden">
+          <div class="absolute inset-0 hero-glow pointer-events-none"></div>
+          <div class="relative z-10">
+            <div class="flex items-center justify-between mb-5">
+              <div class="flex-1 min-w-0 text-center">
+                <div class="text-6xl mb-2 drop-shadow-[0_4px_10px_rgba(0,0,0,0.4)]">${home.flag_emoji || '🏳️'}</div>
+                <div class="text-xl font-extrabold truncate px-1">${escapeHtml(home.name_zh)}</div>
+              </div>
+              <div class="px-4 text-center shrink-0">
+                <div class="text-3xl font-extrabold text-amber-400">VS</div>
+                <div class="text-xs text-slate-500 mt-1">${date} ${time}</div>
+              </div>
+              <div class="flex-1 min-w-0 text-center">
+                <div class="text-6xl mb-2 drop-shadow-[0_4px_10px_rgba(0,0,0,0.4)]">${away.flag_emoji || '🏳️'}</div>
+                <div class="text-xl font-extrabold truncate px-1">${escapeHtml(away.name_zh)}</div>
+              </div>
+            </div>
+
+            <div class="mb-5">
+              <div class="flex h-4 rounded-full overflow-hidden bg-slate-800 mb-2">
+                <div class="bg-emerald-500 transition-all" style="width:${hWin}%"></div>
+                <div class="bg-amber-500 transition-all" style="width:${draw}%"></div>
+                <div class="bg-rose-500 transition-all" style="width:${aWin}%"></div>
+              </div>
+              <div class="flex justify-between text-xs">
+                <span class="text-emerald-400 font-extrabold">主胜 ${hWin}%</span>
+                <span class="text-amber-400 font-extrabold">平 ${draw}%</span>
+                <span class="text-rose-400 font-extrabold">客胜 ${aWin}%</span>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-3 gap-3 text-center text-sm mb-4">
+              <div class="bg-slate-950/50 rounded-xl p-3">
+                <div class="text-xs text-slate-500 mb-1">星级</div>
+                <div class="text-amber-400 text-lg tracking-widest">${stars}</div>
+              </div>
+              <div class="bg-slate-950/50 rounded-xl p-3">
+                <div class="text-xs text-slate-500 mb-1">推荐比分</div>
+                <div class="text-white font-extrabold">${p.recommended_score || '—'}</div>
+              </div>
+              <div class="bg-slate-950/50 rounded-xl p-3">
+                <div class="text-xs text-slate-500 mb-1">最高信心</div>
+                <div class="${winnerColor} font-extrabold">${winnerText} ${probs[maxKey]}%</div>
+              </div>
+            </div>
+
+            <ul class="text-sm text-slate-300 space-y-1.5 mb-3">
+              ${reasons.slice(0, 4).map(r => '<li>· ' + escapeHtml(r) + '</li>').join('')}
+            </ul>
+            ${h2hBadge}
+            ${formBadges}
+            <div class="mt-4 text-center">
+              <a href="#/match/${m.id}" class="inline-block text-xs px-5 py-2 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 transition">查看完整分析 →</a>
+            </div>
+          </div>
         </div>
-        <ul class="text-xs text-slate-400 space-y-1">
-          ${reasons.slice(0, 3).map(r => '<li>· ' + escapeHtml(r) + '</li>').join('')}
-        </ul>
-        ${h2hBadge}
-        ${formBadges}
-      </a>
+      </section>
     `;
   } catch (e) {
     return '';
   }
+}
+
+function renderTopPicks(valueBets, teamMap) {
+  const items = (valueBets && valueBets.items ? valueBets.items : [])
+    .filter(it => it.best_value_rate >= 0.05)
+    .sort((a, b) => b.best_value_rate - a.best_value_rate)
+    .slice(0, 5);
+  if (!items.length) return '';
+
+  const pickMap = { home: '主胜', draw: '平局', away: '客胜' };
+  const cards = items.map(it => {
+    const home = it.home_team || {};
+    const away = it.away_team || {};
+    const homeFull = teamMap[home.fifa_code] || home;
+    const awayFull = teamMap[away.fifa_code] || away;
+    const pick = it.best_value || 'home';
+    const modelProb = (it.elo && it.elo[pick + '_prob'] ? it.elo[pick + '_prob'] : 0) * 100;
+    const marketProb = (it.market && it.market[pick + '_prob'] ? it.market[pick + '_prob'] : 0) * 100;
+    const rate = (it.best_value_rate || 0) * 100;
+    return `
+      <a href="#/match/${it.match_id}" class="block glass-card rounded-xl p-3 hover:border-emerald-500/30 group transition">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs text-slate-500">${escapeHtml(stageName(it.stage))}${it.group_name ? ' · ' + it.group_name + '组' : ''}</span>
+          <span class="text-xs font-mono text-emerald-400 font-extrabold">+${rate.toFixed(1)}% 价值</span>
+        </div>
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2 flex-1 min-w-0">
+            <span class="team-flag text-lg">${homeFull.flag_emoji || '🏳️'}</span>
+            <span class="font-semibold text-sm truncate text-slate-100">${escapeHtml(homeFull.name_zh || home.name_zh || home.fifa_code)}</span>
+          </div>
+          <span class="text-xs text-slate-500 mx-2">vs</span>
+          <div class="flex items-center gap-2 flex-1 justify-end min-w-0">
+            <span class="font-semibold text-sm truncate text-slate-100">${escapeHtml(awayFull.name_zh || away.name_zh || away.fifa_code)}</span>
+            <span class="team-flag text-lg">${awayFull.flag_emoji || '🏳️'}</span>
+          </div>
+        </div>
+        <div class="flex items-center justify-between text-xs">
+          <span class="text-slate-300">推荐 <b class="text-emerald-400">${pickMap[pick]}</b></span>
+          <span class="text-slate-400">模型 ${modelProb.toFixed(1)}% · 市场 ${marketProb.toFixed(1)}%</span>
+        </div>
+      </a>
+    `;
+  }).join('');
+
+  return `
+    <section class="mb-6">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-extrabold flex items-center gap-2 tracking-tight">
+          <span class="w-1.5 h-6 bg-gradient-to-b from-emerald-400 to-emerald-600 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.4)]"></span>🎯 重点投注推荐
+        </h2>
+        <span class="text-xs text-slate-500">模型价值偏离 ≥ 5%</span>
+      </div>
+      <div class="space-y-3">
+        ${cards}
+      </div>
+      <div class="text-[10px] text-slate-500 mt-2 text-center">* 仅供分析参考，不构成投注建议。</div>
+    </section>
+  `;
 }
 
 function renderGroupsMini(groups) {
@@ -755,7 +899,7 @@ async function renderTeamDetail(id) {
       <div class="absolute inset-0 hero-glow pointer-events-none"></div>
       <div class="text-6xl mb-3 relative z-10 drop-shadow-[0_4px_10px_rgba(0,0,0,0.4)]">${team.flag_emoji || '🏳️'}</div>
       <h1 class="text-2xl font-extrabold text-slate-50 relative z-10">${escapeHtml(team.name_zh)}</h1>
-      <div class="text-slate-400 mt-1.5 text-sm relative z-10">${escapeHtml(team.name_en)} · ${team.fifa_code} · ${team.group_name}组</div>
+      <div class="text-slate-400 mt-1.5 text-sm relative z-10">${team.fifa_code} · ${team.group_name}组</div>
       <div class="mt-4 flex items-center justify-center gap-4 relative z-10">
         <div class="text-center">
           <div class="text-xs text-slate-500">Elo</div>
@@ -844,7 +988,7 @@ async function loadOddsTrend(matchId) {
           tooltip: {callbacks: {label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(2) : '-'}`}},
         },
         scales: {
-          y: {title: {display: true, text: '赔率(decimal)', color: '#94a3b8'}, ticks: {color: '#94a3b8'}, grid: {color: '#1e293b'}},
+          y: {title: {display: true, text: '赔率（十进制）', color: '#94a3b8'}, ticks: {color: '#94a3b8'}, grid: {color: '#1e293b'}},
           x: {ticks: {color: '#94a3b8', maxRotation: 45, minRotation: 0}, grid: {color: '#1e293b'}},
         },
       },
@@ -862,7 +1006,7 @@ async function loadOddsTrend(matchId) {
         const metric = tab.dataset.metric;
         const metricLabel = {home_win: '主胜', draw: '平', away_win: '客胜'}[metric];
         _oddsTrendChart.data.datasets = buildDatasets(metric);
-        _oddsTrendChart.options.scales.y.title.text = `赔率(decimal) · ${metricLabel}`;
+        _oddsTrendChart.options.scales.y.title.text = `赔率（十进制） · ${metricLabel}`;
         _oddsTrendChart.update();
       };
     });
@@ -888,15 +1032,15 @@ function renderOddsModelHistoryCard() {
         <button class="odds-model-tab px-3 py-1 text-xs rounded bg-slate-800 text-slate-400" data-outcome="draw">平</button>
         <button class="odds-model-tab px-3 py-1 text-xs rounded bg-slate-800 text-slate-400" data-outcome="away">客胜</button>
         <select id="odds-model-select" class="ml-auto px-2 py-1 text-xs rounded bg-slate-800 text-slate-300 border border-slate-700">
-          <option value="blend" selected>Blend 模型</option>
-          <option value="elo">Elo</option>
-          <option value="glicko2">Glicko-2</option>
+          <option value="blend" selected>${modelLabel('blend')}</option>
+          <option value="elo">${modelLabel('elo')}</option>
+          <option value="glicko2">${modelLabel('glicko2')}</option>
         </select>
       </div>
       <div id="odds-model-empty" class="text-sm text-slate-500">数据积累中(需要至少 3 个时点)</div>
       <div id="odds-model-chart-wrapper" class="hidden">
         <div class="flex items-center gap-3 text-xs text-slate-400 mb-2">
-          <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5 bg-amber-400"></span>市场概率(去 vig)</span>
+          <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5 bg-amber-400"></span>市场概率（去抽水）</span>
           <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5 border-t border-dashed border-cyan-400"></span>模型概率</span>
         </div>
         <div style="position:relative; height: 220px;">
@@ -923,7 +1067,7 @@ async function loadOddsModelHistory(matchId) {
 
     if (!data || data.points === undefined) {
       emptyEl.classList.remove('hidden');
-      emptyEl.textContent = '数据积累中(需要至少 3 个时点)';
+      emptyEl.textContent = '数据积累中（需要至少 3 个时点）';
       wrapperEl.classList.add('hidden');
       return;
     }
@@ -1022,7 +1166,7 @@ async function loadOddsModelHistory(matchId) {
     const emptyEl = document.getElementById('odds-model-empty');
     if (emptyEl) {
       emptyEl.classList.remove('hidden');
-      emptyEl.textContent = '数据积累中(需要至少 3 个时点)';
+      emptyEl.textContent = '数据积累中（需要至少 3 个时点）';
     }
   }
 }
@@ -1036,7 +1180,7 @@ function renderOddsTrendCard() {
         <h3 class="font-extrabold text-cyan-400 flex items-center gap-2"><span>📈</span>赔率走势 · 多公司时序</h3>
         <div class="text-xs text-slate-500">v0.5.1</div>
       </div>
-      <div id="odds-trend-empty" class="text-sm text-slate-500 hidden">暂无赔率快照(可能尚未录入赔率或 6h 调度器尚未运行)</div>
+      <div id="odds-trend-empty" class="text-sm text-slate-500 hidden">暂无赔率快照（可能尚未录入赔率或 6h 调度器尚未运行）</div>
       <div id="odds-trend-chart-wrapper" class="hidden">
         <div class="flex gap-1 mb-3">
           <button class="odds-trend-tab px-3 py-1 text-xs rounded bg-cyan-500 text-white" data-metric="home_win">主胜</button>
@@ -1046,7 +1190,7 @@ function renderOddsTrendCard() {
         <div style="position: relative; height: 240px;">
           <canvas id="odds-trend-chart"></canvas>
         </div>
-        <div class="text-[10px] text-slate-500 mt-2">数据来源:OddsSnapshot(每 6h 自动打点 + 管理员录入时记录)</div>
+        <div class="text-[10px] text-slate-500 mt-2">数据来源：赔率快照（每 6h 自动打点 + 管理员录入时记录）</div>
       </div>
     </div>
   `;
@@ -1146,7 +1290,7 @@ async function renderMatchDetail(id) {
 
     <div class="glass-card rounded-2xl p-6 mb-4 text-center relative overflow-hidden">
       <div class="absolute inset-0 hero-glow pointer-events-none"></div>
-      <div class="text-xs text-slate-500 mb-3 relative z-10">${date} ${time} · ${m.stadium ? escapeHtml(m.stadium.name_en) : ''}</div>
+      <div class="text-xs text-slate-500 mb-3 relative z-10">${date} ${time} · ${m.stadium ? escapeHtml(m.stadium.name_zh || m.stadium.name_en) : ''}</div>
       <div class="flex items-center justify-between relative z-10">
         <div class="flex-1 min-w-0">
           <div class="text-5xl mb-2 drop-shadow-[0_4px_10px_rgba(0,0,0,0.4)]">${home.flag_emoji || '🏳️'}</div>
@@ -1161,7 +1305,7 @@ async function renderMatchDetail(id) {
           <div class="font-extrabold text-lg truncate">${escapeHtml(away.name_zh)}</div>
         </div>
       </div>
-      <div class="mt-4 text-[11px] text-slate-500 relative z-10">数据来源：${m.data_source} · 更新于 ${new Date(m.last_updated_at).toLocaleString('zh-CN')}</div>
+      <div class="mt-4 text-[11px] text-slate-500 relative z-10">数据来源：${dataSourceName(m.data_source)} · 更新于 ${new Date(m.last_updated_at).toLocaleString('zh-CN')}</div>
     </div>
 
     ${predHtml}
@@ -1188,7 +1332,7 @@ async function renderMatchDetail(id) {
           <span class="text-slate-500 group-hover:text-emerald-400 text-lg transition">←</span>
           <div class="flex-1 min-w-0">
             <div class="text-xs text-slate-500">上一场 #${prev.match_number}</div>
-            <div class="text-sm truncate text-slate-200">${escapeHtml((prev.home_team && prev.home_team.name_zh) || '待定')} vs ${escapeHtml((prev.away_team && prev.away_team.name_zh) || '待定')}</div>
+            <div class="text-sm truncate text-slate-200"><span class="team-flag text-sm">${(prev.home_team && prev.home_team.flag_emoji) || '🏳️'}</span>${escapeHtml((prev.home_team && prev.home_team.name_zh) || '待定')} vs <span class="team-flag text-sm">${(prev.away_team && prev.away_team.flag_emoji) || '🏳️'}</span>${escapeHtml((prev.away_team && prev.away_team.name_zh) || '待定')}</div>
           </div>
         </a>
       ` : '<div></div>'}
@@ -1196,7 +1340,7 @@ async function renderMatchDetail(id) {
         <a href="#/match/${next.id}" class="glass-card rounded-xl p-3 flex items-center gap-2 group hover:border-emerald-500/30">
           <div class="flex-1 min-w-0 text-right">
             <div class="text-xs text-slate-500">下一场 #${next.match_number}</div>
-            <div class="text-sm truncate text-slate-200">${escapeHtml((next.home_team && next.home_team.name_zh) || '待定')} vs ${escapeHtml((next.away_team && next.away_team.name_zh) || '待定')}</div>
+            <div class="text-sm truncate text-slate-200"><span class="team-flag text-sm">${(next.home_team && next.home_team.flag_emoji) || '🏳️'}</span>${escapeHtml((next.home_team && next.home_team.name_zh) || '待定')} vs <span class="team-flag text-sm">${(next.away_team && next.away_team.flag_emoji) || '🏳️'}</span>${escapeHtml((next.away_team && next.away_team.name_zh) || '待定')}</div>
           </div>
           <span class="text-slate-500 group-hover:text-emerald-400 text-lg transition">→</span>
         </a>
@@ -1266,7 +1410,7 @@ function renderPostMatchReview(m, prediction) {
         </div>
         <div class="bg-slate-950/40 rounded-lg p-2">
           <div class="text-xs text-slate-500">实际比分</div>
-          <div class="font-extrabold text-white font-mono">${actualHome}:${actualAway}</div>
+          <div class="font-extrabold text-white font-mono">${actualHome} : ${actualAway}</div>
         </div>
         <div class="bg-slate-950/40 rounded-lg p-2">
           <div class="text-xs text-slate-500">进球差</div>
@@ -1377,11 +1521,11 @@ async function renderSimulator() {
       <h3 class="text-base font-extrabold mb-2 flex items-center gap-2 relative z-10">
         <span class="w-1.5 h-6 bg-gradient-to-b from-amber-400 to-amber-600 rounded-full shadow-[0_0_10px_rgba(245,158,11,0.35)]"></span>
         <span>🏆 整届模拟 v0.7.1</span>
-        <span class="text-xs text-slate-400 font-normal ml-2">Monte Carlo · 整届 10000 次</span>
+        <span class="text-xs text-slate-400 font-normal ml-2">蒙特卡洛 · 整届 10000 次</span>
       </h3>
-      <p class="text-xs text-slate-400 mb-3 relative z-10">从组赛到决赛跑完所有 103 场比赛,统计每队 <b>夺冠 / 决赛 / 4 强 / 8 强 / 16 强</b> 概率 + 决赛对阵频次。</p>
+      <p class="text-xs text-slate-400 mb-3 relative z-10">从小组赛到决赛跑完所有 103 场比赛，统计每队 <b>夺冠 / 决赛 / 4 强 / 8 强 / 16 强</b> 概率 + 决赛对阵频次。</p>
       <button id="mc-run-btn" onclick="runMonteCarlo()" class="relative z-10 w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-white text-sm font-extrabold rounded-full shadow-lg transition hover:shadow-amber-500/30">
-        🎲 运行 Monte Carlo (10000 次)
+        🎲 运行蒙特卡洛模拟（10000 次）
       </button>
       <div id="mc-result" class="mt-4 relative z-10"></div>
     </div>
@@ -1389,8 +1533,8 @@ async function renderSimulator() {
     <div class="mt-6 p-3 glass-card rounded-xl text-xs text-slate-500">
       <div class="font-bold text-slate-400 mb-1">图例</div>
       <div>· 进度条长度 = 出线概率（直接晋级 + 最佳第 3 名）</div>
-      <div>· 模拟方法：剩余比赛按 Elo-Poisson 随机生成比分,统计每队晋级次数</div>
-      <div>· 数据有限,模型仅作参考。Elo 初始值来自 FIFA 排名近似（B1 升级后将用 StatsBomb 训练）</div>
+      <div>· 模拟方法：剩余比赛按 Elo-Poisson 随机生成比分，统计每队晋级次数</div>
+      <div>· 数据有限，模型仅作参考。Elo 初始值来自 FIFA 排名近似（B1 升级后将用 StatsBomb 训练）</div>
     </div>
   `;
 }
@@ -1402,27 +1546,33 @@ async function runMonteCarlo(simulations = 10000) {
   const out = document.getElementById('mc-result');
   if (!out) return;
   if (btn) { btn.disabled = true; btn.textContent = '⏳ 模拟中...'; }
-  out.innerHTML = '<div class="text-xs text-slate-400 py-4 text-center"><span class="inline-block animate-spin">⏳</span> 正在运行 ' + simulations + ' 次整届模拟,大约 4-10 秒...</div>';
+  out.innerHTML = '<div class="text-xs text-slate-400 py-4 text-center"><span class="inline-block animate-spin">⏳</span> 正在运行 ' + simulations + ' 次整届模拟，大约 4-10 秒...</div>';
 
   try {
-    const resp = await fetch('/api/simulator/tournament?simulations=' + simulations + '&model=blend&seed=42');
+    const [resp, teams] = await Promise.all([
+      fetch('/api/simulator/tournament?simulations=' + simulations + '&model=blend&seed=42'),
+      api('/teams?limit=48').catch(() => []),
+    ]);
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const data = await resp.json();
-    renderMonteCarloResult(data);
+    const teamMap = {};
+    (teams || []).forEach(t => { teamMap[t.fifa_code] = t; });
+    renderMonteCarloResult(data, teamMap);
   } catch (e) {
-    out.innerHTML = '<div class="text-xs text-rose-400 py-3">❌ 模拟失败: ' + escapeHtml(String(e)) + '</div>';
+    out.innerHTML = '<div class="text-xs text-rose-400 py-3">❌ 模拟失败：' + escapeHtml(String(e)) + '</div>';
   } finally {
-    if (btn) { btn.disabled = false; btn.innerHTML = '🎲 运行 Monte Carlo (10000 次)'; }
+    if (btn) { btn.disabled = false; btn.innerHTML = '🎲 运行 Monte Carlo（10000 次）'; }
   }
 }
 
-function renderMonteCarloResult(data) {
+function renderMonteCarloResult(data, teamMap = {}) {
   const out = document.getElementById('mc-result');
   if (!out) return;
   const champ = data.champion_distribution || {};
   const finalList = data.top_final_matchups || [];
   const champEntries = Object.entries(champ).slice(0, 8);
   const maxProb = champEntries.length ? champEntries[0][1] : 0.01;
+  const teamFor = code => teamMap[code] || {};
 
   out.innerHTML = `
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -1435,7 +1585,8 @@ function renderMonteCarloResult(data) {
           ${champEntries.map(([code, p], i) => `
             <div class="flex items-center gap-2">
               <span class="text-xs text-slate-500 w-4 text-right font-mono">${i + 1}</span>
-              <span class="text-sm font-mono w-10">${code}</span>
+              <span class="team-flag text-base">${teamFor(code).flag_emoji || '🏳️'}</span>
+              <span class="text-sm font-medium flex-1 truncate">${escapeHtml(teamFor(code).name_zh || code)}</span>
               <div class="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
                 <div class="h-full bg-gradient-to-r from-amber-400 to-rose-400" style="width: ${(p / maxProb * 100).toFixed(1)}%"></div>
               </div>
@@ -1454,7 +1605,11 @@ function renderMonteCarloResult(data) {
           ${finalList.slice(0, 5).map((m, i) => `
             <div class="flex items-center gap-2">
               <span class="text-xs text-slate-500 w-4 text-right font-mono">${i + 1}</span>
-              <span class="text-sm font-mono text-slate-200">${m.home} <span class="text-slate-600">vs</span> ${m.away}</span>
+              <span class="text-sm font-mono text-slate-200">
+                <span class="team-flag text-base">${teamFor(m.home).flag_emoji || '🏳️'}</span>${escapeHtml(teamFor(m.home).name_zh || m.home)}
+                <span class="text-slate-600">vs</span>
+                <span class="team-flag text-base">${teamFor(m.away).flag_emoji || '🏳️'}</span>${escapeHtml(teamFor(m.away).name_zh || m.away)}
+              </span>
               <span class="text-xs text-slate-500 ml-auto font-mono">${(m.prob * 100).toFixed(1)}%</span>
             </div>
           `).join('') || '<div class="text-xs text-slate-500">暂无数据</div>'}
@@ -1464,10 +1619,10 @@ function renderMonteCarloResult(data) {
 
     <!-- 元信息 -->
     <div class="mt-3 text-[10px] text-slate-500 flex items-center gap-3 flex-wrap">
-      <span>模型: <b class="text-slate-300">${data.model}</b></span>
-      <span>模拟: <b class="text-slate-300">${data.n_sims}</b> 次</span>
-      <span>耗时: <b class="text-slate-300">${data.duration_seconds}s</b></span>
-      <span>球队: <b class="text-slate-300">${data.n_teams}</b></span>
+      <span>模型：<b class="text-slate-300">${modelLabel(data.model)}</b></span>
+      <span>模拟：<b class="text-slate-300">${data.n_sims}</b> 次</span>
+      <span>耗时：<b class="text-slate-300">${data.duration_seconds}s</b></span>
+      <span>球队：<b class="text-slate-300">${data.n_teams}</b></span>
     </div>
   `;
 }
@@ -1541,12 +1696,16 @@ async function renderOdds() {
         <span class="text-2xl">💎</span>
         <h3 class="font-extrabold text-amber-400">价值投注 TOP ${valueBets.length}</h3>
       </div>
-      <div class="text-xs text-slate-400 mb-2">Elo 模型 vs 市场隐含概率,差异 ≥ 5%</div>
+      <div class="text-xs text-slate-400 mb-2">Elo 模型 vs 市场隐含概率，差异 ≥ 5%</div>
       <div class="space-y-2">
         ${valueBets.slice(0, 5).map(it => `
           <a href="#/match/${it.match_id}" class="block glass-card rounded-lg p-3 hover:border-amber-500/30 group">
             <div class="flex items-center justify-between mb-1">
-              <span class="text-sm font-medium text-slate-100">${escapeHtml(it.home_team.name_zh)} <span class="text-slate-500">vs</span> ${escapeHtml(it.away_team.name_zh)}</span>
+              <span class="text-sm font-medium text-slate-100">
+                <span class="team-flag text-base">${it.home_team.flag_emoji || '🏳️'}</span>${escapeHtml(it.home_team.name_zh)}
+                <span class="text-slate-500">vs</span>
+                <span class="team-flag text-base">${it.away_team.flag_emoji || '🏳️'}</span>${escapeHtml(it.away_team.name_zh)}
+              </span>
               <span class="text-emerald-400 font-mono text-sm font-extrabold">+${(it.best_value_rate * 100).toFixed(1)}%</span>
             </div>
             <div class="text-xs text-slate-400">
@@ -1590,7 +1749,13 @@ function renderOddsServiceStatusBar(status) {
       <span>⚠️</span><span>赔率服务状态不可用</span>
     </div>`;
   }
-  const provider = status.provider || 'unknown';
+  const providerMap = {
+    'api-football': 'API-Football 数据源',
+    'worldcupstats': '世界杯统计源',
+    'simulated': '模拟数据源',
+    'unknown': '未知数据源',
+  };
+  const provider = providerMap[status.provider] || status.provider || '未知数据源';
   const rate = status.rate_limit_remaining;
   const lastFetch = status.last_fetch_at
     ? new Date(status.last_fetch_at).toLocaleString('zh-CN', { hour12: false })
@@ -1601,9 +1766,9 @@ function renderOddsServiceStatusBar(status) {
     : '';
   return `<div data-testid="odds-status-bar" class="mb-3 text-xs text-slate-300 glass-card rounded-lg px-3 py-2 flex items-center gap-3">
     <span class="inline-block w-2 h-2 rounded-full ${status.is_simulated ? 'bg-amber-400' : 'bg-emerald-400'} ${status.is_simulated ? '' : 'animate-pulse'}"></span>
-    <span>赔率服务: <span class="text-cyan-400 font-medium">${escapeHtml(provider)}</span>${simulatedWarning}</span>
+    <span>赔率服务：<span class="text-cyan-400 font-medium">${escapeHtml(provider)}</span>${simulatedWarning}</span>
     <span class="text-slate-500">${rateStr}</span>
-    <span class="text-slate-500 ml-auto">最近拉取: ${lastFetch}</span>
+    <span class="text-slate-500 ml-auto">最近拉取：${lastFetch}</span>
   </div>`;
 }
 
@@ -1622,9 +1787,9 @@ async function renderModelValueBetsSection(model) {
         <div class="flex items-center gap-2 text-xs">
           <span class="text-slate-400">模型:</span>
           <select id="mvb-model-select" class="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs" onchange="onModelValueBetsChange('model', this.value)">
-            <option value="elo" ${model === 'elo' ? 'selected' : ''}>Elo</option>
-            <option value="glicko2" ${model === 'glicko2' ? 'selected' : ''}>Glicko-2</option>
-            <option value="blend" ${model === 'blend' ? 'selected' : ''}>Blend</option>
+            <option value="elo" ${model === 'elo' ? 'selected' : ''}>${modelLabel('elo')}</option>
+            <option value="glicko2" ${model === 'glicko2' ? 'selected' : ''}>${modelLabel('glicko2')}</option>
+            <option value="blend" ${model === 'blend' ? 'selected' : ''}>${modelLabel('blend')}</option>
           </select>
           <span class="text-slate-400">最低价值:</span>
           <select id="mvb-tier-select" class="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs" onchange="onModelValueBetsChange('tier', this.value)">
@@ -1641,11 +1806,15 @@ async function renderModelValueBetsSection(model) {
             const pick = it.recommendation || (edge > 0 ? '主胜' : '客胜');
             return `<a href="#/match/${it.match_id}" class="block glass-card rounded-lg p-3 hover:border-cyan-500/30 group">
               <div class="flex items-center justify-between mb-1">
-                <span class="text-sm font-medium text-slate-100">${escapeHtml(it.home_team?.name_zh || '')} <span class="text-slate-500">vs</span> ${escapeHtml(it.away_team?.name_zh || '')}</span>
+                <span class="text-sm font-medium text-slate-100">
+                  <span class="team-flag text-base">${it.home_team?.flag_emoji || '🏳️'}</span>${escapeHtml(it.home_team?.name_zh || '')}
+                  <span class="text-slate-500">vs</span>
+                  <span class="team-flag text-base">${it.away_team?.flag_emoji || '🏳️'}</span>${escapeHtml(it.away_team?.name_zh || '')}
+                </span>
                 <span class="${edge >= 5 ? 'text-emerald-400' : 'text-amber-400'} font-mono text-sm font-extrabold">+${edge.toFixed(1)}%</span>
               </div>
               <div class="text-xs text-slate-400">
-                ${escapeHtml(model)} 模型看 <span class="text-cyan-400">${pick}</span>:
+                ${escapeHtml(modelLabel(model))} 看 <span class="text-cyan-400">${pick}</span>：
                 模型 <span class="text-cyan-400">${(modelProb * 100).toFixed(1)}%</span>
                 · 市场 <span class="text-slate-300">${(marketProb * 100).toFixed(1)}%</span>
               </div>
@@ -1686,9 +1855,9 @@ async function renderModelValueBetsTier(model, tier) {
         <div class="flex items-center gap-2 text-xs">
           <span class="text-slate-400">模型:</span>
           <select id="mvb-model-select" class="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs" onchange="onModelValueBetsChange('model', this.value)">
-            <option value="elo" ${model === 'elo' ? 'selected' : ''}>Elo</option>
-            <option value="glicko2" ${model === 'glicko2' ? 'selected' : ''}>Glicko-2</option>
-            <option value="blend" ${model === 'blend' ? 'selected' : ''}>Blend</option>
+            <option value="elo" ${model === 'elo' ? 'selected' : ''}>${modelLabel('elo')}</option>
+            <option value="glicko2" ${model === 'glicko2' ? 'selected' : ''}>${modelLabel('glicko2')}</option>
+            <option value="blend" ${model === 'blend' ? 'selected' : ''}>${modelLabel('blend')}</option>
           </select>
           <span class="text-slate-400">最低价值:</span>
           <select id="mvb-tier-select" class="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs" onchange="onModelValueBetsChange('tier', this.value)">
@@ -1705,11 +1874,15 @@ async function renderModelValueBetsTier(model, tier) {
             const pick = it.recommendation || (edge > 0 ? '主胜' : '客胜');
             return `<a href="#/match/${it.match_id}" class="block glass-card rounded-lg p-3 hover:border-cyan-500/30 group">
               <div class="flex items-center justify-between mb-1">
-                <span class="text-sm font-medium text-slate-100">${escapeHtml(it.home_team?.name_zh || '')} <span class="text-slate-500">vs</span> ${escapeHtml(it.away_team?.name_zh || '')}</span>
+                <span class="text-sm font-medium text-slate-100">
+                  <span class="team-flag text-base">${it.home_team?.flag_emoji || '🏳️'}</span>${escapeHtml(it.home_team?.name_zh || '')}
+                  <span class="text-slate-500">vs</span>
+                  <span class="team-flag text-base">${it.away_team?.flag_emoji || '🏳️'}</span>${escapeHtml(it.away_team?.name_zh || '')}
+                </span>
                 <span class="${edge >= 5 ? 'text-emerald-400' : 'text-amber-400'} font-mono text-sm font-extrabold">+${edge.toFixed(1)}%</span>
               </div>
               <div class="text-xs text-slate-400">
-                ${escapeHtml(model)} 模型看 <span class="text-cyan-400">${pick}</span>:
+                ${escapeHtml(modelLabel(model))} 看 <span class="text-cyan-400">${pick}</span>：
                 模型 <span class="text-cyan-400">${(modelProb * 100).toFixed(1)}%</span>
                 · 市场 <span class="text-slate-300">${(marketProb * 100).toFixed(1)}%</span>
               </div>
@@ -1749,17 +1922,17 @@ async function renderOddsCardsWithModel(items, model) {
     return `
       <div class="glass-card rounded-xl p-4 mb-3 hover:border-cyan-500/30 transition">
         <div class="flex items-center justify-between mb-2">
-          <a href="#/match/${it.match_id}" class="text-xs text-slate-500 hover:text-cyan-400">${escapeHtml(it.stage)}${it.group_name ? ' · ' + it.group_name + '组' : ''}</a>
+          <a href="#/match/${it.match_id}" class="text-xs text-slate-500 hover:text-cyan-400">${escapeHtml(stageName(it.stage))}${it.group_name ? ' · ' + it.group_name + '组' : ''}</a>
           <select class="bg-slate-950 border border-slate-700 rounded text-[10px] px-1.5 py-0.5" onchange="onOddsCardModelChange(this, ${it.match_id})">
-            <option value="elo" ${modelSource === 'elo' ? 'selected' : ''}>Elo</option>
-            <option value="glicko2" ${modelSource === 'glicko2' ? 'selected' : ''}>Glicko-2</option>
-            <option value="blend" ${modelSource === 'blend' ? 'selected' : ''}>Blend</option>
+            <option value="elo" ${modelSource === 'elo' ? 'selected' : ''}>${modelLabel('elo')}</option>
+            <option value="glicko2" ${modelSource === 'glicko2' ? 'selected' : ''}>${modelLabel('glicko2')}</option>
+            <option value="blend" ${modelSource === 'blend' ? 'selected' : ''}>${modelLabel('blend')}</option>
           </select>
         </div>
         <div class="flex items-center justify-between mb-2">
-          <span class="font-semibold text-sm text-slate-100">${escapeHtml(it.home_team.name_zh)}</span>
+          <span class="font-semibold text-sm text-slate-100"><span class="team-flag text-base">${it.home_team.flag_emoji || '🏳️'}</span>${escapeHtml(it.home_team.name_zh)}</span>
           <span class="text-xs text-slate-500">VS</span>
-          <span class="font-semibold text-sm text-slate-100">${escapeHtml(it.away_team.name_zh)}</span>
+          <span class="font-semibold text-sm text-slate-100"><span class="team-flag text-base">${it.away_team.flag_emoji || '🏳️'}</span>${escapeHtml(it.away_team.name_zh)}</span>
         </div>
         <div class="grid grid-cols-3 gap-2 text-center text-xs">
           <div class="bg-slate-950/60 rounded-lg p-2">
@@ -1778,7 +1951,7 @@ async function renderOddsCardsWithModel(items, model) {
             <div class="text-cyan-400">${fmtVb(vbAway)}</div>
           </div>
         </div>
-        <div class="mt-2 text-[10px] text-slate-500 text-center">${escapeHtml(modelSource)} 模型 vs 市场偏离值（绿正=模型低估此结果=价值）</div>
+        <div class="mt-2 text-[10px] text-slate-500 text-center">${escapeHtml(modelLabel(modelSource))} vs 市场偏离值（绿正=模型低估此结果=价值）</div>
       </div>
     `;
   }).join('');
@@ -1808,7 +1981,7 @@ async function onOddsCardModelChange(selectEl, matchId) {
       cells[2].innerHTML = fmtVb((mp.away_prob || 0) - market.away_prob);
     }
     const footer = card.querySelector('.text-\\[10px\\].text-center');
-    if (footer) footer.textContent = `${newModel} 模型 vs 市场偏离值（绿正=模型低估此结果=价值）`;
+    if (footer) footer.textContent = `${modelLabel(newModel)} vs 市场偏离值（绿正=模型低估此结果=价值）`;
   } catch (e) {
     console.warn('onOddsCardModelChange failed', e);
   }
@@ -1902,15 +2075,15 @@ async function renderElo() {
           <div class="text-xl font-extrabold text-emerald-400">Elo 实力榜</div>
           <div class="text-xs text-slate-500">
             ${source === 'statsbomb'
-              ? '基于 StatsBomb Open Data · 世界杯/欧洲杯/美洲杯/非洲杯 · 缺失球队 fallback 到 Hicruben'
-              : `基于 Hicruben 913 场 walk-forward 回测 · 截至 ${backtest.date_range ? backtest.date_range[1] : '--'}`}
+              ? '基于 StatsBomb 公开数据 · 世界杯/欧洲杯/美洲杯/非洲杯 · 缺失球队已回退到 Hicruben 数据集'
+              : `基于 Hicruben 913 场滚动前向回测 · 截至 ${backtest.date_range ? backtest.date_range[1] : '--'}`}
           </div>
         </div>
       </div>
       <div class="flex items-center gap-2">
         <div class="flex items-center glass-card rounded-lg overflow-hidden p-0.5">
-          <button onclick="setEloSource('hicruben')" class="text-xs px-3 py-1.5 transition rounded-md ${source === 'hicruben' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-400 hover:text-emerald-400'}">Hicruben</button>
-          <button onclick="setEloSource('statsbomb')" class="text-xs px-3 py-1.5 transition rounded-md ${source === 'statsbomb' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-400 hover:text-emerald-400'}">StatsBomb</button>
+          <button onclick="setEloSource('hicruben')" class="text-xs px-3 py-1.5 transition rounded-md ${source === 'hicruben' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-400 hover:text-emerald-400'}">Hicruben 数据集</button>
+          <button onclick="setEloSource('statsbomb')" class="text-xs px-3 py-1.5 transition rounded-md ${source === 'statsbomb' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-400 hover:text-emerald-400'}">StatsBomb 数据集</button>
         </div>
         <button onclick="exportEloToCSV()" title="导出 48 队 Elo 评级 CSV" class="text-xs text-slate-400 hover:text-emerald-400 transition flex items-center gap-1 px-3 py-1.5 rounded-full hover:bg-slate-900/80 border border-slate-800 hover:border-slate-700">
           <span>📥</span><span>导出 CSV</span>
@@ -1937,14 +2110,14 @@ async function renderElo() {
         <div class="flex items-center gap-2 mb-3 flex-wrap">
           <span class="text-xs text-slate-500">模型:</span>
           <div class="flex items-center glass-card rounded-lg overflow-hidden p-0.5">
-            <button onclick="setEloModel('elo')" class="text-xs px-3 py-1.5 transition rounded-md ${_eloModel === 'elo' ? 'bg-violet-600 text-white shadow-lg' : 'text-slate-400 hover:text-violet-400'}">📊 Elo M1 v1</button>
-            <button onclick="setEloModel('glicko2')" class="text-xs px-3 py-1.5 transition rounded-md ${_eloModel === 'glicko2' ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-400 hover:text-cyan-400'}">⚡ Glicko-2 v3</button>
-            <button onclick="setEloModel('blend')" class="text-xs px-3 py-1.5 transition rounded-md ${_eloModel === 'blend' ? 'bg-gradient-to-r from-violet-600 to-cyan-600 text-white shadow-lg' : 'text-slate-400 hover:text-violet-400'}">🧠 Blend ⭐ (默认)</button>
-            <button onclick="setEloModel('adaptive')" class="text-xs px-3 py-1.5 transition rounded-md ${_eloModel === 'adaptive' ? 'bg-gradient-to-r from-emerald-600 to-cyan-600 text-white shadow-lg' : 'text-slate-400 hover:text-emerald-400'}">🌱 Adaptive <span class="text-[9px]">v7.5</span></button>
-            <button onclick="setEloModel('marketblend')" class="text-xs px-3 py-1.5 transition rounded-md ${_eloModel === 'marketblend' ? 'bg-gradient-to-r from-amber-500 to-rose-500 text-white shadow-lg' : 'text-slate-400 hover:text-amber-400'}">💰 MarketBlend <span class="text-[9px]">v7c</span></button>
+            <button onclick="setEloModel('elo')" class="text-xs px-3 py-1.5 transition rounded-md ${_eloModel === 'elo' ? 'bg-violet-600 text-white shadow-lg' : 'text-slate-400 hover:text-violet-400'}">📊 Elo M1 模型</button>
+            <button onclick="setEloModel('glicko2')" class="text-xs px-3 py-1.5 transition rounded-md ${_eloModel === 'glicko2' ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-400 hover:text-cyan-400'}">⚡ Glicko-2 模型</button>
+            <button onclick="setEloModel('blend')" class="text-xs px-3 py-1.5 transition rounded-md ${_eloModel === 'blend' ? 'bg-gradient-to-r from-violet-600 to-cyan-600 text-white shadow-lg' : 'text-slate-400 hover:text-violet-400'}">🧠 融合模型（默认）</button>
+            <button onclick="setEloModel('adaptive')" class="text-xs px-3 py-1.5 transition rounded-md ${_eloModel === 'adaptive' ? 'bg-gradient-to-r from-emerald-600 to-cyan-600 text-white shadow-lg' : 'text-slate-400 hover:text-emerald-400'}">🌱 自适应融合模型 <span class="text-[9px]">v7.5</span></button>
+            <button onclick="setEloModel('marketblend')" class="text-xs px-3 py-1.5 transition rounded-md ${_eloModel === 'marketblend' ? 'bg-gradient-to-r from-amber-500 to-rose-500 text-white shadow-lg' : 'text-slate-400 hover:text-amber-400'}">💰 市场融合模型 <span class="text-[9px]">v7c</span></button>
           </div>
           <span class="text-[10px] text-slate-500 hidden md:inline">
-            ${_eloModel === 'elo' ? '· Hicruben Elo (v1)' : _eloModel === 'glicko2' ? '· 913 场 walk-forward · 准确率 62.7%' : _eloModel === 'adaptive' ? '· 按距上次比赛天数自动调 w_g2' : _eloModel === 'marketblend' ? '· Elo + Glicko-2 + 市场赔率 0.4/0.3/0.3' : '· Elo + Glicko-2 等权 (w_elo=0.5)'}
+            ${_eloModel === 'elo' ? '· Hicruben Elo（v1）' : _eloModel === 'glicko2' ? '· 913 场滚动前向验证 · 准确率 62.7%' : _eloModel === 'adaptive' ? '· 按距上次比赛天数自动调 w_g2' : _eloModel === 'marketblend' ? '· Elo + Glicko-2 + 市场赔率 0.4/0.3/0.3' : '· Elo + Glicko-2 等权（w_elo=0.5）'}
           </span>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-7 gap-3 items-center">
@@ -1980,10 +2153,10 @@ async function renderElo() {
     <section class="cockpit-section mb-4">
       <h2 class="cockpit-section-title">ℹ️ StatsBomb 数据说明</h2>
       <div class="glass-card rounded-xl p-3 text-xs text-slate-400 space-y-2">
-        <div>📡 数据源：<b class="text-slate-200">StatsBomb Open Data</b>（世界杯 2018/2022、欧洲杯 2020/2024、美洲杯 2024、非洲杯 2023）</div>
-        <div>⚙️ 训练：K=60 · 中立场 home_bonus=0 · 按比赛日期排序更新</div>
+        <div>📡 数据源：<b class="text-slate-200">StatsBomb 公开数据</b>（世界杯 2018/2022、欧洲杯 2020/2024、美洲杯 2024、非洲杯 2023）</div>
+        <div>⚙️ 训练：K=60 · 中立场主队加成为 0 · 按比赛日期排序更新</div>
         <div>📝 许可：公开使用需标注 StatsBomb 并使用其 logo</div>
-        <div>⚠️ 注意：StatsBomb Open Data 缺少 2023-2026 友谊赛/预选赛，部分 2026 参赛队（伊拉克、乌兹别克斯坦等）无数据，已 fallback 到 Hicruben</div>
+        <div>⚠️ 注意：StatsBomb 公开数据缺少 2023-2026 友谊赛/预选赛，部分 2026 参赛队（伊拉克、乌兹别克斯坦等）无数据，已回退到 Hicruben 数据集</div>
       </div>
     </section>
     ` : `
@@ -1992,16 +2165,16 @@ async function renderElo() {
       <h2 class="cockpit-section-title">📊 4 年 walk-forward 回测指标</h2>
       <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
         ${_backtestCard('准确率', (backtest.metrics ? backtest.metrics.accuracy_pct : '-') + '%', '命中 1X2', 'emerald')}
-        ${_backtestCard('RPS', backtest.metrics ? backtest.metrics.rps : '-', '越低越好 (0 完美)', 'blue')}
-        ${_backtestCard('Log-loss', backtest.metrics ? backtest.metrics.log_loss : '-', '越低越好', 'amber')}
-        ${_backtestCard('Brier', backtest.metrics ? backtest.metrics.brier : '-', '越低越好', 'rose')}
-        ${_backtestCard('ECE', (backtest.metrics ? backtest.metrics.ece_pct : '-') + '%', '校准误差', 'violet')}
+        ${_backtestCard('排序概率分数', backtest.metrics ? backtest.metrics.rps : '-', '越低越好（0 完美）', 'blue')}
+        ${_backtestCard('对数损失', backtest.metrics ? backtest.metrics.log_loss : '-', '越低越好', 'amber')}
+        ${_backtestCard('布里尔分数', backtest.metrics ? backtest.metrics.brier : '-', '越低越好', 'rose')}
+        ${_backtestCard('期望校准误差', (backtest.metrics ? backtest.metrics.ece_pct : '-') + '%', '校准误差', 'violet')}
       </div>
       <div class="glass-card rounded-xl p-3 text-xs text-slate-400 space-y-1">
         <div>📅 数据范围：<b class="text-slate-200">${backtest.date_range ? backtest.date_range[0] : '-'} ~ ${backtest.date_range ? backtest.date_range[1] : '-'}</b></div>
-        <div>🧪 评估：<b class="text-slate-200">${backtest.evaluated || '-'}</b> 场（burn-in ${backtest.burn_in || '-'} 场后）</div>
+        <div>🧪 评估：<b class="text-slate-200">${backtest.evaluated || '-'}</b> 场（预热期 ${backtest.burn_in || '-'} 场后）</div>
         <div>⚙️ 参数：K=${backtest.parameters ? backtest.parameters.k_factor : '-'} · 主队加成=${backtest.parameters ? backtest.parameters.home_bonus : '-'} · ρ=${backtest.parameters ? backtest.parameters.dc_rho : '-'}</div>
-        <div>📡 数据源：<b class="text-slate-200">Hicruben/world-cup-2026-prediction-model</b>（已校准到 2026-06-11）</div>
+        <div>📡 数据源：<b class="text-slate-200">Hicruben 世界杯 2026 预测数据集</b>（已校准到 2026-06-11）</div>
         <div class="text-slate-500 italic">${backtest.note || ''}</div>
       </div>
     </section>
@@ -2010,13 +2183,13 @@ async function renderElo() {
     <!-- v0.7.0a: Glicko-2 48 队评分榜 (默认折叠) -->
     <section class="cockpit-section mb-4">
       <h2 class="cockpit-section-title cursor-pointer select-none" onclick="toggleG2Section()">
-        ⚡ Glicko-2 评分榜 (48 队) <span id="g2-toggle-icon" class="text-slate-500 text-xs">${_g2Open ? '▼' : '▶'}</span>
-        <span class="text-[10px] text-slate-500 font-normal ml-2">· 比 Elo M1 准确率高 4-5 pp</span>
+        ⚡ Glicko-2 评分榜（48 队）<span id="g2-toggle-icon" class="text-slate-500 text-xs">${_g2Open ? '▼' : '▶'}</span>
+        <span class="text-[10px] text-slate-500 font-normal ml-2">· 比 Elo M1 准确率高 4-5 个百分点</span>
       </h2>
       <div id="g2-ratings-section" class="glass-card rounded-xl overflow-hidden ${_g2Open ? '' : 'hidden'}">
         <div class="text-[10px] text-slate-500 px-3 py-2 border-b border-slate-800/60 flex items-center justify-between">
-          <span>▎ 按 Glicko-2 评分降序 · 913 场 walk-forward · 截至 2026-06-11</span>
-          <span class="text-cyan-400 font-mono">训练指标: 62.7% / RPS 0.17</span>
+          <span>▎ 按 Glicko-2 评分降序 · 913 场滚动前向验证 · 截至 2026-06-11</span>
+          <span class="text-cyan-400 font-mono">训练指标：62.7% / 排序概率分数 0.17</span>
         </div>
         ${(g2Ratings && g2Ratings.length) ? g2Ratings.slice(0, 48).map((r, i) => {
           // v0.7.0a: Glicko-2 API 返回 team_name=English country name, 用 name_en join
@@ -2046,8 +2219,8 @@ async function renderElo() {
     <!-- 数据状态 -->
     <div class="text-center text-xs py-2 ${source === 'statsbomb' ? 'text-amber-500/80' : 'text-slate-600'}">
       ${source === 'statsbomb'
-        ? `StatsBomb 评分来源 · StatsBomb Open Data · 共 ${rows.length} 队 · 缺失球队 fallback 到 Hicruben`
-        : `Elo 评分来源 · Hicruben Elo-calibrated dataset · 共 ${rows.length} 队`}
+        ? `StatsBomb 评分来源 · StatsBomb 公开数据 · 共 ${rows.length} 队 · 缺失球队已回退到 Hicruben 数据集`
+        : `Elo 评分来源 · Hicruben 校准数据集 · 共 ${rows.length} 队`}
     </div>
   `;
 
@@ -2217,7 +2390,7 @@ async function _renderEloM1Predict(homeCode, awayCode) {
           <span class="${winnerColor} font-bold">${winnerText}</span>
           <span class="text-xs text-slate-500 ml-2">（最高概率 ${(maxProb * 100).toFixed(1)}%）</span>
         </div>
-        <div class="text-center text-[10px] text-slate-600">📊 Elo M1 v1 · 数据源: ${escapeHtml(p.data_source || _eloSource)}</div>
+        <div class="text-center text-[10px] text-slate-600">📊 Elo M1 模型 · 数据源：${escapeHtml(dataSourceName(p.data_source || _eloSource))}</div>
       </div>
     `;
   } catch (e) {
@@ -2270,14 +2443,14 @@ async function _renderGlicko2Predict(homeCode, awayCode) {
           <span class="${winnerColor} font-bold">${winnerText}</span>
           <span class="text-xs text-slate-500 ml-2">（最高概率 ${(maxProb * 100).toFixed(1)}%）</span>
         </div>
-        <div class="text-center text-[10px] text-slate-600">⚡ Glicko-2 v3 · 913 场 walk-forward · 准确率 62.7%</div>
+        <div class="text-center text-[10px] text-slate-600">⚡ Glicko-2 模型 · 913 场滚动前向验证 · 准确率 62.7%</div>
       </div>
     `;
   } catch (e) {
     // v0.7.0a: 404 fallback (球队不在 Glicko-2 字典) → 降级显示 Elo M1
     if (e.message && e.message.includes('404')) {
       const fallback = await _renderEloM1Predict(homeCode, awayCode);
-      return fallback + '<div class="text-center text-amber-400 text-[10px] mt-1">⚠️ 该队不在 Glicko-2 字典, 已降级到 Elo M1</div>';
+      return fallback + '<div class="text-center text-amber-400 text-[10px] mt-1">⚠️ 该队不在 Glicko-2 字典中，已降级到 Elo M1</div>';
     }
     return '<div class="text-rose-400 text-sm text-center py-4">Glicko-2 预测失败：' + escapeHtml(e.message || '') + '</div>';
   }
@@ -2318,23 +2491,23 @@ async function _renderBlendPredict(homeCode, awayCode) {
           </div>
         </div>
         <div class="grid grid-cols-3 gap-2 text-center">
-          ${compRow('📊 Elo M1', 'text-violet-400', eloProbs)}
-          ${compRow('⚡ Glicko-2', 'text-cyan-400', g2Probs)}
-          ${compRow('🧠 Blend ⭐', 'text-gradient bg-gradient-to-r from-violet-400 to-cyan-400 bg-clip-text text-transparent', probs)}
+          ${compRow('📊 Elo M1 模型', 'text-violet-400', eloProbs)}
+          ${compRow('⚡ Glicko-2 模型', 'text-cyan-400', g2Probs)}
+          ${compRow('🧠 融合模型', 'text-gradient bg-gradient-to-r from-violet-400 to-cyan-400 bg-clip-text text-transparent', probs)}
         </div>
         <div class="text-center">
           <span class="text-xs text-slate-500">结论：</span>
           <span class="${winnerColor} font-bold">${winnerText}</span>
           <span class="text-xs text-slate-500 ml-2">（Blend 最高概率 ${(maxProb * 100).toFixed(1)}%）</span>
         </div>
-        <div class="text-center text-[10px] text-slate-600">🧠 ModelBlend · Elo + Glicko-2 等权 w=0.5/0.5 · 三方融合见 v0.7.3</div>
+        <div class="text-center text-[10px] text-slate-600">🧠 融合模型 · Elo + Glicko-2 等权 w=0.5/0.5 · 三方融合见 v0.7.3</div>
       </div>
     `;
   } catch (e) {
     // v0.7.0a: 404 fallback (球队不在 Glicko-2 字典) → 降级显示 Elo M1
     if (e.message && e.message.includes('404')) {
       const fallback = await _renderEloM1Predict(homeCode, awayCode);
-      return fallback + '<div class="text-center text-amber-400 text-[10px] mt-1">⚠️ 该队不在 Glicko-2 字典, 已降级到 Elo M1</div>';
+      return fallback + '<div class="text-center text-amber-400 text-[10px] mt-1">⚠️ 该队不在 Glicko-2 字典中，已降级到 Elo M1</div>';
     }
     return '<div class="text-rose-400 text-sm text-center py-4">Blend 预测失败：' + escapeHtml(e.message || '') + '</div>';
   }
@@ -2399,7 +2572,7 @@ async function _renderAdaptivePredict(homeCode, awayCode) {
           <div>主队 ${homeCode} 距上次比赛 <span class="text-slate-300 font-mono">${a.home_days_since_last}</span> 天</div>
           <div>客队 ${awayCode} 距上次比赛 <span class="text-slate-300 font-mono">${a.away_days_since_last}</span> 天</div>
         </div>
-        <div class="text-[10px] text-slate-600 mt-2 text-center">v0.7.5 Adaptive · ${a.model_version}</div>
+        <div class="text-[10px] text-slate-600 mt-2 text-center">v0.7.5 自适应融合模型 · ${a.model_version}</div>
       </div>
     `;
   } catch (e) {
@@ -2422,7 +2595,7 @@ async function _renderMarketBlendPredict(homeCode, awayCode) {
     const isFallback = b.fallback_reason === 'market_odds_unavailable';
     const marketBlock = b.market ? `
       <div class="bg-slate-800/40 rounded p-2">
-        <div class="text-[10px] text-slate-500">💰 市场 (${escapeHtml(b.market.bookmaker)})</div>
+        <div class="text-[10px] text-slate-500">💰 市场（${escapeHtml(b.market.bookmaker)}）</div>
         <div class="text-[11px] font-mono text-amber-400">
           ${(b.market.probabilities.home_win * 100).toFixed(1)} / ${(b.market.probabilities.draw * 100).toFixed(1)} / ${(b.market.probabilities.away_win * 100).toFixed(1)}
         </div>
@@ -2459,11 +2632,11 @@ async function _renderMarketBlendPredict(homeCode, awayCode) {
         </div>
         <div class="grid grid-cols-3 gap-2 text-center">
           <div class="bg-slate-800/40 rounded p-2">
-            <div class="text-[10px] text-slate-500">📊 Elo M1</div>
+            <div class="text-[10px] text-slate-500">📊 Elo M1 模型</div>
             <div class="text-[11px] font-mono text-violet-400">${(b.elo.probabilities.home_win * 100).toFixed(1)} / ${(b.elo.probabilities.draw * 100).toFixed(1)} / ${(b.elo.probabilities.away_win * 100).toFixed(1)}</div>
           </div>
           <div class="bg-slate-800/40 rounded p-2">
-            <div class="text-[10px] text-slate-500">⚡ Glicko-2</div>
+            <div class="text-[10px] text-slate-500">⚡ Glicko-2 模型</div>
             <div class="text-[11px] font-mono text-cyan-400">${(b.glicko2.probabilities.home_win * 100).toFixed(1)} / ${(b.glicko2.probabilities.draw * 100).toFixed(1)} / ${(b.glicko2.probabilities.away_win * 100).toFixed(1)}</div>
           </div>
           ${marketBlock}
@@ -2474,14 +2647,14 @@ async function _renderMarketBlendPredict(homeCode, awayCode) {
           <span class="text-xs text-slate-500 ml-2">（MarketBlend 最高概率 ${(maxProb * 100).toFixed(1)}%）</span>
         </div>
         <div class="text-center text-[10px] ${isFallback ? 'text-amber-500' : 'text-slate-600'}">
-          💰 MarketBlend · ${isFallback ? '市场赔率不可用, 已 fallback 到 Elo + Glicko-2' : 'Elo + Glicko-2 + 市场赔率 0.4/0.3/0.3'}
+          💰 市场融合模型 · ${isFallback ? '市场赔率不可用，已回退到 Elo + Glicko-2' : 'Elo + Glicko-2 + 市场赔率 0.4/0.3/0.3'}
         </div>
       </div>
     `;
   } catch (e) {
     if (e.message && e.message.includes('404')) {
       const fallback = await _renderEloM1Predict(homeCode, awayCode);
-      return fallback + '<div class="text-center text-amber-400 text-[10px] mt-1">⚠️ MarketBlend 无法预测, 已降级到 Elo M1</div>';
+      return fallback + '<div class="text-center text-amber-400 text-[10px] mt-1">⚠️ 市场融合模型无法预测，已降级到 Elo M1</div>';
     }
     return '<div class="text-rose-400 text-sm text-center py-4">MarketBlend 预测失败：' + escapeHtml(e.message || '') + '</div>';
   }
@@ -2635,14 +2808,14 @@ function renderLiveAccuracyCard(liveWindow, liveAll) {
   const accColor = !acc ? 'text-slate-500' : acc >= 0.6 ? 'text-emerald-400' : acc >= 0.5 ? 'text-amber-400' : 'text-rose-400';
   const statusBadge = {
     'no_data':       '<span class="text-slate-400">⏳ 等待开赛</span>',
-    'live_only':     '<span class="text-emerald-400">✅ 真 forward</span>',
-    'backfill_only': '<span class="text-amber-400">⚠️ 仅 backfill</span>',
+    'live_only':     '<span class="text-emerald-400">✅ 实盘</span>',
+    'backfill_only': '<span class="text-amber-400">⚠️ 仅回填</span>',
     'mixed':         '<span class="text-cyan-400">📊 混合</span>',
   }[status] || '<span class="text-slate-500">—</span>';
 
   return `
     <section class="cockpit-section mb-4">
-      <h2 class="cockpit-section-title">🎯 真 Forward 准确率 (v0.11) ${statusBadge}</h2>
+      <h2 class="cockpit-section-title">🎯 真实前向验证准确率 (v0.11) ${statusBadge}</h2>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
         <!-- 整体 -->
         <div class="glass-card rounded-xl p-4">
@@ -2654,7 +2827,7 @@ function renderLiveAccuracyCard(liveWindow, liveAll) {
         </div>
         <!-- brier -->
         <div class="glass-card rounded-xl p-4">
-          <div class="text-xs text-slate-400 mb-1">Brier Score ↓</div>
+          <div class="text-xs text-slate-400 mb-1">布里尔分数 ↓</div>
           <div class="text-3xl font-extrabold text-cyan-300">
             ${brier == null ? '—' : brier.toFixed(4)}
           </div>
@@ -2665,13 +2838,13 @@ function renderLiveAccuracyCard(liveWindow, liveAll) {
           <div class="text-xs text-slate-400 mb-1">数据状态</div>
           <div class="text-base font-semibold text-slate-200">${statusBadge}</div>
           <div class="text-xs text-slate-500 mt-1">
-            ${status === 'no_data' ? '距开赛 17 天' : 'live/backfill ' + (a.by_model ? Object.keys(a.by_model).length : 0) + ' 模型'}
+            ${status === 'no_data' ? '距开赛 17 天' : '实盘/回填 ' + (a.by_model ? Object.keys(a.by_model).length : 0) + ' 模型'}
           </div>
         </div>
       </div>
       <div class="text-xs text-slate-500 mt-3">
-        💡 真 forward = lifespan startup / scheduler 6h 实时写入的预测.
-        端点: <code class="text-slate-400">GET /api/elo/live-window-accuracy?days=${days}</code> · <code class="text-slate-400">/api/elo/live-accuracy?is_live=true</code>
+        💡 真实前向验证 = 生命周期启动 / 6h 调度器实时写入的预测。
+        端点：<code class="text-slate-400">GET /api/elo/live-window-accuracy?days=${days}</code> · <code class="text-slate-400">/api/elo/live-accuracy?is_live=true</code>
       </div>
     </section>
   `;
@@ -2705,15 +2878,15 @@ function accuracyMiniCard(label, m, color) {
       </div>
       <div class="grid grid-cols-3 gap-2 text-xs">
         <div>
-          <div class="text-slate-500">RPS</div>
+          <div class="text-slate-500">排序概率分数</div>
           <div class="font-mono ${m.rps == null ? 'text-slate-600' : 'text-slate-200'}">${m.rps == null ? '—' : m.rps.toFixed(4)}</div>
         </div>
         <div>
-          <div class="text-slate-500">Brier</div>
+          <div class="text-slate-500">布里尔分数</div>
           <div class="font-mono ${m.brier == null ? 'text-slate-600' : 'text-slate-200'}">${m.brier == null ? '—' : m.brier.toFixed(4)}</div>
         </div>
         <div>
-          <div class="text-slate-500">LogLoss</div>
+          <div class="text-slate-500">对数损失</div>
           <div class="font-mono ${m.log_loss == null ? 'text-slate-600' : 'text-slate-200'}">${m.log_loss == null ? '—' : m.log_loss.toFixed(4)}</div>
         </div>
       </div>
@@ -2733,9 +2906,9 @@ function bestModelLabel(byModel) {
   });
   if (!bestKey) return '—';
   const labelMap = {
-    v1_elo: 'Elo M1',
-    v2_enhanced: 'Elo v2',
-    v3_glicko2: 'Glicko-2',
+    v1_elo: 'Elo M1 模型',
+    v2_enhanced: 'Elo v2 增强模型',
+    v3_glicko2: 'Glicko-2 模型',
   };
   return `${labelMap[bestKey] || bestKey} ${(bestAcc * 100).toFixed(0)}%`;
 }
@@ -2765,7 +2938,7 @@ function focusCard(m) {
           <span class="team-flag text-xl">${away.flag_emoji || '🏳️'}</span>
         </div>
       </div>
-      <div class="mt-2 text-xs text-slate-500 truncate">${m.group_name ? m.group_name + '组 · ' : ''}${m.stadium ? escapeHtml(m.stadium.name_en) : ''}</div>
+      <div class="mt-2 text-xs text-slate-500 truncate">${m.group_name ? m.group_name + '组 · ' : ''}${m.stadium ? escapeHtml(m.stadium.name_zh || m.stadium.name_en) : ''}</div>
     </a>
   `;
 }
@@ -2831,9 +3004,9 @@ function hourCell(h, bucket) {
   const intensity = n === 0 ? 'bg-slate-900/40 border-slate-800/40' : n === 1 ? 'bg-emerald-500/20 border-emerald-500/30' : n === 2 ? 'bg-emerald-500/35 border-emerald-500/40' : 'bg-emerald-500/60 border-emerald-500/50';
   const heightClass = n === 0 ? 'h-10' : n === 1 ? 'h-12' : n === 2 ? 'h-14' : 'h-16';
   const list = bucket.slice(0, 3).map(m => {
-    const home = (m.home_team || { name_zh: m.home_team_placeholder || '?' }).name_zh;
-    const away = (m.away_team || { name_zh: m.away_team_placeholder || '?' }).name_zh;
-    return `<div class="truncate text-[10px] text-slate-200">${home} vs ${away}</div>`;
+    const home = m.home_team || { name_zh: m.home_team_placeholder || '?', flag_emoji: '🏳️' };
+    const away = m.away_team || { name_zh: m.away_team_placeholder || '?', flag_emoji: '🏳️' };
+    return `<div class="truncate text-[10px] text-slate-200"><span class="team-flag text-[10px]">${home.flag_emoji || '🏳️'}</span>${escapeHtml(home.name_zh)} vs <span class="team-flag text-[10px]">${away.flag_emoji || '🏳️'}</span>${escapeHtml(away.name_zh)}</div>`;
   }).join('');
   const more = n > 3 ? `<div class="text-[10px] text-slate-400">+${n - 3} 场</div>` : '';
   return `
@@ -2851,7 +3024,7 @@ function stadiumCard(s) {
   return `
     <div class="glass-card rounded-lg p-2">
       <div class="flex items-start justify-between mb-1">
-        <div class="font-bold text-xs text-slate-200 truncate">${escapeHtml(s.info.name_en)}</div>
+        <div class="font-bold text-xs text-slate-200 truncate">${escapeHtml(s.info.name_zh || s.info.name_en)}</div>
         ${todayBadge}
       </div>
       <div class="text-[10px] text-slate-500 truncate">${escapeHtml(s.info.city)}, ${escapeHtml(s.info.country)}</div>
@@ -3243,24 +3416,24 @@ async function renderBracket() {
         </p>
 
         <div class="bracket-flow">
-          ${renderBracketColumnReal('R32 · 32 强', rounds.r32, 16, '等待小组赛结束（6/26 出 32 强）')}
+          ${renderBracketColumnReal('32 强赛', rounds.r32, 16, '等待小组赛结束（6/26 出 32 强）')}
           <div class="bracket-arrow">→</div>
-          ${renderBracketColumnReal('R16 · 16 强', rounds.r16, 8, '等待 32 强结果')}
+          ${renderBracketColumnReal('16 强赛', rounds.r16, 8, '等待 32 强结果')}
           <div class="bracket-arrow">→</div>
-          ${renderBracketColumnReal('QF · 8 强', rounds.qf, 4, '等待 16 强结果')}
+          ${renderBracketColumnReal('8 强赛', rounds.qf, 4, '等待 16 强结果')}
           <div class="bracket-arrow">→</div>
-          ${renderBracketColumnReal('SF · 半决赛', rounds.sf, 2, '等待 8 强结果')}
+          ${renderBracketColumnReal('半决赛', rounds.sf, 2, '等待 8 强结果')}
           <div class="bracket-arrow">→</div>
-          ${renderBracketColumnReal('F · 决赛', rounds.final ? [rounds.final] : [], 1, '等待半决赛结果')}
+          ${renderBracketColumnReal('决赛', rounds.final ? [rounds.final] : [], 1, '等待半决赛结果')}
         </div>
 
         <!-- 季军赛 + 冠军（独立行） -->
         <div class="bracket-extras">
-          ${rounds.third_place ? renderBracketNodeReal(rounds.third_place, '3rd · 季军赛') :
-            renderBracketPlaceholder('3rd · 季军赛', '半决赛结束后')}
+          ${rounds.third_place ? renderBracketNodeReal(rounds.third_place, '季军赛') :
+            renderBracketPlaceholder('季军赛', '半决赛结束后')}
           <div class="bracket-trophy-card">
             <div class="trophy-icon">🏆</div>
-            <div class="trophy-label">CHAMPIONS</div>
+            <div class="trophy-label">冠军</div>
             <div class="trophy-hint">决赛胜方</div>
           </div>
         </div>
@@ -3269,7 +3442,7 @@ async function renderBracket() {
       <!-- 底部说明 -->
       <footer class="bracket-footer">
         <p>💡 提示：点击任意节点跳转比赛详情 · 数据每 5 分钟自动同步</p>
-        <p class="bracket-footer-meta">数据源：${escapeHtml(matches[0]?.data_source || 'worldcupstats.football')} · 最后更新 ${beijingNowString()}</p>
+        <p class="bracket-footer-meta">数据源：${escapeHtml(dataSourceName(matches[0]?.data_source || 'worldcupstats.football'))} · 最后更新 ${beijingNowString()}</p>
       </footer>
     </div>
   `;
@@ -3427,8 +3600,8 @@ function renderBracketNode(m, positionLabel) {
   // 2. R16+ 完全无数据 → 走 placeholder
   const isScheduledUnknown = !m.home_team && !m.away_team && m.kickoff_at;
 
-  const home = m.home_team || { name_zh: 'TBD', flag_emoji: '🏳️' };
-  const away = m.away_team || { name_zh: 'TBD', flag_emoji: '🏳️' };
+  const home = m.home_team || { name_zh: '待定', flag_emoji: '🏳️' };
+  const away = m.away_team || { name_zh: '待定', flag_emoji: '🏳️' };
   const isFinished = m.status === 'finished' || (m.home_score !== null && m.away_score !== null);
   const isLive = m.status === 'live';
   const homeWin = isFinished && m.home_score > m.away_score;
@@ -3512,12 +3685,13 @@ function renderBracketColumnReal(label, matches, expectedCount, placeholderHint)
 
   // 有真实数据 → 逐个渲染节点，空槽用 placeholder 补齐
   const slots = [];
+  const stageShort = { 16: '32强', 8: '16强', 4: '8强', 2: '半决赛', 1: '决赛' }[expectedCount] || label.split(' ')[0];
   for (let i = 0; i < expectedCount; i++) {
     const m = safeMatches[i];
     if (m) {
-      slots.push(renderBracketNodeReal(m, `${label.split(' ')[0]} #${i + 1}`));
+      slots.push(renderBracketNodeReal(m, `${stageShort} #${i + 1}`));
     } else {
-      slots.push(renderBracketPlaceholder(`${label.split(' ')[0]} #${i + 1}`, placeholderHint));
+      slots.push(renderBracketPlaceholder(`${stageShort} #${i + 1}`, placeholderHint));
     }
   }
   return `
@@ -3532,8 +3706,8 @@ function renderBracketColumnReal(label, matches, expectedCount, placeholderHint)
 
 /** v0.3.0: 渲染基于 /api/bracket 真实数据的单个节点 */
 function renderBracketNodeReal(m, positionLabel) {
-  const home = m.home?.team || { name_zh: m.home?.placeholder || 'TBD', flag_emoji: '🏳️' };
-  const away = m.away?.team || { name_zh: m.away?.placeholder || 'TBD', flag_emoji: '🏳️' };
+  const home = m.home?.team || { name_zh: m.home?.placeholder || '待定', flag_emoji: '🏳️' };
+  const away = m.away?.team || { name_zh: m.away?.placeholder || '待定', flag_emoji: '🏳️' };
   const homeSource = m.home?.source || '';
   const awaySource = m.away?.source || '';
   const isDetermined = m.home?.team && m.away?.team;
@@ -3724,7 +3898,7 @@ async function _renderH2HList(teamCode) {
               <span class="text-2xl shrink-0 group-hover:scale-110 transition-transform">${o.flag_emoji || '🏳️'}</span>
               <div class="min-w-0">
                 <div class="text-sm font-bold text-slate-200 truncate">${escapeHtml(o.name_zh)}</div>
-                <div class="text-xs text-slate-500 truncate">${o.fifa_code}${o.name_en ? ' · ' + escapeHtml(o.name_en) : ''}</div>
+                <div class="text-xs text-slate-500 truncate">${o.fifa_code}</div>
               </div>
             </div>
             <div class="text-right shrink-0 ml-2">
@@ -3842,9 +4016,6 @@ async function renderH2HDetail(code1, code2) {
           <span class="text-slate-500 mx-2">VS</span>
           <span>${escapeHtml(t2.flag_emoji || '🏳️')} ${escapeHtml(t2.name_zh)}</span>
         </h1>
-        <div class="text-xs text-slate-500 mt-1">
-          ${escapeHtml(t1.name_en)} (${t1.fifa_code}) vs ${escapeHtml(t2.name_en)} (${t2.fifa_code})
-        </div>
       </div>
 
       <!-- 胜负条（基于 code1 视角） -->
@@ -3893,10 +4064,10 @@ function renderBracketPlaceholder(positionLabel, hint) {
       </div>
       <div class="bracket-node-body">
         <div class="bracket-node-team-placeholder">
-          <span class="bracket-node-team-name text-slate-600 italic">TBD</span>
+          <span class="bracket-node-team-name text-slate-600 italic">待定</span>
         </div>
         <div class="bracket-node-team-placeholder">
-          <span class="bracket-node-team-name text-slate-600 italic">TBD</span>
+          <span class="bracket-node-team-name text-slate-600 italic">待定</span>
         </div>
       </div>
       <div class="bracket-node-foot">${escapeHtml(hint)}</div>
@@ -4010,11 +4181,11 @@ async function renderAccuracy() {
     <div class="glass-card rounded-2xl p-4">
       <div class="text-xs text-slate-500 mb-1">${label}</div>
       <div class="text-3xl font-extrabold ${overallColor(m.accuracy)}">${m.accuracy == null ? '—' : (m.accuracy * 100).toFixed(1) + '%'}</div>
-      <div class="text-xs text-slate-500 mt-2">n_settled=${m.n_settled} / n_total=${m.n_total}</div>
+      <div class="text-xs text-slate-500 mt-2">已结算 ${m.n_settled} 场 / 总计 ${m.n_total} 场</div>
       <div class="grid grid-cols-3 gap-2 mt-3 text-xs">
-        <div><div class="text-slate-500">RPS</div><div class="font-semibold text-slate-200">${m.rps == null ? '—' : m.rps.toFixed(4)}</div></div>
-        <div><div class="text-slate-500">Brier</div><div class="font-semibold text-slate-200">${m.brier == null ? '—' : m.brier.toFixed(4)}</div></div>
-        <div><div class="text-slate-500">LogLoss</div><div class="font-semibold text-slate-200">${m.log_loss == null ? '—' : m.log_loss.toFixed(4)}</div></div>
+        <div><div class="text-slate-500">排序概率分</div><div class="font-semibold text-slate-200">${m.rps == null ? '—' : m.rps.toFixed(4)}</div></div>
+        <div><div class="text-slate-500">布里尔分</div><div class="font-semibold text-slate-200">${m.brier == null ? '—' : m.brier.toFixed(4)}</div></div>
+        <div><div class="text-slate-500">对数损失</div><div class="font-semibold text-slate-200">${m.log_loss == null ? '—' : m.log_loss.toFixed(4)}</div></div>
       </div>
     </div>
   `;
@@ -4070,8 +4241,8 @@ async function renderAccuracy() {
     const surprisePct = (b.surprise_score * 100).toFixed(0);
     return `<tr class="border-t border-slate-800/50">
       <td class="py-2 text-slate-300">#${b.match_id}</td>
-      <td><span class="font-mono text-slate-300">${b.predicted_outcome}</span></td>
-      <td><span class="font-mono text-slate-300">${b.actual_outcome}</span></td>
+      <td><span class="font-mono text-slate-300">${outcomeZh(b.predicted_outcome)}</span></td>
+      <td><span class="font-mono text-slate-300">${outcomeZh(b.actual_outcome)}</span></td>
       <td class="text-slate-300">${(b.confidence * 100).toFixed(1)}%</td>
       <td class="text-slate-300">${(b.actual_p * 100).toFixed(1)}%</td>
       <td><span class="text-rose-400 font-semibold">${surprisePct}%</span></td>
@@ -4081,15 +4252,15 @@ async function renderAccuracy() {
   $('#app').innerHTML = `
     <div class="max-w-6xl mx-auto p-4">
       <div class="flex items-center justify-between mb-4">
-        <h1 class="text-2xl font-extrabold text-slate-100 flex items-center gap-2"><span>📊</span>预测准确率 Dashboard</h1>
+        <h1 class="text-2xl font-extrabold text-slate-100 flex items-center gap-2"><span>📊</span>预测准确率仪表盘</h1>
         <a href="#/" class="text-sm text-emerald-400 hover:text-emerald-300 transition">← 返回首页</a>
       </div>
 
       <!-- KPI 行: 3 个模型对比 -->
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         ${modelCard('🧠 全部模型汇总', all, '')}
-        ${modelCard('⚡ Glicko-2 (v3, 默认)', glicko2, '')}
-        ${modelCard('📊 Elo M1 (v1, 基准)', v1elo, '')}
+        ${modelCard('⚡ Glicko-2 模型（默认）', glicko2, '')}
+        ${modelCard('📊 Elo M1 模型（基准）', v1elo, '')}
       </div>
 
       <!-- 3 模型横评对比表 -->
@@ -4099,22 +4270,22 @@ async function renderAccuracy() {
           <thead class="text-xs text-slate-500 border-b-2 border-slate-800/60">
             <tr>
               <th class="text-left py-2">模型</th>
-              <th class="text-right">n_settled</th>
+              <th class="text-right">已结算场数</th>
               <th class="text-right">准确率</th>
-              <th class="text-right">RPS ↓</th>
-              <th class="text-right">Brier ↓</th>
-              <th class="text-right">LogLoss ↓</th>
+              <th class="text-right">排序概率分 ↓</th>
+              <th class="text-right">布里尔分 ↓</th>
+              <th class="text-right">对数损失 ↓</th>
               <th class="text-center">评级</th>
             </tr>
           </thead>
           <tbody>
-            ${compareRow('⚡ Glicko-2 (v3, 默认)', glicko2, glicko2.accuracy == null ? 0 : 1)}
-            ${compareRow('📊 Elo M1 (v1, 基准)', v1elo, v1elo.accuracy == null ? 0 : 1)}
-            ${compareRow('🧠 全部模型汇总 (混合)', all, all.accuracy == null ? 0 : 1)}
+            ${compareRow('⚡ Glicko-2 模型（默认）', glicko2, glicko2.accuracy == null ? 0 : 1)}
+            ${compareRow('📊 Elo M1 模型（基准）', v1elo, v1elo.accuracy == null ? 0 : 1)}
+            ${compareRow('🧠 全部模型汇总（混合）', all, all.accuracy == null ? 0 : 1)}
           </tbody>
         </table>
         <div class="text-xs text-slate-500 mt-2">
-          ▎ ↓ = 越低越好 · 评级: ≥60% 优 / 55-60% 良 / &lt;55% 待优化 · 数据基于 prediction_log 实盘结算
+          ▎ ↓ = 越低越好 · 评级：≥60% 优 / 55-60% 良 / &lt;55% 待优化 · 数据基于 prediction_log 实盘结算
         </div>
       </div>
 
@@ -4134,7 +4305,7 @@ async function renderAccuracy() {
             <h2 class="text-lg font-extrabold text-slate-100 mb-3">按模型分组 (已结算)</h2>
             <table class="w-full text-sm">
               <thead class="text-xs text-slate-500 border-b border-slate-800/60">
-                <tr><th class="text-left py-2">模型</th><th>n</th><th>Acc</th><th>Brier</th><th>LogLoss</th></tr>
+                <tr><th class="text-left py-2">模型</th><th>场次</th><th>准确率</th><th>布里尔分</th><th>对数损失</th></tr>
               </thead>
               <tbody>${byModelRows(all.by_model)}</tbody>
             </table>
@@ -4150,26 +4321,26 @@ async function renderAccuracy() {
 
       <!-- Glicko-2 walk-forward 历史基线 -->
       <div class="glass-card rounded-2xl p-4 mb-6">
-        <h2 class="text-lg font-extrabold text-slate-100 mb-2 flex items-center gap-2"><span>🎯</span>Glicko-2 训练基线 (913 场 walk-forward)</h2>
+        <h2 class="text-lg font-extrabold text-slate-100 mb-2 flex items-center gap-2"><span>🎯</span>Glicko-2 训练基线（913 场滚动前向验证）</h2>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
           <div class="bg-slate-950/40 p-3 rounded-lg">
             <div class="text-xs text-slate-500">准确率</div>
             <div class="text-2xl font-extrabold text-slate-100">${g2Metrics?.metrics?.accuracy != null ? (g2Metrics.metrics.accuracy * 100).toFixed(1) + '%' : '—'}</div>
           </div>
           <div class="bg-slate-950/40 p-3 rounded-lg">
-            <div class="text-xs text-slate-500">RPS</div>
+            <div class="text-xs text-slate-500">排序概率分</div>
             <div class="text-2xl font-extrabold text-slate-100">${g2Metrics?.metrics?.rps != null ? g2Metrics.metrics.rps.toFixed(4) : '—'}</div>
           </div>
           <div class="bg-slate-950/40 p-3 rounded-lg">
-            <div class="text-xs text-slate-500">Brier</div>
+            <div class="text-xs text-slate-500">布里尔分</div>
             <div class="text-2xl font-extrabold text-slate-100">${g2Metrics?.metrics?.brier != null ? g2Metrics.metrics.brier.toFixed(4) : '—'}</div>
           </div>
           <div class="bg-slate-950/40 p-3 rounded-lg">
-            <div class="text-xs text-slate-500">LogLoss</div>
+            <div class="text-xs text-slate-500">对数损失</div>
             <div class="text-2xl font-extrabold text-slate-100">${g2Metrics?.metrics?.log_loss != null ? g2Metrics.metrics.log_loss.toFixed(4) : '—'}</div>
           </div>
         </div>
-        <div class="text-xs text-slate-500 mt-3">训练数据: Hicruben 913 场国际赛 (2023-11 ~ 2026-06). 较 Elo M1 准确率提升 <span class="text-emerald-400 font-bold">+${g2Metrics?.metrics?.accuracy != null ? ((g2Metrics.metrics.accuracy - 0.5663) * 100).toFixed(1) + ' pp' : '—'}</span>.</div>
+        <div class="text-xs text-slate-500 mt-3">训练数据：Hicruben 913 场国际赛（2023-11 ~ 2026-06）。较 Elo M1 准确率提升 <span class="text-emerald-400 font-bold">+${g2Metrics?.metrics?.accuracy != null ? ((g2Metrics.metrics.accuracy - 0.5663) * 100).toFixed(1) + ' 个百分点' : '—'}</span>。</div>
       </div>
 
       <!-- 偏差分析 -->
@@ -4178,11 +4349,11 @@ async function renderAccuracy() {
         ${bias && bias.length > 0 ? `
           <table class="w-full text-sm">
             <thead class="text-xs text-slate-500 border-b border-slate-800/60">
-              <tr><th class="text-left py-2">Match</th><th>预测</th><th>实际</th><th>Confidence</th><th>实际P</th><th>Surprise</th></tr>
+              <tr><th class="text-left py-2">比赛</th><th>预测结果</th><th>实际结果</th><th>模型置信度</th><th>实际概率</th><th>意外值</th></tr>
             </thead>
             <tbody>${biasRows}</tbody>
           </table>
-          <div class="text-xs text-slate-500 mt-2">Surprise = 模型 confidence − 实际结果概率. 越大表示越离谱.</div>
+          <div class="text-xs text-slate-500 mt-2">意外值 = 模型置信度 − 实际结果概率。数值越大表示预测越离谱。</div>
         ` : `<div class="text-sm text-slate-500">暂无错误预测 (或全部预测都对了 🎉)</div>`}
       </div>
 
@@ -4202,11 +4373,14 @@ async function renderHealth() {
   try {
     data = await apiWithRetry('/health/sources');
   } catch (e) {
-    $('#app').innerHTML = `<div class="p-8 text-center text-red-600">数据源健康检查失败: ${e.message}</div>`;
+    $('#app').innerHTML = `<div class="p-8 text-center text-red-600">数据源健康检查失败：${e.message}</div>`;
     return;
   }
   const statusColor = (s) => s === 'ok' ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/30' : s === 'degraded' ? 'text-amber-400 bg-amber-500/10 border border-amber-500/30' : s === 'timeout' ? 'text-orange-400 bg-orange-500/10 border border-orange-500/30' : 'text-rose-400 bg-rose-500/10 border border-rose-500/30';
-  const statusBadge = (s) => `<span class="px-2 py-0.5 rounded-full text-xs font-extrabold ${statusColor(s)}">${s.toUpperCase()}</span>`;
+  const statusBadge = (s) => {
+    const map = { ok: '正常', degraded: '降级', timeout: '超时', down: '中断' };
+    return `<span class="px-2 py-0.5 rounded-full text-xs font-extrabold ${statusColor(s)}">${map[s] || s}</span>`;
+  };
   const overallBadge = (o) => {
     const map = {
       all_ok: ['bg-emerald-500/15 text-emerald-300 border border-emerald-500/30', '✅ 全部正常'],
@@ -4229,7 +4403,7 @@ async function renderHealth() {
       <div class="grid grid-cols-3 gap-2 text-xs text-slate-400 mt-3">
         <div><span class="text-slate-500">延迟</span><br><span class="font-mono text-slate-200">${s.latency_ms}ms</span></div>
         <div><span class="text-slate-500">状态码</span><br><span class="font-mono text-slate-200">${s.status_code || '—'}</span></div>
-        <div><span class="text-slate-500">类型</span><br><span class="font-mono text-slate-200">${s.type}</span></div>
+        <div><span class="text-slate-500">类型</span><br><span class="font-mono text-slate-200">${s.type === 'http' ? 'HTTP' : s.type}</span></div>
       </div>
       ${s.requires_token ? '<div class="text-xs text-amber-400 mt-2">🔑 需要 API token</div>' : ''}
       ${s.error ? `<div class="text-xs text-rose-400 mt-2 font-mono">${s.error}</div>` : ''}
@@ -4248,10 +4422,10 @@ async function renderHealth() {
           <div class="text-2xl font-extrabold mt-1">${overallBadge(data.overall)}</div>
         </div>
         <div class="text-right text-sm text-slate-400">
-          <div>OK: <span class="font-extrabold text-emerald-400">${data.summary.ok}</span> / ${data.summary.total}</div>
-          <div>Degraded: <span class="text-amber-400">${data.summary.degraded}</span></div>
-          <div>Down: <span class="text-rose-400">${data.summary.down}</span></div>
-          ${data.avg_latency_ms ? `<div class="mt-1 text-xs text-slate-500">avg ${data.avg_latency_ms}ms</div>` : ''}
+          <div>正常：<span class="font-extrabold text-emerald-400">${data.summary.ok}</span> / ${data.summary.total}</div>
+          <div>降级：<span class="text-amber-400">${data.summary.degraded}</span></div>
+          <div>中断：<span class="text-rose-400">${data.summary.down}</span></div>
+          ${data.avg_latency_ms ? `<div class="mt-1 text-xs text-slate-500">平均延迟 ${data.avg_latency_ms}ms</div>` : ''}
         </div>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">${sourceCards}</div>

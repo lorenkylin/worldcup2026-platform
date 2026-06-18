@@ -6,10 +6,10 @@
  * - API GET（赛程/积分/球队/预测）：Network-First + 离线兜底
  * - API POST/PUT：失败时静默（不让 PWA 干扰后台管理）
  *
- * 缓存版本：wc2026-v3
+ * 缓存版本：wc2026-v5
  */
 
-const CACHE_VERSION = 'wc2026-v4';  // v0.15.0: master UI visual upgrade
+const CACHE_VERSION = 'wc2026-v5';  // v0.16.0: home redesign + flag/Chinese copy polish
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const API_CACHE = `${CACHE_VERSION}-api`;
 

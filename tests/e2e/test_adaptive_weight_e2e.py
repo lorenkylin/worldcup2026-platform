@@ -28,8 +28,8 @@ def test_elo_page_3tab_includes_adaptive(page, base_url):
     page.goto("about:blank")
     page.goto(f"{base_url}/#/elo", wait_until="domcontentloaded")
     page.wait_for_timeout(3000)
-    found = page.evaluate("() => Array.from(document.querySelectorAll('button')).some(b => b.textContent.includes('Adaptive'))")
-    assert found, "Adaptive 按钮未渲染"
+    found = page.evaluate("() => Array.from(document.querySelectorAll('button')).some(b => b.textContent.includes('自适应'))")
+    assert found, "自适应融合模型按钮未渲染"
 
 
 def test_adaptive_endpoint_invalid_team_returns_404(page, base_url):

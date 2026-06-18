@@ -26,9 +26,9 @@ def test_elo_page_includes_marketblend_tab(page, base_url):
     page.goto(f"{base_url}/#/elo", wait_until="domcontentloaded")
     page.wait_for_timeout(3000)
     found = page.evaluate(
-        "() => Array.from(document.querySelectorAll('button')).some(b => b.textContent.includes('MarketBlend'))"
+        "() => Array.from(document.querySelectorAll('button')).some(b => b.textContent.includes('市场融合'))"
     )
-    assert found, "MarketBlend 按钮未渲染"
+    assert found, "市场融合模型按钮未渲染"
 
 
 def test_market_blend_endpoint_returns_market_component(page, base_url):

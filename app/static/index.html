@@ -18,7 +18,7 @@
     html, body { background: #030712; }
     body { font-family: "Inter", "Noto Sans SC", system-ui, sans-serif; }
   </style>
-  <link rel="stylesheet" href="/static/css/styles.css?v=0.15.0">
+  <link rel="stylesheet" href="/static/css/styles.css?v=0.16.0">
   <!-- v0.5.1: Chart.js 用于赔率走势图; CDN 失败时回退到本地 vendor -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" onerror="this.src='/static/vendor/chart.umd.min.js'"></script>
 </head>
@@ -32,7 +32,7 @@
         </button>
         <a href="#/" class="flex items-center gap-2 group">
           <span class="text-2xl group-hover:scale-110 transition-transform">⚽</span>
-          <span class="font-extrabold text-gradient text-base tracking-tight">2026 WC 分析</span>
+          <span class="font-extrabold text-gradient text-base tracking-tight">2026 世界杯分析</span>
         </a>
       </div>
       <div class="text-xs" id="data-status">数据加载中…</div>
@@ -53,7 +53,7 @@
   <!-- A11: 侧滑抽屉 -->
   <aside id="drawer" class="drawer">
     <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
-      <span class="font-extrabold text-gradient text-lg flex items-center gap-2"><span class="text-xl">⚽</span>2026 WC 分析</span>
+      <span class="font-extrabold text-gradient text-lg flex items-center gap-2"><span class="text-xl">⚽</span>2026 世界杯分析</span>
       <button onclick="toggleDrawer()" class="text-slate-400 hover:text-white hover:bg-slate-800/80 text-xl p-2 rounded-xl transition">✕</button>
     </div>
     <nav class="py-2">
@@ -67,7 +67,7 @@
       <a href="#/h2h" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">⚔️</span><span>历史交锋</span><span class="ml-auto text-xs text-amber-400">P1.3</span></a>
       <a href="#/simulator" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">🎲</span><span>出线模拟器</span><span class="ml-auto text-xs text-amber-400">v0</span></a>
       <a href="#/odds" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">💰</span><span>赔率分析</span><span class="ml-auto text-xs text-amber-400">M3</span></a>
-      <a href="#/accuracy" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">📊</span><span>准确率 Dashboard</span><span class="ml-auto text-xs text-emerald-400">v0.6</span></a>
+      <a href="#/accuracy" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">📊</span><span>准确率仪表盘</span><span class="ml-auto text-xs text-emerald-400">v0.6</span></a>
       <a href="#/health" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">🔌</span><span>数据源健康</span><span class="ml-auto text-xs text-emerald-400">v0.6</span></a>
       <div class="px-5 pt-4 pb-2 text-[11px] font-bold text-slate-500 uppercase tracking-widest">其他</div>
       <a href="#" onclick="showAbout();return false;" class="drawer-item"><span class="text-lg">ℹ️</span><span>关于本站</span></a>
@@ -81,7 +81,7 @@
     </div>
   </aside>
 
-  <!-- 底部 Tab（v0.15.0 悬浮胶囊风格） -->
+  <!-- 底部 Tab（v0.16.0 悬浮胶囊风格） -->
   <nav class="fixed bottom-0 left-0 right-0 z-50 px-4 pb-3 pointer-events-none">
     <div class="max-w-2xl mx-auto grid grid-cols-5 tab-bar pointer-events-auto">
       <a href="#/" class="tab-item active"><span class="tab-icon">🏠</span><span class="tab-label">首页</span></a>
@@ -92,7 +92,7 @@
     </div>
   </nav>
 
-  <script src="/static/js/app.js?v=0.15.0"></script>
+  <script src="/static/js/app.js?v=0.16.0"></script>
   <script>
     // 标记数据状态
     fetch('/api/matches/today').then(r => r.ok ? r.json().then(d => {

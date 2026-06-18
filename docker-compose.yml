@@ -9,7 +9,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: worldcup2026-platform:0.15.0
+    image: worldcup2026-platform:0.16.0
     container_name: wc2026-api
     restart: unless-stopped
     ports:

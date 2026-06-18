@@ -118,16 +118,16 @@ def test_elo_page_renders_blend_tab(page, base_url):
     time.sleep(1)  # 保险: 等 ModelBlend predict API resolve
     body_text = page.locator("body").text_content() or ""
     # 3 模型 tab 必须全部出现
-    assert "Elo M1" in body_text, f"Elo 页未显示 Elo M1 tab: {body_text[:300]}"
-    assert "Glicko-2" in body_text, f"Elo 页未显示 Glicko-2 tab: {body_text[:300]}"
-    assert "Blend" in body_text, f"Elo 页未显示 Blend tab: {body_text[:300]}"
-    # 默认 Blend 应激活(高亮 class 含 bg-gradient 或 bg-violet)
-    blend_btn = page.locator("button:has-text('Blend')").first
+    assert "Elo M1 模型" in body_text, f"Elo 页未显示 Elo M1 模型 tab: {body_text[:300]}"
+    assert "Glicko-2 模型" in body_text, f"Elo 页未显示 Glicko-2 模型 tab: {body_text[:300]}"
+    assert "融合模型" in body_text, f"Elo 页未显示融合模型 tab: {body_text[:300]}"
+    # 默认融合模型应激活(高亮 class 含 bg-gradient 或 bg-violet)
+    blend_btn = page.locator("button:has-text('融合模型')").first
     blend_class = blend_btn.get_attribute("class") or ""
     assert "bg-gradient" in blend_class or "bg-violet" in blend_class, \
-        f"Blend tab 默认未高亮(class={blend_class[:100]})"
-    # 1v1 预测结果应含 "ModelBlend" 标注
-    assert "ModelBlend" in body_text, \
-        f"Elo 页未显示 Blend 预测结果: {body_text[:500]}"
+        f"融合模型 tab 默认未高亮(class={blend_class[:100]})"
+    # 1v1 预测结果应含 "融合模型" 标注
+    assert "融合模型" in body_text, \
+        f"Elo 页未显示融合模型预测结果: {body_text[:500]}"
     # Glicko-2 评分榜段(默认折叠)应存在
     assert "Glicko-2 评分榜" in body_text, f"Elo 页未显示 Glicko-2 评分榜段: {body_text[:300]}"
