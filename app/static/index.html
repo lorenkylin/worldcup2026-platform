@@ -10,7 +10,7 @@
   <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
   <title>2026 世界杯赛事分析</title>
   <script src="https://cdn.tailwindcss.com" onerror="this.src='/static/vendor/tailwindcss.js'"></script>
-  <link rel="stylesheet" href="/static/css/styles.css?v=0.14.2">
+  <link rel="stylesheet" href="/static/css/styles.css?v=0.14.3">
   <!-- v0.5.1: Chart.js 用于赔率走势图; CDN 失败时回退到本地 vendor -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" onerror="this.src='/static/vendor/chart.umd.min.js'"></script>
 </head>
@@ -48,7 +48,6 @@
     <nav class="py-2">
       <div class="px-5 pt-2 pb-1 text-xs text-slate-500 uppercase tracking-wider">主页面</div>
       <a href="#/" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">🏠</span><span>首页</span></a>
-      <a href="#/cockpit" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">🎛</span><span>总览驾驶舱</span><span class="ml-auto text-xs text-slate-500">PC 推荐</span></a>
       <a href="#/bracket" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">🏆</span><span>晋级路线图</span><span class="ml-auto text-xs text-amber-400">NEW</span></a>
       <a href="#/schedule" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">📅</span><span>赛程</span></a>
       <a href="#/groups" class="drawer-item" onclick="toggleDrawer()"><span class="text-lg">📊</span><span>小组积分</span></a>
@@ -68,11 +67,10 @@
     </div>
   </aside>
 
-  <!-- 底部 Tab（B1 重新设计：6 按钮 64px 高） -->
+  <!-- 底部 Tab（B1 重新设计：5 按钮 64px 高） -->
   <nav class="fixed bottom-0 left-0 right-0 z-50 bg-slate-950/95 backdrop-blur border-t border-slate-800">
-    <div class="max-w-2xl mx-auto grid grid-cols-6 tab-bar">
+    <div class="max-w-2xl mx-auto grid grid-cols-5 tab-bar">
       <a href="#/" class="tab-item active"><span class="tab-icon">🏠</span><span class="tab-label">首页</span></a>
-      <a href="#/cockpit" class="tab-item"><span class="tab-icon">🎛</span><span class="tab-label">总览</span></a>
       <a href="#/bracket" class="tab-item"><span class="tab-icon">🏆</span><span class="tab-label">路线</span></a>
       <a href="#/schedule" class="tab-item"><span class="tab-icon">📅</span><span class="tab-label">赛程</span></a>
       <a href="#/groups" class="tab-item"><span class="tab-icon">📊</span><span class="tab-label">积分</span></a>
@@ -80,7 +78,7 @@
     </div>
   </nav>
 
-  <script src="/static/js/app.js?v=0.14.2"></script>
+  <script src="/static/js/app.js?v=0.14.3"></script>
   <script>
     // 标记数据状态
     fetch('/api/matches/today').then(r => r.ok ? r.json().then(d => {

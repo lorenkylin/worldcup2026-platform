@@ -1754,355 +1754,6 @@ async function onOddsCardModelChange(selectEl, matchId) {
   }
 }
 
-async function renderCockpit() {
-  // 新版总览驾驶舱：只做统计 + 总预览 + 互联互通，不重复详情页内容
-  const app = $('#app');
-  app.classList.remove('max-w-2xl');
-  app.classList.add('max-w-none', 'px-4');
-
-  // 局部 helper（只在 cockpit 内使用）
-  function milestoneBadge(label, locked, detail) {
-    const color = locked
-      ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
-      : 'bg-slate-800 border-slate-700 text-slate-500';
-    const icon = locked ? '✅' : '⏳';
-    return `
-      <div class="${color} border rounded-lg p-2 text-center">
-        <div class="text-lg">${icon}</div>
-        <div class="text-xs font-bold">${label}</div>
-        <div class="text-[10px] opacity-80">${detail}</div>
-      </div>
-    `;
-  }
-  function healthBadge(status) {
-    const map = {
-      ok: { cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40', t: '正常' },
-      degraded: { cls: 'bg-amber-500/15 text-amber-400 border-amber-500/40', t: '降级' },
-      down: { cls: 'bg-rose-500/15 text-rose-400 border-rose-500/40', t: '故障' },
-      timeout: { cls: 'bg-amber-500/15 text-amber-400 border-amber-500/40', t: '超时' },
-      disabled: { cls: 'bg-slate-700 text-slate-400 border-slate-600', t: '未启用' },
-    };
-    const m = map[status] || map.disabled;
-    return `<span class="${m.cls} border rounded px-1.5 py-0.5 text-[10px] font-bold">${m.t}</span>`;
-  }
-  function consensusBars(pred) {
-    if (!pred || !pred.consensus) return '';
-    const c = pred.consensus;
-    const max = Math.max(c.home_win || 0, c.draw || 0, c.away_win || 0);
-    const bar = (val, label, color) => `
-      <div class="flex-1">
-        <div class="flex justify-between text-[10px] text-slate-400 mb-0.5">
-          <span>${label}</span><span>${(val * 100).toFixed(0)}%</span>
-        </div>
-        <div class="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-          <div class="h-full ${color} rounded-full" style="width:${(val * 100).toFixed(1)}%"></div>
-        </div>
-      </div>
-    `;
-    return `
-      <div class="flex gap-2 mt-2">
-        ${bar(c.home_win, '主', 'bg-emerald-500')}
-        ${bar(c.draw, '平', 'bg-slate-400')}
-        ${bar(c.away_win, '客', 'bg-blue-500')}
-      </div>
-    `;
-  }
-  function countdown(iso) {
-    const diff = new Date(iso).getTime() - Date.now();
-    if (diff <= 0) return '进行中';
-    const h = Math.floor(diff / 3600000);
-    const m = Math.floor((diff % 3600000) / 60000);
-    return `${h}h ${m}m`;
-  }
-  function criticalMatchCard(m) {
-    const fmt = fmtDate(m.kickoff_at);
-    const labels = {
-      '淘汰赛': 'bg-violet-500/15 text-violet-400 border-violet-500/30',
-      '头名之争': 'bg-amber-500/15 text-amber-400 border-amber-500/30',
-      '生死战': 'bg-rose-500/15 text-rose-400 border-rose-500/30',
-      '出线关键战': 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
-      '强弱对话': 'bg-blue-500/15 text-blue-400 border-blue-500/30',
-      '荣誉战': 'bg-slate-700 text-slate-400 border-slate-600',
-    };
-    const badgeCls = labels[m.impact_label] || labels['出线关键战'];
-    const home = m.home_team || {};
-    const away = m.away_team || {};
-    return `
-      <a href="#/match/${m.match_id}" class="block bg-slate-900 rounded-xl p-3 border border-slate-800 hover:border-slate-600 transition">
-        <div class="flex items-center justify-between mb-2">
-          <span class="text-xs text-slate-500">${fmt.date} ${fmt.time}</span>
-          <span class="text-xs font-bold ${badgeCls} border rounded px-1.5 py-0.5">${m.impact_label}</span>
-        </div>
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2 flex-1">
-            <span class="text-xl">${home.flag_emoji || ''}</span>
-            <span class="font-bold text-sm truncate">${escapeHtml(home.name_zh || home.fifa_code)}</span>
-          </div>
-          <span class="text-xs text-slate-500 px-2">VS</span>
-          <div class="flex items-center gap-2 flex-1 justify-end">
-            <span class="font-bold text-sm truncate">${escapeHtml(away.name_zh || away.fifa_code)}</span>
-            <span class="text-xl">${away.flag_emoji || ''}</span>
-          </div>
-        </div>
-        ${consensusBars(m.prediction)}
-        <div class="flex items-center justify-between mt-2 text-[10px] text-slate-500">
-          <span>模型分歧 ${((m.prediction.disagreement || 0) * 100).toFixed(1)}pp</span>
-          <span>⏱ ${countdown(m.kickoff_at)}</span>
-        </div>
-      </a>
-    `;
-  }
-  function quickLinkCard(icon, title, desc, href) {
-    return `
-      <a href="${href}" class="block bg-slate-900 rounded-xl p-3 border border-slate-800 hover:border-emerald-500/40 transition">
-        <div class="text-xl mb-1">${icon}</div>
-        <div class="font-bold text-sm text-slate-200">${title}</div>
-        <div class="text-[10px] text-slate-500">${desc}</div>
-      </a>
-    `;
-  }
-
-  let data;
-  try {
-    data = await apiWithRetry('/cockpit/summary');
-  } catch (err) {
-    app.classList.add('max-w-2xl');
-    app.classList.remove('max-w-none');
-    $('#app').innerHTML = renderError(err, renderCockpit);
-    return;
-  }
-
-  const progress = data.tournament_progress || {};
-  const qual = data.qualification_summary || {};
-  const health = data.data_health || {};
-  const critical = data.critical_matches || [];
-  const consensus = data.model_consensus || [];
-  const divergence = data.market_model_divergence || [];
-  const eloTop = data.elo_top_teams || [];
-  const sync = health.sync || {};
-  const srcSummary = (health.sources && health.sources.summary) || { total: 0, ok: 0, degraded: 0, down: 0 };
-
-  const finished = progress.finished_matches || 0;
-  const total = progress.total_matches || 0;
-  const completionRate = progress.completion_rate || 0;
-  const milestones = progress.milestones || {};
-
-  // 进球统计：摘要里暂时没有，直接复用一个轻量端点太浪费，先展示基础 KPI
-  const avgGoals = Number.isFinite(progress.avg_goals) ? progress.avg_goals.toFixed(2) : '—';
-
-  $('#app').innerHTML = `
-    <!-- 顶栏 -->
-    <div class="cockpit-header flex items-center justify-between mb-4 px-1">
-      <div class="flex items-center gap-3">
-        <span class="text-2xl">🎛</span>
-        <div>
-          <div class="text-xl font-bold text-emerald-400">赛事总览驾驶舱</div>
-          <div class="text-xs text-slate-500">统计 · 预览 · 关联（去重设计版）</div>
-        </div>
-      </div>
-      <div class="flex items-center gap-3">
-        <button onclick="refreshCurrent()" class="text-xs text-slate-400 hover:text-emerald-400 transition flex items-center gap-1 px-2 py-1 rounded hover:bg-slate-900 border border-slate-800">
-          <span>🔄</span><span>刷新</span>
-        </button>
-        <div class="text-right">
-          <div class="text-xs text-slate-500">北京时间</div>
-          <div class="text-lg font-bold text-slate-200" id="bj-clock">${beijingNowString()}</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 赛事进度 + 里程碑 -->
-    <section class="cockpit-section mb-4">
-      <div class="flex items-center justify-between mb-2">
-        <h2 class="cockpit-section-title m-0">🏁 赛事进度</h2>
-        <span class="text-sm text-slate-400">${finished} / ${total} 场已完赛 (${completionRate}%)</span>
-      </div>
-      <div class="w-full bg-slate-800 rounded-full h-2.5 mb-3">
-        <div class="bg-emerald-500 h-2.5 rounded-full transition-all" style="width:${completionRate}%"></div>
-      </div>
-      <div class="grid grid-cols-3 md:grid-cols-6 gap-2">
-        ${milestoneBadge('小组赛', progress.group_stage_finished, progress.group_stage_finished ? '已结束' : '进行中')}
-        ${milestoneBadge('32强', milestones.r32_locked, milestones.r32_locked ? '落位' : '待定')}
-        ${milestoneBadge('16强', milestones.r16_locked, milestones.r16_locked ? '产生' : '待定')}
-        ${milestoneBadge('8强', milestones.qf_locked, milestones.qf_locked ? '产生' : '待定')}
-        ${milestoneBadge('4强', milestones.sf_locked, milestones.sf_locked ? '产生' : '待定')}
-        ${milestoneBadge('决赛', milestones.final_locked, milestones.final_locked ? '落定' : '待定')}
-      </div>
-    </section>
-
-    <!-- 精简 KPI -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-      ${kpiCard('✅', '已完赛', finished, '场', 'emerald')}
-      ${kpiCard('📅', '今日', progress.today_matches, '场', 'amber')}
-      ${kpiCard('⏰', '24h 内', progress.in24h_matches, '场', 'blue')}
-      ${kpiCard('⚽', '场均进球', avgGoals, '', 'rose')}
-    </div>
-
-    <!-- 数据健康 + 模型健康 -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-      ${sync && sync.freshness ? renderFreshnessCard(sync) : ''}
-      <section class="cockpit-section">
-        <h2 class="cockpit-section-title">📡 数据源健康</h2>
-        <div class="bg-slate-900 rounded-xl p-3 border border-slate-800">
-          <div class="flex items-center justify-between mb-3">
-            <div class="flex items-center gap-2">
-              <span class="text-lg">🌐</span>
-              <span class="font-bold text-slate-200">${srcSummary.ok}/${srcSummary.total} 正常</span>
-            </div>
-            <a href="#/health" class="text-xs text-blue-400 hover:underline">详情 →</a>
-          </div>
-          <div class="space-y-1.5">
-            ${(health.sources && health.sources.sources || []).slice(0, 5).map(s => `
-              <div class="flex items-center justify-between text-xs">
-                <span class="text-slate-400">${escapeHtml(s.name)}</span>
-                ${healthBadge(s.status)}
-              </div>
-            `).join('')}
-          </div>
-        </div>
-      </section>
-    </div>
-
-    <!-- 晋级总览 + 最佳第 3 名 -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-      <section class="cockpit-section lg:col-span-2">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="cockpit-section-title m-0">🎯 晋级 / 淘汰总览</h2>
-          <a href="#/simulator" class="text-xs text-blue-400 hover:underline">完整模拟 →</a>
-        </div>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-          ${kpiCard('✅', '已晋级', qual.qualified || 0, '队', 'emerald', `直接 ${qual.direct_qualifiers || 0}`)}
-          ${kpiCard('🏅', '第 3 名晋级', qual.third_place_qualifiers || 0, '队', 'amber')}
-          ${kpiCard('⏳', '待定', qual.pending || 0, '队', 'blue')}
-          ${kpiCard('❌', '已淘汰', qual.eliminated || 0, '队', 'rose')}
-        </div>
-        <div class="text-xs text-slate-500">
-          ▎ 基于当前积分榜 + 蒙特卡洛模拟（5000 次）· 阈值 99% 视为确定
-        </div>
-      </section>
-      <section class="cockpit-section">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="cockpit-section-title m-0">🏅 最佳第 3 名竞争</h2>
-          <a href="#/bracket" class="text-xs text-blue-400 hover:underline">对阵 →</a>
-        </div>
-        <div class="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-          ${(qual.best_thirds || []).slice(0, 8).map((t, i) => `
-            <div class="flex items-center justify-between text-sm bg-slate-900 rounded px-2 py-1.5 border border-slate-800">
-              <div class="flex items-center gap-2">
-                <span class="text-xs text-slate-500 w-4">${i + 1}</span>
-                <span>${t.flag_emoji || ''}</span>
-                <span class="font-medium">${escapeHtml(t.name_zh)}</span>
-                <span class="text-xs text-slate-500">${t.group_name}组</span>
-              </div>
-              <div class="text-xs font-bold ${t.advance_prob >= 50 ? 'text-emerald-400' : 'text-slate-400'}">${t.advance_prob}%</div>
-            </div>
-          `).join('')}
-          ${!qual.best_thirds || qual.best_thirds.length === 0 ? '<div class="text-slate-500 text-sm text-center py-4">暂无数据</div>' : ''}
-        </div>
-      </section>
-    </div>
-
-    <!-- 未来关键战 -->
-    <section class="cockpit-section mb-4">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="cockpit-section-title m-0">⚔️ 未来 72 小时关键战</h2>
-        <a href="#/schedule" class="text-xs text-blue-400 hover:underline">完整赛程 →</a>
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-        ${critical.length ? critical.map(m => criticalMatchCard(m)).join('') : '<div class="text-slate-500 text-sm col-span-full text-center py-6">未来 72 小时内无比赛</div>'}
-      </div>
-    </section>
-
-    <!-- 模型共识 + 市场分歧 -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-      <section class="cockpit-section">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="cockpit-section-title m-0">🧠 模型高共识预测</h2>
-          <a href="#/accuracy" class="text-xs text-blue-400 hover:underline">准确率 →</a>
-        </div>
-        <div class="space-y-2">
-          ${consensus.length ? consensus.map(m => `
-            <a href="#/match/${m.match_id}" class="block bg-slate-900 rounded-xl p-3 border border-slate-800 hover:border-slate-600 transition">
-              <div class="flex items-center justify-between text-sm mb-2">
-                <span class="font-bold text-slate-200">${m.home_team.flag_emoji || ''} ${escapeHtml(m.home_team.name_zh || m.home_team.fifa_code)} vs ${escapeHtml(m.away_team.name_zh || m.away_team.fifa_code)} ${m.away_team.flag_emoji || ''}</span>
-                <span class="text-xs text-emerald-400 font-bold">置信 ${(Math.max(...Object.values(m.prediction.consensus || {})) * 100).toFixed(0)}%</span>
-              </div>
-              ${consensusBars(m.prediction)}
-            </a>
-          `).join('') : '<div class="text-slate-500 text-sm text-center py-4">暂无高共识场次</div>'}
-        </div>
-      </section>
-      <section class="cockpit-section">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="cockpit-section-title m-0">💰 市场 vs 模型分歧</h2>
-          <a href="#/odds" class="text-xs text-blue-400 hover:underline">赔率 →</a>
-        </div>
-        <div class="space-y-2">
-          ${divergence.length ? divergence.slice(0, 5).map(d => `
-            <a href="#/match/${d.match_id}" class="block bg-slate-900 rounded-xl p-3 border border-slate-800 hover:border-slate-600 transition">
-              <div class="flex items-center justify-between text-sm mb-1">
-                <span class="font-bold text-slate-200">${escapeHtml(d.home_team.name_zh || d.home_team.fifa_code)} vs ${escapeHtml(d.away_team.name_zh || d.away_team.fifa_code)}</span>
-                <span class="text-xs ${d.tier === 'strong' ? 'text-rose-400' : 'text-amber-400'} font-bold">${d.tier === 'strong' ? '强价值' : '价值'}</span>
-              </div>
-              <div class="text-xs text-slate-400">
-                模型 ${(d.model_prob * 100).toFixed(1)}% · 市场 ${(d.market_prob * 100).toFixed(1)}% · 偏离 ${((d.model_prob - d.market_prob) * 100).toFixed(1)}pp
-              </div>
-            </a>
-          `).join('') : '<div class="text-slate-500 text-sm text-center py-4">暂无赔率数据</div>'}
-        </div>
-      </section>
-    </div>
-
-    <!-- Elo Top 5 + 快速入口 -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-      <section class="cockpit-section">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="cockpit-section-title m-0">🏆 Elo 战力 Top 5</h2>
-          <a href="#/elo" class="text-xs text-blue-400 hover:underline">完整榜单 →</a>
-        </div>
-        <div class="space-y-1.5">
-          ${eloTop.length ? eloTop.map((t, i) => `
-            <a href="#/team/${t.fifa_code}" class="flex items-center justify-between bg-slate-900 rounded px-2 py-1.5 border border-slate-800 hover:border-slate-600 transition">
-              <div class="flex items-center gap-2">
-                <span class="text-xs text-slate-500 w-4">${i + 1}</span>
-                <span>${t.flag_emoji || ''}</span>
-                <span class="font-medium text-sm">${escapeHtml(t.name_zh)}</span>
-              </div>
-              <span class="text-sm font-bold text-emerald-400">${t.elo_rating}</span>
-            </a>
-          `).join('') : '<div class="text-slate-500 text-sm text-center py-4">暂无数据</div>'}
-        </div>
-      </section>
-      <section class="cockpit-section lg:col-span-2">
-        <h2 class="cockpit-section-title m-0 mb-3">🚀 快速入口</h2>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-          ${quickLinkCard('📅', '赛程', '今日/明日/完整时间线', '#/schedule')}
-          ${quickLinkCard('📊', '积分榜', '12 组实时排名', '#/groups')}
-          ${quickLinkCard('🏆', '晋级路线', 'Bracket 32 强对阵', '#/bracket')}
-          ${quickLinkCard('🎲', '出线模拟', '蒙特卡洛概率', '#/simulator')}
-          ${quickLinkCard('⚽', '48 球队', 'Elo / 赛程 / 球员', '#/teams')}
-          ${quickLinkCard('💰', '赔率', '市场 vs 模型', '#/odds')}
-          ${quickLinkCard('🎯', '准确率', '模型复盘', '#/accuracy')}
-          ${quickLinkCard('🧪', '权重扫描 v0.7.4', '最佳权重 Elo/G2 配比', '#/elo')}
-          ${quickLinkCard('📡', '健康', '数据源状态', '#/health')}
-        </div>
-      </section>
-    </div>
-
-    <!-- 页脚 -->
-    <div class="text-center text-xs text-slate-600 py-2">
-      v0.14.2 总览去重设计 · 数据聚合自赛程 / 积分 / 模拟 / 赔率 / Elo 多模块 · 生成于 ${new Date(data.generated_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}
-    </div>
-  `;
-
-  // 启动北京时间钟
-  if (window.__cockpitClock) clearInterval(window.__cockpitClock);
-  const tick = () => {
-    const el = document.getElementById('bj-clock');
-    if (el) el.textContent = beijingNowString();
-  };
-  window.__cockpitClock = setInterval(tick, 30000);
-}
 
 // ============================================================
 // 📈 M1.5 Elo 实力榜 + 1v1 对比器（M1 增强前端）
@@ -2841,16 +2492,12 @@ function _backtestCard(label, value, sub, color) {
   `;
 }
 
-// 离开 cockpit 时还原 max-w-2xl 并清理时钟 interval
-function restoreAppWidth() {
+// 切换路由时还原默认容器宽度
+function resetLayout() {
   const app = $('#app');
   if (!app) return;
   app.classList.remove('max-w-none');
   app.classList.add('max-w-2xl');
-  if (window.__cockpitClock) {
-    clearInterval(window.__cockpitClock);
-    window.__cockpitClock = null;
-  }
 }
 
 function kpiCard(icon, label, value, unit, color, sub) {
@@ -3187,7 +2834,7 @@ function stadiumCard(s) {
 
 /**
  * A9: 显示加载骨架屏
- * @param {'home'|'schedule'|'teams'|'match-detail'|'team-detail'|'groups'|'simulator'|'cockpit'|'generic'} type
+ * @param {'home'|'schedule'|'teams'|'match-detail'|'team-detail'|'groups'|'simulator'|'generic'} type
  */
 function showSkeleton(type) {
   const map = {
@@ -3222,11 +2869,6 @@ function showSkeleton(type) {
     </div>`,
     'simulator': `<div class="space-y-3">
       ${[1,2,3].map(() => '<div class="skeleton-shimmer" style="height:240px;border-radius:12px"></div>').join('')}
-    </div>`,
-    'cockpit': `<div class="space-y-3">
-      <div class="skeleton-shimmer" style="height:80px;border-radius:12px"></div>
-      <div class="skeleton-shimmer" style="height:160px;border-radius:12px"></div>
-      <div class="skeleton-shimmer" style="height:280px;border-radius:12px"></div>
     </div>`,
     'elo': `<div class="space-y-3">
       <div class="skeleton-shimmer" style="height:80px;border-radius:12px"></div>
@@ -3283,7 +2925,6 @@ function renderError(err, retryFn) {
 function renderNotFound() {
   const links = [
     { hash: '#/', icon: '🏠', label: '首页' },
-    { hash: '#/cockpit', icon: '🎛', label: '总览驾驶舱' },
     { hash: '#/bracket', icon: '🏆', label: '晋级路线' },
     { hash: '#/schedule', icon: '📅', label: '赛程' },
     { hash: '#/groups', icon: '📊', label: '积分' },
@@ -4225,8 +3866,6 @@ function toggleGroupsCollapse() {
 
 const routes = {
   '/': renderHome,
-  '/cockpit': renderCockpit,
-  '/dashboard': renderCockpit,  // v0.6.0: 新别名, 同 cockpit
   '/bracket': renderBracket,
   '/schedule': renderSchedule,
   '/groups': renderGroups,
@@ -4246,7 +3885,6 @@ function skeletonTypeForHash(hash) {
   if (hash.startsWith('/h2h/')) return 'h2h-detail';
   return {
     '/': 'home',
-    '/cockpit': 'cockpit',
     '/bracket': 'bracket',
     '/schedule': 'schedule',
     '/groups': 'groups',
@@ -4260,8 +3898,8 @@ function skeletonTypeForHash(hash) {
 
 async function router() {
   const hash = location.hash.slice(1) || '/';
-  // 还原默认宽度（cockpit 会自己重设）
-  if (hash !== '/cockpit') restoreAppWidth();
+  // 还原默认宽度（部分页面会自行设为 max-w-none）
+  resetLayout();
   // A9: 先显示骨架屏
   showSkeleton(skeletonTypeForHash(hash));
   try {
@@ -4383,7 +4021,7 @@ async function renderAccuracy() {
     <div class="max-w-6xl mx-auto p-4">
       <div class="flex items-center justify-between mb-4">
         <h1 class="text-2xl font-bold text-slate-800">📊 预测准确率 Dashboard</h1>
-        <a href="#/cockpit" class="text-sm text-blue-600 hover:underline">← 返回驾驶舱</a>
+        <a href="#/" class="text-sm text-blue-600 hover:underline">← 返回首页</a>
       </div>
 
       <!-- KPI 行: 3 个模型对比 -->
