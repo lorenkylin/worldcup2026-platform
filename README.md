@@ -259,6 +259,9 @@ DATA_DIR=./data
 SYNC_INTERVAL_SECONDS=900
 WC26_BASE_URL=https://worldcup26.ir
 
+# v0.14.2: 生产设为 true 可跳过 lifespan 启动时的全量同步/回填（避免部署时依赖外部源）
+SKIP_STARTUP_SYNC=false
+
 # 核心数据：API-Football（api-sports.io 直接调用 或 RapidAPI 代理）。
 # 未配置 API_FOOTBALL_KEY 且未配置 RAPIDAPI_KEY 时自动回退 worldcup26.ir。
 API_FOOTBALL_ENABLED=false
@@ -284,7 +287,7 @@ ODDS_API_PROVIDER=mock
 ODDS_API_KEY=
 ```
 
-> ⚠️ 生产部署务必修改 `ADMIN_TOKEN` 与 `DEBUG=false`。
+> ⚠️ 生产部署务必修改 `ADMIN_TOKEN`、`DEBUG=false`，并建议设置 `SKIP_STARTUP_SYNC=true`（首次部署可保持 false 让 lifespan 自动灌数据，之后改为 true 避免每次启动都全量同步）。
 
 ---
 

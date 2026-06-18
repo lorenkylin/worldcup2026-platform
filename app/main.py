@@ -51,73 +51,77 @@ async def lifespan(app: FastAPI):
         scheduler.start()
         build_default_jobs(scheduler, SessionLocal)
         fill_stadium_coordinates()
-        # v0.14.0: 启动时立即跑一次多源全量同步（API-Football 优先，失败回退 worldcup26.ir）
-        try:
-            db = SessionLocal()
+        # v0.14.2: 生产部署可设置 SKIP_STARTUP_SYNC=true，避免启动时全量同步/回填拖慢或失败
+        if not settings.skip_startup_sync:
+            # v0.14.0: 启动时立即跑一次多源全量同步（API-Football 优先，失败回退 worldcup26.ir）
             try:
-                start_result = multi_source_full_sync(db)
-                print(
-                    f"[lifespan] 多源启动同步: "
-                    f"source={start_result.get('primary_source', 'unknown')} "
-                    f"ok={start_result.get('ok')}"
-                )
-            finally:
-                db.close()
-        except Exception as exc:  # noqa: BLE001
-            print(f"[lifespan] 多源启动同步失败: {exc}")
-        # 启动时也跑一次 B2 回填（保证首次访问就有 form 数据）
-        try:
-            db = SessionLocal()
+                db = SessionLocal()
+                try:
+                    start_result = multi_source_full_sync(db)
+                    print(
+                        f"[lifespan] 多源启动同步: "
+                        f"source={start_result.get('primary_source', 'unknown')} "
+                        f"ok={start_result.get('ok')}"
+                    )
+                finally:
+                    db.close()
+            except Exception as exc:  # noqa: BLE001
+                print(f"[lifespan] 多源启动同步失败: {exc}")
+            # 启动时也跑一次 B2 回填（保证首次访问就有 form 数据）
             try:
-                result = compute_and_persist_recent_form(db, lookback=5)
-                print(f"[lifespan] B2 recent_form 启动回填: {result['teams_updated']} 队更新")
-            finally:
-                db.close()
-        except Exception as exc:  # noqa: BLE001
-            print(f"[lifespan] B2 recent_form 启动回填失败: {exc}")
-        # B3: 启动时灌入 2018/2022 世界杯 H2H 历史交锋数据
-        try:
-            db = SessionLocal()
+                db = SessionLocal()
+                try:
+                    result = compute_and_persist_recent_form(db, lookback=5)
+                    print(f"[lifespan] B2 recent_form 启动回填: {result['teams_updated']} 队更新")
+                finally:
+                    db.close()
+            except Exception as exc:  # noqa: BLE001
+                print(f"[lifespan] B2 recent_form 启动回填失败: {exc}")
+            # B3: 启动时灌入 2018/2022 世界杯 H2H 历史交锋数据
             try:
-                h2h_result = backfill_h2h_history(db)
-                print(f"[lifespan] B3 H2H 启动回填: 新增 {h2h_result['inserted']} 场，跳过 {h2h_result['skipped']} 场")
-            finally:
-                db.close()
-        except Exception as exc:  # noqa: BLE001
-            print(f"[lifespan] B3 H2H 启动回填失败: {exc}")
-        # v0.5.1: 启动时立即跑一次 6h 周期刷新（odds 快照 + 可选 fb-data）
-        try:
-            db = SessionLocal()
+                db = SessionLocal()
+                try:
+                    h2h_result = backfill_h2h_history(db)
+                    print(f"[lifespan] B3 H2H 启动回填: 新增 {h2h_result['inserted']} 场，跳过 {h2h_result['skipped']} 场")
+                finally:
+                    db.close()
+            except Exception as exc:  # noqa: BLE001
+                print(f"[lifespan] B3 H2H 启动回填失败: {exc}")
+            # v0.5.1: 启动时立即跑一次 6h 周期刷新（odds 快照 + 可选 fb-data）
             try:
-                pr_result = periodic_6h_refresh(db)
-                print(
-                    f"[lifespan] 6h 周期刷新启动: "
-                    f"snapshots_added={pr_result.get('snapshots_added', 0)}, "
-                    f"fb_status={pr_result.get('fb_status', 'unknown')}"
-                )
-            finally:
-                db.close()
-        except Exception as exc:  # noqa: BLE001
-            print(f"[lifespan] 6h 周期刷新启动失败: {exc}")
-        # v0.7.0b: 启动时立即跑一次 prediction_log 自动写库
-        # 配合 6h 周期刷新,实盘预测自动累积,准确率统计持续滚雪球
-        try:
-            db = SessionLocal()
+                db = SessionLocal()
+                try:
+                    pr_result = periodic_6h_refresh(db)
+                    print(
+                        f"[lifespan] 6h 周期刷新启动: "
+                        f"snapshots_added={pr_result.get('snapshots_added', 0)}, "
+                        f"fb_status={pr_result.get('fb_status', 'unknown')}"
+                    )
+                finally:
+                    db.close()
+            except Exception as exc:  # noqa: BLE001
+                print(f"[lifespan] 6h 周期刷新启动失败: {exc}")
+            # v0.7.0b: 启动时立即跑一次 prediction_log 自动写库
+            # 配合 6h 周期刷新,实盘预测自动累积,准确率统计持续滚雪球
             try:
-                from app.services.prediction_log import auto_log_predictions
+                db = SessionLocal()
+                try:
+                    from app.services.prediction_log import auto_log_predictions
 
-                pl_result = auto_log_predictions(db)
-                print(
-                    f"[lifespan] v0.7.0b prediction_log 启动回填: "
-                    f"scanned={pl_result['matches_scanned']}, "
-                    f"added={pl_result['predictions_added']}, "
-                    f"skipped={pl_result['predictions_skipped']}, "
-                    f"errors={len(pl_result['errors'])}"
-                )
-            finally:
-                db.close()
-        except Exception as exc:  # noqa: BLE001
-            print(f"[lifespan] v0.7.0b prediction_log 启动回填失败: {exc}")
+                    pl_result = auto_log_predictions(db)
+                    print(
+                        f"[lifespan] v0.7.0b prediction_log 启动回填: "
+                        f"scanned={pl_result['matches_scanned']}, "
+                        f"added={pl_result['predictions_added']}, "
+                        f"skipped={pl_result['predictions_skipped']}, "
+                        f"errors={len(pl_result['errors'])}"
+                    )
+                finally:
+                    db.close()
+            except Exception as exc:  # noqa: BLE001
+                print(f"[lifespan] v0.7.0b prediction_log 启动回填失败: {exc}")
+        else:
+            print("[lifespan] SKIP_STARTUP_SYNC=true，跳过启动同步/回填，仅启动调度器")
     yield
     # 关闭时
     if scheduler.running:

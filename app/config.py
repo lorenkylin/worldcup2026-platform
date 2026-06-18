@@ -111,6 +111,10 @@ class Settings(BaseSettings):
     # 时区策略：DB 统一存 UTC，API/前端统一按北京时间（Asia/Shanghai UTC+8）展示
     display_timezone: str = "Asia/Shanghai"
 
+    # v0.14.2: 跳过 lifespan 启动时的全量同步/回填（生产部署稳定优先）
+    # 默认 false：首次启动仍会自动同步。设为 true 后仅启动调度器，不触发外部请求。
+    skip_startup_sync: bool = False
+
     model_config = SettingsConfigDict(
         env_file=Path(__file__).resolve().parent.parent / ".env",
         env_file_encoding="utf-8",
