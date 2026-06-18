@@ -23,8 +23,11 @@ from app.services.recent_form import compute_and_persist_recent_form
 
 
 def _api_football_available() -> bool:
-    """检查是否启用并配置了 API-Football."""
-    return bool(settings.api_football_enabled and settings.api_football_key)
+    """检查是否启用并配置了 API-Football（直接 key 或 RapidAPI key 均可）."""
+    return bool(
+        settings.api_football_enabled
+        and (settings.api_football_key or settings.rapidapi_key)
+    )
 
 
 def _has_matches_in_window(db: Session, hours: int = 3) -> bool:

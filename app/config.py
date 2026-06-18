@@ -69,8 +69,8 @@ class Settings(BaseSettings):
     # v0.5.1: 6h 周期刷新配置(odds 快照打点 + fb-data 元数据)
     periodic_refresh_interval_hours: int = 6
 
-    # v0.14.0: API-Football 实时数据主源（免费层）
-    # 注册: https://www.api-football.com/ / RapidAPI → 免费 tier 100 req/天
+    # v0.14.0: API-Football 实时数据主源（免费层，直接调用 api-sports.io）
+    # 注册: https://www.api-football.com/ → 免费 tier 100 req/天
     api_football_enabled: bool = False  # 默认关闭，未配置 key 时自动回退 worldcup26.ir
     api_football_key: str = ""  # 在 .env 填 API_FOOTBALL_KEY=<your_key>
     api_football_host: str = "v3.football.api-sports.io"
@@ -80,6 +80,11 @@ class Settings(BaseSettings):
     api_football_daily_limit: int = 100  # 免费层 100 req/天
     api_football_cache_ttl_seconds: int = 900  # 15min 内存缓存
     api_football_timeout_seconds: int = 20
+
+    # RapidAPI 代理模式（可选）。若配置 rapidapi_key，则 API-Football 通过 RapidAPI 调用；
+    # 否则直接调用 api-sports.io。rapidapi_host 默认可空，为空时使用 api_football_host。
+    rapidapi_key: str = ""
+    rapidapi_host: str = ""
 
     # v0.7.2: 赔率 API 接入（零预算路线 + Mock 兜底）
     odds_api_enabled: bool = False  # 默认关闭,避免无 key 时所有调用 401
@@ -105,10 +110,6 @@ class Settings(BaseSettings):
 
     # 时区策略：DB 统一存 UTC，API/前端统一按北京时间（Asia/Shanghai UTC+8）展示
     display_timezone: str = "Asia/Shanghai"
-
-    # 已下线配置（保留为占位字段，便于 .env 兼容）
-    rapidapi_key: str = ""
-    rapidapi_host: str = ""
 
     model_config = SettingsConfigDict(
         env_file=Path(__file__).resolve().parent.parent / ".env",

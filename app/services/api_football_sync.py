@@ -30,10 +30,12 @@ STATUS_FINISHED = {"FT", "AET", "PEN", "AWD", "WO"}
 
 
 def _default_client() -> ApiFootballClient:
-    """从 settings 构造默认客户端."""
+    """从 settings 构造默认客户端（支持直接 api-sports.io 或 RapidAPI 代理）."""
     return ApiFootballClient(
         api_key=settings.api_football_key,
         host=settings.api_football_host,
+        rapidapi_key=settings.rapidapi_key,
+        rapidapi_host=settings.rapidapi_host,
         rate_limit_per_min=settings.api_football_rate_limit_per_min,
         daily_limit=settings.api_football_daily_limit,
         cache_ttl_seconds=settings.api_football_cache_ttl_seconds,

@@ -120,7 +120,9 @@ def _check_source(source: Dict, timeout: float = 8.0) -> Dict:
 
 def _check_api_football_health(source: Dict) -> Dict:
     """从 sync_status 推导 API-Football 健康度（不消耗 API 配额）."""
-    enabled = settings.api_football_enabled and bool(settings.api_football_key)
+    enabled = settings.api_football_enabled and bool(
+        settings.api_football_key or settings.rapidapi_key
+    )
     status_info = sync_status.get_status()
     last_success = status_info.get("last_success_at")
     consecutive_failures = status_info.get("consecutive_failures", 0)

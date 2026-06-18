@@ -13,7 +13,7 @@
 4. 支持 httpx.MockTransport 注入,便于测试.
 5. 仅返回原始 response 列表,不做 ORM 映射.
 
-注册: https://www.api-football.com/ 或 RapidAPI 搜索 API-Football.
+注册: https://www.api-football.com/ （直接调用） 或 RapidAPI 搜索 API-Football（代理模式）.
 """
 
 from __future__ import annotations
@@ -149,6 +149,8 @@ class ApiFootballClient:
         self,
         api_key: str = "",
         host: str = "v3.football.api-sports.io",
+        rapidapi_key: str = "",
+        rapidapi_host: str = "",
         rate_limit_per_min: int = 10,
         daily_limit: int = 100,
         cache_ttl_seconds: int = 900,
@@ -158,8 +160,11 @@ class ApiFootballClient:
         """初始化客户端.
 
         Args:
-            api_key: API-Football key（x-apisports-key）。
-            host: API host，直接调用默认 api-sports.io；RapidAPI 可改。
+            api_key: API-Football key（x-apisports-key），直接调用 api-sports.io 时使用。
+            host: 直接模式下的 API host，默认 api-sports.io。
+            rapidapi_key: RapidAPI key（x-rapidapi-key）。若提供，则通过 RapidAPI 代理调用。
+            rapidapi_host: RapidAPI host（x-rapidapi-host），如 api-football-v1.p.rapidapi.com。
+                留空时默认使用 host。
             rate_limit_per_min: 每分钟最大请求数。
             daily_limit: 每日最大请求数（UTC 00:00 重置）。
             cache_ttl_seconds: 内存缓存 TTL。
@@ -168,6 +173,8 @@ class ApiFootballClient:
         """
         self.api_key = api_key
         self.host = host
+        self.rapidapi_key = rapidapi_key
+        self.rapidapi_host = rapidapi_host or host
         self.rate_limit_per_min = rate_limit_per_min
         self.daily_limit = daily_limit
         self.cache_ttl_seconds = cache_ttl_seconds
@@ -176,11 +183,21 @@ class ApiFootballClient:
         self._request_times: Deque[float] = deque()
         self._daily_requests = 0
         self._last_reset_date = datetime.now(timezone.utc).date()
-        base_url = f"https://{host}"
+
+        if rapidapi_key:
+            base_url = f"https://{self.rapidapi_host}"
+            headers = {
+                "x-rapidapi-key": rapidapi_key,
+                "x-rapidapi-host": self.rapidapi_host,
+            }
+        else:
+            base_url = f"https://{host}"
+            headers = {"x-apisports-key": api_key}
+
         self._client = httpx.Client(
             base_url=base_url,
             timeout=timeout_seconds,
-            headers={"x-apisports-key": api_key},
+            headers=headers,
             transport=_transport,
         )
 
@@ -196,11 +213,11 @@ class ApiFootballClient:
 
     def _check_api_key(self) -> None:
         """无 key 时直接抛错，不消耗配额."""
-        if not self.api_key:
+        if not self.api_key and not self.rapidapi_key:
             raise ApiKeyMissingError(
-                "API_FOOTBALL_KEY 未配置。"
-                "请到 https://www.api-football.com/ 注册免费 key，"
-                "在 .env 填入 API_FOOTBALL_KEY=<your_key>"
+                "API_FOOTBALL_KEY / RAPIDAPI_KEY 均未配置。"
+                "请直接到 https://www.api-football.com/ 注册免费 key（填 API_FOOTBALL_KEY），"
+                "或通过 RapidAPI 订阅后填入 RAPIDAPI_KEY。"
             )
 
     def _reset_daily_if_needed(self) -> None:

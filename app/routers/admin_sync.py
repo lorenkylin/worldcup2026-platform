@@ -213,7 +213,8 @@ def sync_status_endpoint(
     return {
         "data_strategy": "multi-source / free-first",
         "primary_source": "api-football (free tier, 100 req/day)",
-        "primary_source_enabled": settings.api_football_enabled and bool(settings.api_football_key),
+        "primary_source_enabled": settings.api_football_enabled
+        and bool(settings.api_football_key or settings.rapidapi_key),
         "backup_sources": ["worldcup26.ir", "worldcupstats.football"],
         "enhance_source": "football-data.org (free tier, default off)",
         "fallback": "manual entry via /api/admin/* endpoints",

@@ -59,7 +59,7 @@
 | ✅ Bracket 淘汰赛路线图 | `/api/bracket` 自动计算 32 强（12 组前 2 + 8 个最佳第三）+ 16 场 R32 对阵 + Elo 胜率预测；`#/bracket` 真实数据渲染 + 15min 自动重算 |
 | ✅ CSV 导出 | Elo 页 "导出 CSV" 按钮（48 队全榜 + 10 字段 + UTF-8 BOM）|
 | ✅ 历史交锋详情页 | 路由 `#/h2h/{code1}/{code2}` + 视角归一 + 9 队非参赛队 fallback |
-| ✅ 数据导入 | **API-Football 主源**（RapidAPI，免费 100 req/天，失败回退）+ worldcup26.ir 实时同步（每 15min 调度 + 启动时立即同步）+ worldcupstats.football 备份 + football-data.org 低频增强 + 手动兜底 + 赔率 admin 录入 |
+| ✅ 数据导入 | **API-Football 主源**（api-sports.io 直接调用 或 RapidAPI 代理，免费 100 req/天，失败回退）+ worldcup26.ir 实时同步（每 15min 调度 + 启动时立即同步）+ worldcupstats.football 备份 + football-data.org 低频增强 + 手动兜底 + 赔率 admin 录入 |
 | ✅ 赛事时间 | DB 统一存 UTC，API/前端统一按北京时间（`Asia/Shanghai`）展示；`/matches?date=` 与 `/matches/today` 按北京时间过滤 |
 | ✅ 手动管理接口 | 16 端点（比分/事件/统计/Bracket 重建/同步触发/form 回填/H2H 回填/备份源调度/回测运行/赔率 3 端点），需 `X-Admin-Token` |
 | ✅ 比赛详情 | events / stats / 赛后复盘卡片（B4）/ weather / **赔率卡（去 vig 市场概率 + 价值投注高亮）** |
@@ -259,7 +259,8 @@ DATA_DIR=./data
 SYNC_INTERVAL_SECONDS=900
 WC26_BASE_URL=https://worldcup26.ir
 
-# 核心数据：API-Football（api-sports.io / RapidAPI）。未配置 key 时自动回退 worldcup26.ir。
+# 核心数据：API-Football（api-sports.io 直接调用 或 RapidAPI 代理）。
+# 未配置 API_FOOTBALL_KEY 且未配置 RAPIDAPI_KEY 时自动回退 worldcup26.ir。
 API_FOOTBALL_ENABLED=false
 API_FOOTBALL_KEY=YOUR_APISPORTS_KEY
 API_FOOTBALL_HOST=v3.football.api-sports.io
@@ -267,6 +268,10 @@ API_FOOTBALL_LEAGUE_ID=1
 API_FOOTBALL_SEASON=2026
 API_FOOTBALL_DAILY_LIMIT=100
 API_FOOTBALL_RATE_LIMIT_PER_MIN=10
+
+# RapidAPI 代理模式（可选）. 示例 host: api-football-v1.p.rapidapi.com
+RAPIDAPI_KEY=
+RAPIDAPI_HOST=
 
 # 增强数据源：football-data.org（可选，留空则关闭）
 FOOTBALL_DATA_ENABLED=false
