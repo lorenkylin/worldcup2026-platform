@@ -256,6 +256,17 @@ class ApiFootballClient:
         while self._request_times and self._request_times[0] < cutoff:
             self._request_times.popleft()
 
+        # v0.14.3: 每次真实请求后检查预算，达到阈值时触发告警
+        try:
+            from app.services.budget_alert import get_budget_alert_manager
+
+            get_budget_alert_manager().check_and_alert(
+                self._daily_requests, self.daily_limit
+            )
+        except Exception:  # noqa: BLE001
+            # 告警失败不应影响主流程
+            pass
+
     def _cache_key(self, path: str, params: Optional[Dict]) -> str:
         """构造缓存 key（params 排序后拼接）."""
         if not params:

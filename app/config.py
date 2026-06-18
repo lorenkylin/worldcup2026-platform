@@ -138,6 +138,21 @@ class Settings(BaseSettings):
     # 默认 false：首次启动仍会自动同步。设为 true 后仅启动调度器，不触发外部请求。
     skip_startup_sync: bool = False
 
+    # v0.14.3: API-Football 预算告警
+    api_football_budget_warning_threshold: float = 0.80  # 日配额 >=80% 触发 warning
+    api_football_budget_critical_threshold: float = 0.95  # 日配额 >=95% 触发 critical
+    # 邮件告警（可选）
+    alert_email_enabled: bool = False
+    alert_email_smtp_host: str = ""
+    alert_email_smtp_port: int = 587
+    alert_email_smtp_user: str = ""
+    alert_email_smtp_password: str = ""
+    alert_email_from: str = ""
+    alert_email_to: str = ""  # 支持逗号分隔多个收件人
+    # 企业微信 webhook 告警（可选）
+    alert_wechat_enabled: bool = False
+    alert_wechat_webhook_url: str = ""
+
     @model_validator(mode="after")
     def _disable_mock_auto_refresh_in_production(self):
         """生产环境（debug=False）若使用 mock/seed 赔率且未配置 key，自动关闭定时刷新."""

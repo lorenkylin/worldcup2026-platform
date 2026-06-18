@@ -138,12 +138,25 @@ def _check_api_football_health(source: Dict) -> Dict:
         "checked_at": checked_at,
     }
 
+    # v0.14.3: 附加预算状态
+    budget = {"enabled": False}
+    try:
+        from app.services.budget_alert import get_budget_alert_manager
+
+        budget = get_budget_alert_manager().get_status(
+            used=0, limit=settings.api_football_daily_limit
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
     if not enabled:
         return {**base, "status": "disabled", "status_code": None, "latency_ms": None,
+                "budget": budget,
                 "error": "API_FOOTBALL_ENABLED=false 或 API_FOOTBALL_KEY 未配置"}
 
     if not last_success:
         return {**base, "status": "degraded", "status_code": None, "latency_ms": None,
+                "budget": budget,
                 "error": "尚未成功同步"}
 
     try:
@@ -151,17 +164,29 @@ def _check_api_football_health(source: Dict) -> Dict:
         age_seconds = (datetime.now(timezone.utc) - last_dt).total_seconds()
     except Exception:
         return {**base, "status": "degraded", "status_code": None, "latency_ms": None,
+                "budget": budget,
                 "error": "sync_status 时间戳异常"}
 
     if consecutive_failures >= 3:
         return {**base, "status": "down", "status_code": None, "latency_ms": None,
+                "budget": budget,
                 "error": f"连续失败 {consecutive_failures} 次"}
+
+    # v0.14.3: 预算 critical 时整体状态降级
+    if budget.get("level") == "critical":
+        return {**base, "status": "degraded", "status_code": None, "latency_ms": None,
+                "budget": budget,
+                "error": f"API-Football 日配额即将用尽: {budget.get('usage_ratio', 0):.1%}"}
+
     if age_seconds <= 1800:  # 30min 内成功
-        return {**base, "status": "ok", "status_code": 200, "latency_ms": None}
+        return {**base, "status": "ok", "status_code": 200, "latency_ms": None,
+                "budget": budget}
     if age_seconds <= 3600:  # 30-60min
         return {**base, "status": "degraded", "status_code": None, "latency_ms": None,
+                "budget": budget,
                 "error": "超过 30 分钟未同步"}
     return {**base, "status": "down", "status_code": None, "latency_ms": None,
+            "budget": budget,
             "error": "超过 60 分钟未同步"}
 
 

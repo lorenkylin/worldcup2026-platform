@@ -33,7 +33,27 @@
 - [ ] **赔率（生产必选）**：`ODDS_API_ENABLED=true` + `ODDS_API_PROVIDER=the_odds_api` + `ODDS_API_KEY=<key>`
   - 若暂时无 key，保持 `ODDS_API_ENABLED=false`，前端会显示「模拟数据」提示
 
-### 1.4 本地数据库准备
+### 1.4 API-Football 预算告警（v0.14.3，可选但推荐）
+
+若启用 API-Football 主源，建议同时开启预算告警，防止 100 req/天 免费额度耗尽导致同步降级：
+
+| 变量 | 生产值要求 | 说明 |
+|---|---|---|
+| `API_FOOTBALL_BUDGET_WARNING_THRESHOLD` | `0.80` | 日用量 >= 80% 触发 warning |
+| `API_FOOTBALL_BUDGET_CRITICAL_THRESHOLD` | `0.95` | 日用量 >= 95% 触发 critical |
+| `ALERT_EMAIL_ENABLED` | `true` / `false` | 是否邮件告警 |
+| `ALERT_EMAIL_SMTP_HOST` | `smtp.example.com` | SMTP 服务器 |
+| `ALERT_EMAIL_SMTP_PORT` | `587` | SMTP 端口 |
+| `ALERT_EMAIL_SMTP_USER` | `alert@example.com` | SMTP 账号 |
+| `ALERT_EMAIL_SMTP_PASSWORD` | `<password>` | SMTP 密码 |
+| `ALERT_EMAIL_FROM` | `alert@example.com` | 发件人 |
+| `ALERT_EMAIL_TO` | `ops@example.com` | 收件人，支持逗号分隔多个 |
+| `ALERT_WECHAT_ENABLED` | `true` / `false` | 是否企业微信告警 |
+| `ALERT_WECHAT_WEBHOOK_URL` | `https://qyapi.weixin.qq.com/...` | 企业微信机器人 webhook |
+
+部署后可在 `/api/health/sources` 中查看 `api_football.budget` 字段确认告警状态。
+
+### 1.5 本地数据库准备
 
 - [ ] 已执行 `alembic upgrade head`
 - [ ] 数据库包含 48 队 / 104 场 / 48 积分榜：`sqlite3 data/worldcup2026.db "SELECT COUNT(*) FROM teams; SELECT COUNT(*) FROM matches; SELECT COUNT(*) FROM standings;"`
@@ -117,6 +137,7 @@ curl $APP/api/health/sources | jq
 - `/health` 返回 `200`，`version` 正确
 - `scheduler_running=true`
 - `freshness` 为 `fresh` 或 `recent`
+- 若启用 API-Football：`/api/health/sources` 中 `api_football.budget.level` 为 `ok`，且阈值配置正确
 
 ### 4.2 数据完整性
 

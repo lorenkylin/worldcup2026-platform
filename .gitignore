@@ -27,6 +27,8 @@ data/*.db-wal
 data/worldcup2026.db-journal
 # v0.10 运行时同步状态 (JSON, 持久化但 git 不追踪)
 data/sync_status.json
+# v0.14.3 运行时预算告警状态 (JSON, 持久化但 git 不追踪)
+data/budget_alert_status.json
 !data/seed/.gitkeep
 !data/fixtures/.gitkeep
 
