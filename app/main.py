@@ -24,7 +24,7 @@ from app.services.h2h_backfill import backfill_h2h_history
 from app.services.periodic_refresh import run_periodic_refresh as periodic_6h_refresh
 
 
-APP_VERSION = "0.14.2"
+APP_VERSION = "0.14.3"
 
 
 def _get_version(fallback: str = APP_VERSION) -> str:
