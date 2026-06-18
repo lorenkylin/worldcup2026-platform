@@ -192,6 +192,7 @@ def get_match_odds(
             "market_prob": market_prob,
             "fetched_at": r.fetched_at.isoformat() if r.fetched_at else None,
             "source": r.source,
+            "is_simulated": r.source in ("mock", "seed"),
         })
 
     full_odds = [o for o in odds_dicts if all(o[k] for k in ("home_win", "draw", "away_win"))]
@@ -292,6 +293,7 @@ def get_match_odds_history(
             "over_2_5": s.over_2_5,
             "under_2_5": s.under_2_5,
             "source": s.source,
+            "is_simulated": s.source in ("mock", "seed"),
         })
 
     return {

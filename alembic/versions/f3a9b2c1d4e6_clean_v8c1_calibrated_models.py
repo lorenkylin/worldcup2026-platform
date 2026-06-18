@@ -27,7 +27,9 @@ def upgrade() -> None:
             "   OR model_version LIKE 'v7d_calibrated%'"
         )
     )
-    print(f"[v0.8.1] cleaned {result.rowcount} calibrated prediction_log rows")
+    # offline (--sql) 模式下 result 为 None，仅在线模式打印行数
+    if result is not None:
+        print(f"[v0.8.1] cleaned {result.rowcount} calibrated prediction_log rows")
 
 
 def downgrade() -> None:

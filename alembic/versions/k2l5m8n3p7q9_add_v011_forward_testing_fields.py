@@ -17,6 +17,8 @@
 from alembic import op
 import sqlalchemy as sa
 
+from app.alembic_helpers import get_inspector
+
 
 # 修订 ID, 由 alembic 自动管理
 revision = "k2l5m8n3p7q9"
@@ -27,36 +29,50 @@ depends_on = None
 
 def upgrade() -> None:
     """添加 v0.11 Forward-Testing 字段."""
-    op.add_column(
-        "prediction_log",
-        sa.Column(
-            "is_live",
-            sa.Boolean(),
-            nullable=False,
-            server_default=sa.text("0"),  # SQLite boolean = 0/1
-            comment="True=赛前实时预测 / False=backfill 历史回填",
-        ),
-    )
-    op.add_column(
-        "prediction_log",
-        sa.Column(
-            "snapshot_group",
-            sa.String(length=40),
-            nullable=True,
-            comment="同一比赛同模型多次预测的快照组 (如赛前 7d/3d/1d)",
-        ),
-    )
+    inspector = get_inspector(op.get_bind())
+    columns = {col['name'] for col in inspector.get_columns('prediction_log')}
+
+    if 'is_live' not in columns:
+        op.add_column(
+            "prediction_log",
+            sa.Column(
+                "is_live",
+                sa.Boolean(),
+                nullable=False,
+                server_default=sa.text("0"),  # SQLite boolean = 0/1
+                comment="True=赛前实时预测 / False=backfill 历史回填",
+            ),
+        )
+    if 'snapshot_group' not in columns:
+        op.add_column(
+            "prediction_log",
+            sa.Column(
+                "snapshot_group",
+                sa.String(length=40),
+                nullable=True,
+                comment="同一比赛同模型多次预测的快照组 (如赛前 7d/3d/1d)",
+            ),
+        )
     # 索引: snapshot_group
-    op.create_index(
-        "ix_prediction_log_snapshot_group",
-        "prediction_log",
-        ["snapshot_group"],
-        unique=False,
-    )
+    index_names = {idx['name'] for idx in inspector.get_indexes('prediction_log')}
+    if 'ix_prediction_log_snapshot_group' not in index_names:
+        op.create_index(
+            "ix_prediction_log_snapshot_group",
+            "prediction_log",
+            ["snapshot_group"],
+            unique=False,
+        )
 
 
 def downgrade() -> None:
     """回滚 v0.11 Forward-Testing 字段."""
-    op.drop_index("ix_prediction_log_snapshot_group", table_name="prediction_log")
-    op.drop_column("prediction_log", "snapshot_group")
-    op.drop_column("prediction_log", "is_live")
+    inspector = get_inspector(op.get_bind())
+    columns = {col['name'] for col in inspector.get_columns('prediction_log')}
+    index_names = {idx['name'] for idx in inspector.get_indexes('prediction_log')}
+
+    if 'ix_prediction_log_snapshot_group' in index_names:
+        op.drop_index("ix_prediction_log_snapshot_group", table_name="prediction_log")
+    if 'snapshot_group' in columns:
+        op.drop_column("prediction_log", "snapshot_group")
+    if 'is_live' in columns:
+        op.drop_column("prediction_log", "is_live")

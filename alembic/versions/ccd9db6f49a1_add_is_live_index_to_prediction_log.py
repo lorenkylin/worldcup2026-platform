@@ -13,6 +13,8 @@
 """
 from alembic import op
 
+from app.alembic_helpers import get_inspector
+
 
 revision = "ccd9db6f49a1"
 down_revision = "k2l5m8n3p7q9"
@@ -22,14 +24,20 @@ depends_on = None
 
 def upgrade() -> None:
     """添加 is_live 索引."""
-    op.create_index(
-        "ix_prediction_log_is_live",
-        "prediction_log",
-        ["is_live"],
-        unique=False,
-    )
+    inspector = get_inspector(op.get_bind())
+    index_names = {idx['name'] for idx in inspector.get_indexes('prediction_log')}
+    if 'ix_prediction_log_is_live' not in index_names:
+        op.create_index(
+            "ix_prediction_log_is_live",
+            "prediction_log",
+            ["is_live"],
+            unique=False,
+        )
 
 
 def downgrade() -> None:
     """回滚 is_live 索引."""
-    op.drop_index("ix_prediction_log_is_live", table_name="prediction_log")
+    inspector = get_inspector(op.get_bind())
+    index_names = {idx['name'] for idx in inspector.get_indexes('prediction_log')}
+    if 'ix_prediction_log_is_live' in index_names:
+        op.drop_index("ix_prediction_log_is_live", table_name="prediction_log")

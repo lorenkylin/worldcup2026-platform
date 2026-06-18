@@ -9,10 +9,10 @@
   <link rel="icon" href="/static/icons/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
   <title>2026 世界杯赛事分析</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.tailwindcss.com" onerror="this.src='/static/vendor/tailwindcss.js'"></script>
   <link rel="stylesheet" href="/static/css/styles.css?v=0.14.2">
-  <!-- v0.5.1: Chart.js 用于赔率走势图 -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- v0.5.1: Chart.js 用于赔率走势图; CDN 失败时回退到本地 vendor -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" onerror="this.src='/static/vendor/chart.umd.min.js'"></script>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen">
   <!-- 顶部导航 -->
@@ -102,7 +102,7 @@
     // Service Worker 注册（PWA 离线缓存）
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/static/sw.js').then(reg => {
+        navigator.serviceWorker.register('/sw.js').then(reg => {
           console.log('[SW] registered, scope:', reg.scope);
         }).catch(err => {
           console.warn('[SW] register failed:', err);

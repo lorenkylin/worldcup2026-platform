@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libffi-dev \
     libssl-dev \
     curl \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # 工作目录
@@ -29,8 +30,12 @@ COPY . .
 RUN mkdir -p /app/data /app/logs
 
 # 非 root 用户运行 (安全最佳实践)
+# 容器启动时先以 root 修正持久卷权限，再降权到 appuser
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
-USER appuser
+
+# 入口脚本：处理 Fly.io /data 等持久卷的所有者后再降权运行
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 # 端口
 EXPOSE 8000
@@ -39,7 +44,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# 启动命令 — uvicorn 单 worker (lifespan startup 自带 scheduler)
-# --host 0.0.0.0: 容器外可访问
-# --workers 1: scheduler 单实例, 多 worker 会重复同步
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# 启动命令 — 通过 entrypoint 降权到 appuser 后运行 uvicorn
+CMD ["/app/entrypoint.sh", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

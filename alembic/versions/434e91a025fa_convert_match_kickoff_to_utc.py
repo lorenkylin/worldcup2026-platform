@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Sequence, Union
 from zoneinfo import ZoneInfo
 
-from alembic import op
+from alembic import context, op
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
@@ -36,6 +36,10 @@ def upgrade() -> None:
     转换前：kickoff_at 存的是 stadium-local naive datetime（如美东 15:00）。
     转换后：按 stadium.timezone 解析为 aware，再转 UTC 并去掉 tzinfo。
     """
+    if context.is_offline_mode():
+        # --sql 干跑不连接真实数据库，无数据需要转换
+        return
+
     bind = op.get_bind()
     session = Session(bind=bind)
     try:
@@ -72,6 +76,9 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """降级操作：将 UTC naive 重新转回球场本地墙钟时间."""
+    if context.is_offline_mode():
+        return
+
     bind = op.get_bind()
     session = Session(bind=bind)
     try:

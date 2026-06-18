@@ -217,9 +217,16 @@ class TestDockerfileFlyCompat:
 
     def test_dockerfile_uses_non_root_user(self):
         content = DOCKERFILE.read_text(encoding="utf-8")
-        assert "USER appuser" in content, "必须 USER appuser (非 root)"
+        entrypoint = (PROJECT_ROOT / "entrypoint.sh").read_text(encoding="utf-8")
+        # 支持 USER appuser 或 root+entrypoint 降权到 appuser 两种方案
         assert "useradd" in content, "必须 useradd 创建 appuser"
         assert "1000" in content, "uid 必须 1000 (Fly 卷兼容)"
+        assert (
+            "USER appuser" in content
+            or (
+                "entrypoint.sh" in content and "gosu appuser" in entrypoint
+            )
+        ), "必须通过 USER 或 entrypoint/gosu 以 appuser 运行主进程"
 
     def test_dockerfile_expose_8000(self):
         content = DOCKERFILE.read_text(encoding="utf-8")
@@ -228,7 +235,12 @@ class TestDockerfileFlyCompat:
     def test_dockerfile_workers_1(self):
         """Fly 单进程 + workers 1 — 双保险"""
         content = DOCKERFILE.read_text(encoding="utf-8")
-        assert "--workers 1" in content, "CMD 必须 --workers 1 (Fly 单进程+uvicorn 单 worker 防重复同步)"
+        # 支持字符串 CMD 或 JSON 数组 CMD（JSON 数组中逗号后可能有空格）
+        assert (
+            "--workers 1" in content
+            or '"--workers", "1"' in content
+            or "'--workers', '1'" in content
+        ), "CMD 必须 --workers 1 (Fly 单进程+uvicorn 单 worker 防重复同步)"
 
 
 class TestAppNameConsistency:

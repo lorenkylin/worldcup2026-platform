@@ -137,11 +137,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS：允许本地开发与 H5 跨域调试
+# CORS：默认允许本地开发；生产通过 CORS_ORIGINS / CORS_ALLOW_CREDENTIALS 配置
+# 当 origins 包含通配符时强制禁用 credentials，避免 opener/credential 泄露风险
+_cors_allow_credentials = settings.cors_allow_credentials and "*" not in settings.cors_origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=settings.cors_origins,
+    allow_credentials=_cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -158,14 +160,20 @@ app.include_router(bracket.router, prefix="/api", tags=["淘汰赛"])
 app.include_router(odds.router, prefix="/api", tags=["赔率"])
 app.include_router(health.router, prefix="/api", tags=["健康检查"])
 app.include_router(cockpit.router, prefix="/api", tags=["总览驾驶舱"])
-app.include_router(admin.router, prefix="/api/admin", tags=["管理"])
-app.include_router(admin_sync.router, prefix="/api/admin/sync", tags=["数据同步"])
-app.include_router(admin_odds.router, prefix="/api/admin", tags=["赔率管理"])
+app.include_router(admin.router, prefix="/api/admin", tags=["管理"], include_in_schema=False)
+app.include_router(admin_sync.router, prefix="/api/admin/sync", tags=["数据同步"], include_in_schema=False)
+app.include_router(admin_odds.router, prefix="/api/admin", tags=["赔率管理"], include_in_schema=False)
 
 
 # 静态前端文件
 static_dir = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+
+@app.get("/sw.js", include_in_schema=False)
+async def serve_sw() -> FileResponse:
+    """根路径 Service Worker 文件（确保 scope 为 /，可控制全站缓存）."""
+    return FileResponse(static_dir / "sw.js", media_type="application/javascript")
 
 
 @app.get("/", include_in_schema=False)

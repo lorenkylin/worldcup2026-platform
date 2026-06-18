@@ -16,7 +16,12 @@ async function api(path) {
     window._api_calls.push(path);
   }
   const res = await fetch(API_BASE + path);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(`HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  if (res.status === 204) return null;
   return res.json();
 }
 
@@ -144,20 +149,23 @@ function renderOddsDetail(oddsData, homeName, awayName) {
   ` : '';
 
   // 列出各家赔率
-  const bookmakersHtml = oddsData.bookmakers.length > 1 ? `
+  const bookmakers = oddsData.bookmakers || [];
+  const bookmakersHtml = bookmakers.length > 1 ? `
     <div class="mt-3 pt-3 border-t border-slate-800">
       <div class="text-xs text-slate-500 mb-1">各博彩公司</div>
       <div class="space-y-1">
-        ${oddsData.bookmakers.map(b => `
+        ${bookmakers.map(b => {
+          const odds = b.odds || {};
+          return `
           <div class="flex items-center justify-between text-xs">
             <span class="text-slate-400">${escapeHtml(b.bookmaker)}</span>
             <span class="font-mono text-slate-300">
-              ${b.odds.home_win ? b.odds.home_win.toFixed(2) : '-'} /
-              ${b.odds.draw ? b.odds.draw.toFixed(2) : '-'} /
-              ${b.odds.away_win ? b.odds.away_win.toFixed(2) : '-'}
+              ${odds.home_win ? odds.home_win.toFixed(2) : '-'} /
+              ${odds.draw ? odds.draw.toFixed(2) : '-'} /
+              ${odds.away_win ? odds.away_win.toFixed(2) : '-'}
             </span>
           </div>
-        `).join('')}
+        `;}).join('')}
       </div>
     </div>
   ` : '';
@@ -238,7 +246,9 @@ async function renderHome() {
 async function renderPredictionMini(matchId) {
   try {
     const p = await apiWithRetry('/matches/' + matchId + '/prediction');
-    const stars = '★'.repeat(p.stars) + '☆'.repeat(5 - p.stars);
+    const starCount = p.stars ?? 0;
+    const stars = '★'.repeat(starCount) + '☆'.repeat(5 - starCount);
+    const reasons = p.reasons || [];
     const h2hBadge = p.h2h_summary
       ? `<div class="text-xs text-amber-300 mt-2">⚔️ ${escapeHtml(p.h2h_summary)}</div>`
       : '';
@@ -249,15 +259,15 @@ async function renderPredictionMini(matchId) {
       <a href="#/match/${matchId}" class="block bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-4 border border-slate-700">
         <div class="flex justify-between items-center mb-2">
           <span class="text-amber-400 tracking-widest">${stars}</span>
-          <span class="text-xs text-slate-400">推荐比分 ${p.recommended_score}</span>
+          <span class="text-xs text-slate-400">推荐比分 ${p.recommended_score || '—'}</span>
         </div>
         <div class="flex justify-between text-sm mb-3">
-          <span>主胜 <b class="text-white">${p.home_win_prob}%</b></span>
-          <span>平 <b class="text-white">${p.draw_prob}%</b></span>
-          <span>客胜 <b class="text-white">${p.away_win_prob}%</b></span>
+          <span>主胜 <b class="text-white">${p.home_win_prob ?? '—'}%</b></span>
+          <span>平 <b class="text-white">${p.draw_prob ?? '—'}%</b></span>
+          <span>客胜 <b class="text-white">${p.away_win_prob ?? '—'}%</b></span>
         </div>
         <ul class="text-xs text-slate-400 space-y-1">
-          ${p.reasons.slice(0, 3).map(r => '<li>· ' + escapeHtml(r) + '</li>').join('')}
+          ${reasons.slice(0, 3).map(r => '<li>· ' + escapeHtml(r) + '</li>').join('')}
         </ul>
         ${h2hBadge}
         ${formBadges}
@@ -632,7 +642,7 @@ function renderFactorsBreakdown(factors, home, away) {
             ${escapeHtml(home.name_zh)}：<span class="text-slate-300">${form.home_points ?? '—'}</span> 分
             <span class="text-slate-600 mx-1">vs</span>
             ${escapeHtml(away.name_zh)}：<span class="text-slate-300">${form.away_points ?? '—'}</span> 分
-            <span class="text-slate-600 ml-2">（近 5 场，权重 ${(form.weight * 100).toFixed(0)}%）</span>
+            <span class="text-slate-600 ml-2">（近 5 场，权重 ${form.weight != null ? (form.weight * 100).toFixed(0) : '—'}%）</span>
           </div>
           <div class="h-2 bg-slate-800 rounded-full overflow-hidden flex">
             <div class="${formColor} transition-all" style="width: ${formBar}%"></div>
@@ -725,7 +735,7 @@ async function loadOddsTrend(matchId) {
 
     // 配色:每个 bookmaker 一种颜色
     const palette = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4'];
-    const bookmakers = data.bookmakers;
+    const bookmakers = data.bookmakers || [];
     const labels = [];  // X 轴:所有时间戳(去重排序)
     const labelSet = new Set();
     for (const bm of bookmakers) {
@@ -1004,18 +1014,18 @@ async function renderMatchDetail(id) {
     <div class="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-4 border border-slate-700 mb-4">
       <div class="flex justify-between items-center mb-3">
         <h3 class="font-bold text-amber-400">AI 预测 v1 · Elo-Poisson</h3>
-        <span class="text-xs text-slate-400">推荐比分 ${prediction.recommended_score}</span>
+        <span class="text-xs text-slate-400">推荐比分 ${prediction.recommended_score || '—'}</span>
       </div>
       <div class="grid grid-cols-3 gap-2 text-center mb-3">
-        <div class="bg-slate-950 rounded p-2"><div class="text-xs text-slate-500">主胜</div><div class="text-lg font-bold text-white">${prediction.home_win_prob}%</div></div>
-        <div class="bg-slate-950 rounded p-2"><div class="text-xs text-slate-500">平</div><div class="text-lg font-bold text-white">${prediction.draw_prob}%</div></div>
-        <div class="bg-slate-950 rounded p-2"><div class="text-xs text-slate-500">客胜</div><div class="text-lg font-bold text-white">${prediction.away_win_prob}%</div></div>
+        <div class="bg-slate-950 rounded p-2"><div class="text-xs text-slate-500">主胜</div><div class="text-lg font-bold text-white">${prediction.home_win_prob ?? '—'}%</div></div>
+        <div class="bg-slate-950 rounded p-2"><div class="text-xs text-slate-500">平</div><div class="text-lg font-bold text-white">${prediction.draw_prob ?? '—'}%</div></div>
+        <div class="bg-slate-950 rounded p-2"><div class="text-xs text-slate-500">客胜</div><div class="text-lg font-bold text-white">${prediction.away_win_prob ?? '—'}%</div></div>
       </div>
-      <div class="text-sm text-slate-300 mb-2">星级：${'★'.repeat(prediction.stars)}${'☆'.repeat(5 - prediction.stars)}</div>
+      <div class="text-sm text-slate-300 mb-2">星级：${'★'.repeat(prediction.stars ?? 0)}${'☆'.repeat(5 - (prediction.stars ?? 0))}</div>
       <ul class="text-xs text-slate-400 space-y-1 mb-2">
-        ${prediction.reasons.map(r => '<li>· ' + escapeHtml(r) + '</li>').join('')}
+        ${(prediction.reasons || []).map(r => '<li>· ' + escapeHtml(r) + '</li>').join('')}
       </ul>
-      <div class="mt-2 text-xs text-slate-500">${prediction.disclaimer}</div>
+      <div class="mt-2 text-xs text-slate-500">${prediction.disclaimer || ''}</div>
     </div>
 
     ${prediction.home_recent_form || prediction.away_recent_form || prediction.h2h_summary ? `
@@ -1153,7 +1163,7 @@ function renderPostMatchReview(m, prediction) {
   const actualAway = m.away_score;
   if (actualHome == null || actualAway == null) return '';
 
-  const [pHome, pAway] = prediction.recommended_score.split(':').map(Number);
+  const [pHome, pAway] = (prediction.recommended_score || '').split(':').map(Number);
   if (isNaN(pHome) || isNaN(pAway)) return '';
 
   // 比分命中 = 推荐比分 == 实际比分
@@ -3313,6 +3323,10 @@ async function apiWithRetry(path, options = {}) {
       return await api(path);
     } catch (err) {
       lastErr = err;
+      // 仅对网络错误（无 status）或 5xx 服务端错误重试；4xx 客户端错误直接失败
+      const status = err && err.status;
+      const isRetryable = status == null || status >= 500;
+      if (!isRetryable) break;
       if (i < retries) {
         await new Promise(r => setTimeout(r, retryDelay));
       }
@@ -4431,22 +4445,22 @@ async function renderAccuracy() {
         <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
           <div class="bg-slate-50 p-3 rounded-lg">
             <div class="text-xs text-slate-500">准确率</div>
-            <div class="text-2xl font-bold text-slate-800">${(g2Metrics.metrics.accuracy * 100).toFixed(1)}%</div>
+            <div class="text-2xl font-bold text-slate-800">${g2Metrics?.metrics?.accuracy != null ? (g2Metrics.metrics.accuracy * 100).toFixed(1) + '%' : '—'}</div>
           </div>
           <div class="bg-slate-50 p-3 rounded-lg">
             <div class="text-xs text-slate-500">RPS</div>
-            <div class="text-2xl font-bold text-slate-800">${g2Metrics.metrics.rps.toFixed(4)}</div>
+            <div class="text-2xl font-bold text-slate-800">${g2Metrics?.metrics?.rps != null ? g2Metrics.metrics.rps.toFixed(4) : '—'}</div>
           </div>
           <div class="bg-slate-50 p-3 rounded-lg">
             <div class="text-xs text-slate-500">Brier</div>
-            <div class="text-2xl font-bold text-slate-800">${g2Metrics.metrics.brier.toFixed(4)}</div>
+            <div class="text-2xl font-bold text-slate-800">${g2Metrics?.metrics?.brier != null ? g2Metrics.metrics.brier.toFixed(4) : '—'}</div>
           </div>
           <div class="bg-slate-50 p-3 rounded-lg">
             <div class="text-xs text-slate-500">LogLoss</div>
-            <div class="text-2xl font-bold text-slate-800">${g2Metrics.metrics.log_loss.toFixed(4)}</div>
+            <div class="text-2xl font-bold text-slate-800">${g2Metrics?.metrics?.log_loss != null ? g2Metrics.metrics.log_loss.toFixed(4) : '—'}</div>
           </div>
         </div>
-        <div class="text-xs text-slate-500 mt-3">训练数据: Hicruben 913 场国际赛 (2023-11 ~ 2026-06). 较 Elo M1 准确率提升 <span class="text-green-600 font-bold">+${((g2Metrics.metrics.accuracy - 0.5663) * 100).toFixed(1)} pp</span>.</div>
+        <div class="text-xs text-slate-500 mt-3">训练数据: Hicruben 913 场国际赛 (2023-11 ~ 2026-06). 较 Elo M1 准确率提升 <span class="text-green-600 font-bold">+${g2Metrics?.metrics?.accuracy != null ? ((g2Metrics.metrics.accuracy - 0.5663) * 100).toFixed(1) + ' pp' : '—'}</span>.</div>
       </div>
 
       <!-- 偏差分析 -->

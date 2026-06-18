@@ -7,6 +7,7 @@
 - 兜底：手动录入（admin 后台）
 """
 
+import hmac
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -25,7 +26,11 @@ router = APIRouter()
 
 
 def verify_admin_token(x_admin_token: str = Header(...)) -> None:
-    if x_admin_token != settings.admin_token:
+    """校验管理员 Token（常量时间比较，防止定时攻击）.
+
+    当未配置 admin_token 时默认关闭管理端点，避免空 token 被绕过。
+    """
+    if not settings.admin_token or not hmac.compare_digest(x_admin_token, settings.admin_token):
         raise HTTPException(status_code=403, detail="管理员 Token 无效")
 
 

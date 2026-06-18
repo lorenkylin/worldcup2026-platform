@@ -15,6 +15,8 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
+from app.alembic_helpers import get_inspector
+
 
 # revision identifiers, used by Alembic.
 revision: str = 'aeaf6e483292'
@@ -33,12 +35,16 @@ def upgrade() -> None:
     Base.metadata.create_all(bind)
 
     # 2) 已有 DB 真实缺的索引（autogenerate 检测到 prediction_cache.match_id 上无索引）
-    with op.batch_alter_table('prediction_cache', schema=None) as batch_op:
-        batch_op.create_index(
-            batch_op.f('ix_prediction_cache_match_id'),
-            ['match_id'],
-            unique=False,
-        )
+    #    空库 create_all 已创建该索引，需先检查避免重复创建导致索引已存在错误
+    inspector = get_inspector(bind)
+    index_names = {idx['name'] for idx in inspector.get_indexes('prediction_cache')}
+    if 'ix_prediction_cache_match_id' not in index_names:
+        with op.batch_alter_table('prediction_cache', schema=None) as batch_op:
+            batch_op.create_index(
+                batch_op.f('ix_prediction_cache_match_id'),
+                ['match_id'],
+                unique=False,
+            )
 
 
 def downgrade() -> None:
@@ -47,5 +53,8 @@ def downgrade() -> None:
     注意：drop_all 会清空数据，原则上不放在 baseline 迁移里。
     真正销毁 schema 请用 op.drop_table() 写显式迁移。
     """
-    with op.batch_alter_table('prediction_cache', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_prediction_cache_match_id'))
+    inspector = get_inspector(op.get_bind())
+    index_names = {idx['name'] for idx in inspector.get_indexes('prediction_cache')}
+    if 'ix_prediction_cache_match_id' in index_names:
+        with op.batch_alter_table('prediction_cache', schema=None) as batch_op:
+            batch_op.drop_index(batch_op.f('ix_prediction_cache_match_id'))

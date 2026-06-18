@@ -13,12 +13,15 @@
 - 兜底：手动录入（admin 后台）
 """
 
+import logging
 import os
 from pathlib import Path
 
-from pydantic import Field, AliasChoices
+from pydantic import Field, AliasChoices, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
+logger = logging.getLogger(__name__)
 
 # v0.13: 支持 DATA_DIR 环境变量，便于 Fly.io 等云平台的持久卷挂载
 _DEFAULT_DATA_DIR = "./data"
@@ -43,10 +46,30 @@ class Settings(BaseSettings):
     """
 
     app_name: str = "2026 FIFA World Cup 赛事分析平台"
-    debug: bool = True
+    debug: bool = False
     # v0.13: 数据库路径跟随 DATA_DIR，支持容器/云持久卷
     database_url: str = f"sqlite:///{_DATA_DIR}/worldcup2026.db"
-    admin_token: str = "change-me"
+    admin_token: str = ""
+
+    # v0.14.3: CORS 安全配置；生产环境应通过 CORS_ORIGINS 设置为具体域名白名单
+    # 使用 list[str] | str 是为了让 pydantic-settings 在环境变量解析失败时回退到原始字符串，
+    # 再由 _parse_cors_origins 以逗号分隔解析为列表。
+    cors_origins: list[str] | str = Field(
+        default_factory=lambda: ["*"],
+        validation_alias=AliasChoices("CORS_ORIGINS", "cors_origins"),
+    )
+    cors_allow_credentials: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("CORS_ALLOW_CREDENTIALS", "cors_allow_credentials"),
+    )
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _parse_cors_origins(cls, v):
+        """支持环境变量 CORS_ORIGINS 以逗号分隔传入多个域名."""
+        if isinstance(v, str):
+            return [x.strip() for x in v.split(",") if x.strip()]
+        return v
 
     # 同步配置
     sync_interval_seconds: int = 900  # 15 分钟轮询一次（零预算，避免被封）
@@ -114,6 +137,24 @@ class Settings(BaseSettings):
     # v0.14.2: 跳过 lifespan 启动时的全量同步/回填（生产部署稳定优先）
     # 默认 false：首次启动仍会自动同步。设为 true 后仅启动调度器，不触发外部请求。
     skip_startup_sync: bool = False
+
+    @model_validator(mode="after")
+    def _disable_mock_auto_refresh_in_production(self):
+        """生产环境（debug=False）若使用 mock/seed 赔率且未配置 key，自动关闭定时刷新."""
+        if (
+            not self.debug
+            and self.odds_api_provider in ("mock", "seed")
+            and not self.odds_api_key
+        ):
+            if self.odds_auto_refresh_enabled:
+                logger.warning(
+                    "生产环境未配置真实赔率 API key，且 provider=%s，"
+                    "已自动关闭 odds_auto_refresh_enabled，避免定时任务生成 mock 快照。"
+                    "请在环境变量中设置 ODDS_API_KEY 与真实 provider。",
+                    self.odds_api_provider,
+                )
+                self.odds_auto_refresh_enabled = False
+        return self
 
     model_config = SettingsConfigDict(
         env_file=Path(__file__).resolve().parent.parent / ".env",

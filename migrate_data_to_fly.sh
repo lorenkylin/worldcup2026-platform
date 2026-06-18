@@ -78,7 +78,7 @@ echo ""
 echo_color "📂 步骤 3/4: 在 Fly 容器内解包到 /data/" "$BLUE"
 echo ""
 
-flyctl ssh console -a "$APP_NAME" -C "cd /tmp && ls -la wc2026_data*.tar.gz && tar -xzf wc2026_data_*.tar.gz -C / && rm -rf /tmp/wc2026_data_*.tar.gz && ls -la /data/ && du -sh /data/"
+flyctl ssh console -a "$APP_NAME" -C "ls -la /tmp/wc2026_data.tar.gz && tar -xzf /tmp/wc2026_data.tar.gz -C / && rm -rf /tmp/wc2026_data.tar.gz && ls -la /data/ && du -sh /data/"
 
 # 4. 重启 app + 健康检查
 echo ""

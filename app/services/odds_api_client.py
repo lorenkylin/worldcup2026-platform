@@ -425,10 +425,32 @@ def fetch_upcoming_odds(
 
     provider = settings.odds_api_provider
     result: List[Dict] = []
+    is_mock_provider = provider in ("mock", "seed")
+
+    # 当赔率服务被启用却使用 mock/seed 时给出醒目警告；生产环境（debug=False）直接拒绝，避免误导用户
+    if is_mock_provider and settings.odds_api_enabled:
+        logger.warning(
+            "============================================\n"
+            "[odds_api] 当前使用 provider=%s 的模拟赔率，仅供开发/演示！\n"
+            "生产环境请务必配置真实赔率 API key（ODDS_API_KEY）与真实 provider。\n"
+            "============================================",
+            provider,
+        )
+        if not settings.debug:
+            logger.error(
+                "[odds_api] 生产环境（debug=False）拒绝使用 mock/seed 赔率，已自动禁用赔率拉取。"
+            )
+            return []
 
     if provider == "the_odds_api" and settings.odds_api_enabled:
         result = _fetch_the_odds_api(db, target_dates)
         if not result:
+            if not settings.debug and not settings.odds_api_key:
+                logger.error(
+                    "[odds_api] 生产环境未配置 ODDS_API_KEY，且 provider=the_odds_api 返回空，"
+                    "拒绝降级到 mock。"
+                )
+                return []
             logger.info("[odds_api] The Odds API 返回空,降级 mock")
             result = _fetch_mock(db, target_dates)
     else:
@@ -523,6 +545,7 @@ def service_status() -> Dict:
         "enabled": settings.odds_api_enabled,
         "provider": settings.odds_api_provider,
         "has_api_key": bool(settings.odds_api_key),
+        "is_simulated": settings.odds_api_provider in ("mock", "seed"),
         "rate_limit_per_min": settings.odds_api_rate_limit_per_min,
         "cache_ttl_seconds": settings.odds_cache_ttl_seconds,
         "default_bookmaker": settings.odds_default_bookmaker,

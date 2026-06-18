@@ -92,9 +92,18 @@ class TestDockerfile:
 
     def test_uses_nonroot_user(self):
         """安全: 非 root 运行."""
-        content = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
-        assert "USER " in content and "useradd" in content, \
-            "必须创建并切换非 root 用户"
+        dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
+        entrypoint = (PROJECT_ROOT / "entrypoint.sh").read_text(encoding="utf-8")
+        # 方案 A: 传统 USER appuser
+        # 方案 B: root 启动 + entrypoint 降权到 appuser (解决 Fly /data root 挂载)
+        assert (
+            ("USER " in dockerfile and "useradd" in dockerfile)
+            or (
+                "useradd" in dockerfile
+                and "entrypoint.sh" in dockerfile
+                and "gosu appuser" in entrypoint
+            )
+        ), "必须创建非 root 用户，并通过 USER 或 entrypoint/gosu 降权运行"
 
 
 # === docker-compose.yml 关键字段 ===
