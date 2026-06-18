@@ -13,8 +13,8 @@
 
 import pytest
 
+from app.services.elo_params import elo_to_lambda
 from app.services.prediction import (
-    _elo_to_lambda,
     _poisson_prob,
     _predict_score_distribution,
     _apply_recent_form,
@@ -29,18 +29,18 @@ from app.services.prediction import (
 
 class TestEloToLambda:
     def test_equal_elo_both_near_base(self):
-        h, a = _elo_to_lambda(1500, 1500)
+        h, a = elo_to_lambda(1500, 1500)
         # 含主场优势：home > away
         assert h > a
         assert 1.0 < h < 1.8
         assert 0.8 < a < 1.5
 
     def test_strong_home_team_higher_lambda(self):
-        h, a = _elo_to_lambda(1900, 1500)
+        h, a = elo_to_lambda(1900, 1500)
         assert h > a + 0.5
 
     def test_lambda_never_below_minimum(self):
-        h, a = _elo_to_lambda(1200, 2000)
+        h, a = elo_to_lambda(1200, 2000)
         assert h >= 0.3
         assert a >= 0.3
 

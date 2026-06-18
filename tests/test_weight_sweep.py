@@ -166,6 +166,7 @@ def test_run_weight_sweep_baseline_is_50_50():
     assert "accuracy" in out["baseline_50_50"]
 
 
+@pytest.mark.slow
 def test_run_weight_sweep_with_real_data():
     """默认路径真实数据 - 跑出 913 场 winner."""
     out = run_weight_sweep()

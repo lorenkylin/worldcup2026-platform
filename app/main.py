@@ -1,7 +1,7 @@
 """FastAPI 应用入口.
 
 提供 RESTful API 与静态 H5 前端文件服务。
-启动时同时启动 APScheduler 自动轮询（零预算纯免费源）。
+启动时同时启动 APScheduler 自动轮询（多源：API-Football 优先，worldcup26.ir 兜底）。
 """
 
 from contextlib import asynccontextmanager
@@ -15,13 +15,26 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.config import settings
 from app.db import engine, Base, SessionLocal
-from app.routers import matches, teams, groups, predictions, admin, admin_sync, admin_odds, simulator, elo, h2h, bracket, odds, health
-from app.services.worldcup26_sync import full_sync as worldcup26_full_sync
+from app.routers import matches, teams, groups, predictions, admin, admin_sync, admin_odds, simulator, elo, h2h, bracket, odds, health, cockpit
+from app.services.multi_source_sync import full_sync as multi_source_full_sync
 from app.services.scheduler import build_default_jobs
 from app.services.stadium_geo import fill_stadium_coordinates
 from app.services.recent_form import compute_and_persist_recent_form
 from app.services.h2h_backfill import backfill_h2h_history
 from app.services.periodic_refresh import run_periodic_refresh as periodic_6h_refresh
+
+
+APP_VERSION = "0.14.2"
+
+
+def _get_version(fallback: str = APP_VERSION) -> str:
+    """返回当前应用版本号.
+
+    历史逻辑曾从 git tag 读取，但本地 tag 滞后时会导致版本显示错误；
+    现在以显式常量为主，部署时可通过环境变量或 CI 注入覆盖。
+    """
+    import os
+    return os.environ.get("WC26_VERSION", fallback)
 
 
 # 创建数据表（首次启动时）
@@ -36,22 +49,22 @@ async def lifespan(app: FastAPI):
     # 启动时
     if not scheduler.running:
         scheduler.start()
-        build_default_jobs(scheduler, SessionLocal, worldcup26_full_sync)
+        build_default_jobs(scheduler, SessionLocal)
         fill_stadium_coordinates()
-        # 启动时立即跑一次 worldcup26.ir 同步（避免 15min 调度窗口期内数据 stale）
+        # v0.14.0: 启动时立即跑一次多源全量同步（API-Football 优先，失败回退 worldcup26.ir）
         try:
             db = SessionLocal()
             try:
-                start_result = worldcup26_full_sync(db)
+                start_result = multi_source_full_sync(db)
                 print(
-                    f"[lifespan] worldcup26.ir 启动同步: "
-                    f"teams={start_result['teams']} matches={start_result['matches']} "
-                    f"standings={start_result['standings']}"
+                    f"[lifespan] 多源启动同步: "
+                    f"source={start_result.get('primary_source', 'unknown')} "
+                    f"ok={start_result.get('ok')}"
                 )
             finally:
                 db.close()
         except Exception as exc:  # noqa: BLE001
-            print(f"[lifespan] worldcup26.ir 启动同步失败: {exc}")
+            print(f"[lifespan] 多源启动同步失败: {exc}")
         # 启动时也跑一次 B2 回填（保证首次访问就有 form 数据）
         try:
             db = SessionLocal()
@@ -113,7 +126,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.11.0",
+    version=_get_version(),
     debug=settings.debug,
     docs_url="/api/docs" if settings.debug else None,
     redoc_url="/api/redoc" if settings.debug else None,
@@ -140,6 +153,7 @@ app.include_router(h2h.router, prefix="/api", tags=["历史交锋"])
 app.include_router(bracket.router, prefix="/api", tags=["淘汰赛"])
 app.include_router(odds.router, prefix="/api", tags=["赔率"])
 app.include_router(health.router, prefix="/api", tags=["健康检查"])
+app.include_router(cockpit.router, prefix="/api", tags=["总览驾驶舱"])
 app.include_router(admin.router, prefix="/api/admin", tags=["管理"])
 app.include_router(admin_sync.router, prefix="/api/admin/sync", tags=["数据同步"])
 app.include_router(admin_odds.router, prefix="/api/admin", tags=["赔率管理"])
@@ -195,7 +209,7 @@ async def health_check() -> dict:
         "status": overall,
         "app": settings.app_name,
         "version": app.version,
-        "data_source": "worldcup26.ir (primary) + worldcupstats.football (backup) + manual (fallback)",
+        "data_source": "api-football (primary, free tier) + worldcup26.ir (backup) + worldcupstats.football (backup) + manual (fallback)",
         "sync_interval_seconds": settings.sync_interval_seconds,
         "sync_status": sync,
         "db_row_counts": row_counts,

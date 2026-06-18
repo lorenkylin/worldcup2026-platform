@@ -1,7 +1,8 @@
 """赛程相关 API."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -29,39 +30,30 @@ def list_matches(
     if status:
         query = query.filter(Match.status == status)
     if date:
-        # 将北京时间字符串转为 UTC 区间过滤
-        start = datetime.fromisoformat(f"{date}T00:00:00+08:00").astimezone()
-        end = start + timedelta(days=1)
-        query = query.filter(Match.kickoff_at >= start, Match.kickoff_at < end)
+        # DB 存 UTC，但接口 date 语义是北京时间比赛日；先构造北京时间 0 点，再转 UTC
+        beijing_start = datetime.fromisoformat(f"{date}T00:00:00+08:00")
+        utc_start = beijing_start.astimezone(timezone.utc).replace(tzinfo=None)
+        utc_end = utc_start + timedelta(days=1)
+        query = query.filter(Match.kickoff_at >= utc_start, Match.kickoff_at < utc_end)
 
     return query.order_by(Match.kickoff_at).all()
 
 
 @router.get("/matches/today", response_model=List[MatchOut])
 def today_matches(db: Session = Depends(get_db)) -> List[Match]:
-    """获取今日赛程（按系统时区），进行中比赛置顶.
+    """获取今日赛程（按北京时间），进行中比赛置顶.
 
-    时区策略说明（B-2 修复）：
-    - DB `Match.kickoff_at` 存的是 wc26 `/get/games` 的 `local_date` 字段，
-      该字段语义是**球场的本地时间**（按 stadium.timezone 解析的 naive datetime），
-      **不带 tzinfo**。
-    - 本函数用 `datetime.now()` 取系统本地时区（Windows 本机 = Asia/Shanghai UTC+8），
-      `replace(hour=0, …)` 拿到系统时区今日 0 点的 naive datetime。
-    - SQL 比较 `Match.kickoff_at >= start AND Match.kickoff_at < end` 是**naive ↔ naive**
-      纯数值比较，不涉及时区转换 → 依赖**两端都按相同基准时区切片**。
-    - 现状下：DB 存"美国本地时间 naive"、API 切片"中国本地时间 naive"——两者数值不同
-      但因 wc26 数据时间跨度小（中国 6/15 8:00 时, 6/14 美东 vs 6/15 美东 同时存在），
-      **碰巧**能正确返回"今天进行的几场"，没有跨日误差。
-    - 风险：若 wc26 修改 `local_date` 为带 tz 的字符串，或未来加 stadium-aware 计算，
-      本函数会**悄悄返回错日**。建议未来把 `Match.kickoff_at` 改为 aware datetime（UTC），
-      并在 `worldcup26_sync._parse_local_date` 中加 stadium.timezone 转换。
+    DB `Match.kickoff_at` 已统一存 UTC；本函数以 UTC 计算北京时间的今日 0 点区间。
     """
-    now = datetime.now()  # 系统本地时区（naive, Windows = Asia/Shanghai）
-    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    end = start + timedelta(days=1)
+    now_utc = datetime.now(timezone.utc)
+    # 当前 UTC 时间对应的北京时间日期
+    beijing_now = now_utc.astimezone(ZoneInfo("Asia/Shanghai"))
+    beijing_start = beijing_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    utc_start = beijing_start.astimezone(timezone.utc).replace(tzinfo=None)
+    utc_end = utc_start + timedelta(days=1)
     matches = (
         db.query(Match)
-        .filter(Match.kickoff_at >= start, Match.kickoff_at < end)
+        .filter(Match.kickoff_at >= utc_start, Match.kickoff_at < utc_end)
         .order_by(Match.kickoff_at)
         .all()
     )

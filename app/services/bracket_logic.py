@@ -8,8 +8,12 @@
 本模块所有逻辑只依赖现有 DB（teams + standings + matches），零外部 API。
 """
 
+import functools
+import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
@@ -41,6 +45,40 @@ R32_MATCHUPS: List[Dict[str, str]] = [
     {"match_number": "87", "home": "1K", "away": "3DEIJL"},  # D/E/I/J/L
     {"match_number": "88", "home": "2D", "away": "2G"},
 ]
+
+
+logger = logging.getLogger(__name__)
+
+# FIFA 2026 Annex C 把 8 个晋级的小组第三映射到 8 个 R32 槽位。
+# JSON 查找表使用槽位标签（1A/1B/1D/1E/1G/1I/1K/1L），
+# 这里把它们与 R32_MATCHUPS 的 match_number 关联起来。
+_R32_THIRD_SLOT_LABELS: Dict[str, str] = {
+    "79": "1A",
+    "85": "1B",
+    "81": "1D",
+    "74": "1E",
+    "82": "1G",
+    "77": "1I",
+    "87": "1K",
+    "80": "1L",
+}
+
+_THIRD_LABEL_TO_SOURCE: Dict[str, str] = {
+    _R32_THIRD_SLOT_LABELS[m["match_number"]]: m["away"]
+    for m in R32_MATCHUPS
+    if m["match_number"] in _R32_THIRD_SLOT_LABELS
+}
+
+_ANNEX_C_LOOKUP_PATH = (
+    Path(__file__).resolve().parent.parent.parent / "data" / "annex_c_lookup.json"
+)
+
+
+@functools.lru_cache(maxsize=1)
+def _load_annex_c_lookup() -> Dict[str, Dict]:
+    """加载 FIFA 2026 Annex C 495 种最佳第三组合映射."""
+    with open(_ANNEX_C_LOOKUP_PATH, encoding="utf-8") as f:
+        return json.load(f)
 
 
 @dataclass
@@ -228,18 +266,12 @@ def _resolve_team(
     return None, f"最佳第三（{''.join(candidates)}）"
 
 
-def _assign_third_place_slots(
+def _assign_third_place_slots_greedy(
     third_places: List[StandingRow],
 ) -> Dict[str, str]:
-    """把 8 个晋级的小组第三分配到 8 个 R32 槽位.
+    """贪心近似：按第三名综合成绩排序，选 match_number 最小的可用槽位.
 
-    策略（v0.3.0 简化版）：
-    1. 按第三名的综合成绩排名从高到低处理。
-    2. 对每个第三，找到所有候选集合包含其所在小组的槽位。
-    3. 选择 match_number 最小编号的可用槽位。
-
-    注意：这不是 FIFA Annex C 的完整官方规则，而是工程上的贪心近似；
-    后续可引入官方优先级表做精确映射。
+    仅作为 FIFA Annex C 查找失败时的兜底。
     """
     # 槽位 -> 候选小组集合
     slot_candidates: Dict[str, List[str]] = {}
@@ -261,10 +293,49 @@ def _assign_third_place_slots(
         ]
         if eligible:
             # 选择 match_number 最小的槽位
-            eligible.sort(key=lambda s: int(next(m["match_number"] for m in R32_MATCHUPS if m["away"] == s)))
+            eligible.sort(
+                key=lambda s: int(
+                    next(m["match_number"] for m in R32_MATCHUPS if m["away"] == s)
+                )
+            )
             chosen = eligible[0]
             assigned[chosen] = group_name
             used_slots.add(chosen)
+
+    return assigned
+
+
+def _assign_third_place_slots(
+    third_places: List[StandingRow],
+) -> Dict[str, str]:
+    """把 8 个晋级的小组第三按 FIFA 2026 Annex C 分配到 8 个 R32 槽位.
+
+    根据 12 组中哪 8 个小组的第三晋级，直接查官方 495 种组合表，
+    返回 {slot_source: group_name}，与原有 _resolve_team 接口保持一致。
+    """
+    # 取前 8 个晋级的第三（已按排名排序）
+    advancing = sorted({t.team.group_name for t in third_places})
+    if len(advancing) != 8:
+        logger.warning(
+            "小组赛第三晋级数量=%d，未达 8，回退到贪心近似", len(advancing)
+        )
+        return _assign_third_place_slots_greedy(third_places)
+
+    key = ",".join(advancing)
+    mapping = _load_annex_c_lookup().get(key)
+    if not mapping:
+        logger.warning("Annex C 查无组合 %s，回退到贪心近似", key)
+        return _assign_third_place_slots_greedy(third_places)
+
+    assigned: Dict[str, str] = {}  # slot_source -> group_name
+    slots = mapping.get("slots", {})
+    for slot_label, third_code in slots.items():
+        group_name = third_code[-1]  # "3E" -> "E"
+        source = _THIRD_LABEL_TO_SOURCE.get(slot_label)
+        if source is None:
+            logger.warning("Annex C 槽位标签 %s 无对应 R32 源，跳过", slot_label)
+            continue
+        assigned[source] = group_name
 
     return assigned
 
@@ -388,6 +459,8 @@ def build_bracket(db: Session) -> Dict:
     for slot in r32_slots:
         match = knockout_matches.get(slot.match_number)
         node = slot.to_dict()
+        # 前端跳转到比赛详情需要真实 match.id,而不是 match_number
+        node["id"] = match.id if match else None
         node["kickoff_at"] = match.kickoff_at.isoformat() if match else None
         node["prediction"] = _prediction_for_match(slot.home_team, slot.away_team)
         rounds["r32"].append(node)
@@ -396,6 +469,7 @@ def build_bracket(db: Session) -> Dict:
     # 但 API 仍返回这些比赛的基本信息 + 占位文本
     for m in db.query(Match).filter(Match.match_number >= 89).order_by(Match.match_number).all():
         node = {
+            "id": m.id,
             "match_number": m.match_number,
             "stage": m.stage,
             "home": {

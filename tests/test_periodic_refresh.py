@@ -204,7 +204,7 @@ def test_fb_data_updates_finished_match_score():
             {
                 "homeTeam": {"name": "Mexico"},
                 "awayTeam": {"name": "South Africa"},
-                "utcDate": "2026-06-11T19:00:00Z",
+                "utcDate": "2026-06-12T00:00:00Z",
                 "status": "FINISHED",
                 "score": {"fullTime": {"home": 2, "away": 1}},
             }
@@ -249,7 +249,7 @@ def test_fb_data_updates_live_status():
             {
                 "homeTeam": {"name": "Mexico"},
                 "awayTeam": {"name": "South Africa"},
-                "utcDate": "2026-06-11T19:00:00Z",
+                "utcDate": "2026-06-12T00:00:00Z",
                 "status": "IN_PLAY",
                 "score": {},
             }
@@ -281,7 +281,7 @@ def test_fb_data_handles_no_match_found():
             {
                 "homeTeam": {"name": "Atlantis"},
                 "awayTeam": {"name": "Shangrila"},
-                "utcDate": "2026-06-11T19:00:00Z",
+                "utcDate": "2026-06-12T00:00:00Z",
                 "status": "FINISHED",
                 "score": {"fullTime": {"home": 5, "away": 0}},
             }

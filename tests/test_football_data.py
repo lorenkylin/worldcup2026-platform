@@ -81,6 +81,7 @@ def test_cache_hit_within_ttl():
     assert client._test_call_count["n"] == 1  # 只请求一次
 
 
+@pytest.mark.slow
 def test_cache_expired_refetches():
     """缓存过期后重新请求."""
     client = _mock_client(

@@ -2,6 +2,9 @@
 
 import os
 import sys
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -12,6 +15,30 @@ sys.path.insert(0, str(ROOT))
 
 
 BASE_URL = os.environ.get("WC26_BASE_URL", "http://127.0.0.1:8000")
+
+
+def _wait_for_server(base_url: str, timeout: float = 60.0, interval: float = 0.5) -> None:
+    """Poll /health until the backend accepts connections or timeout is reached."""
+    health_url = f"{base_url.rstrip('/')}/health"
+    deadline = time.monotonic() + timeout
+    last_err = None
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(health_url, timeout=5) as resp:
+                if resp.status == 200:
+                    return
+        except Exception as exc:
+            last_err = exc
+        time.sleep(interval)
+    raise RuntimeError(f"Server not ready at {health_url!r} after {timeout}s: {last_err}")
+
+
+def pytest_collection_modifyitems(config, items):
+    """自动给 tests/e2e 目录下所有测试加 @pytest.mark.e2e."""
+    e2e_marker = pytest.mark.e2e
+    for item in items:
+        if item.nodeid.startswith("tests/e2e/"):
+            item.add_marker(e2e_marker)
 
 
 @pytest.fixture(autouse=True)
@@ -29,13 +56,23 @@ def base_url() -> str:
     return BASE_URL
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _server_ready(base_url):
+    """Ensure uvicorn is warm before the first E2E navigation."""
+    _wait_for_server(base_url)
+
+
 @pytest.fixture(scope="module")
 def browser():
     """共用一个 chromium browser，session-scoped 减少启动开销."""
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        # 禁用 Service Worker，避免静态资源缓存导致测试拿到旧版 app.js/sw.js
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--disable-features=ServiceWorker"],
+        )
         yield browser
         browser.close()
 
@@ -48,6 +85,8 @@ def page(browser, base_url):
         accept_downloads=True,
     )
     page = ctx.new_page()
-    page.goto(base_url, wait_until="domcontentloaded")
+    page.set_default_navigation_timeout(60_000)
+    # 预加载 base_url，给相对 fetch 提供 origin；加 nocache 避免拿到旧版 index.html/app.js
+    page.goto(f"{base_url}?_nocache=1", wait_until="domcontentloaded")
     yield page
     ctx.close()

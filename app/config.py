@@ -2,16 +2,21 @@
 
 采用 pydantic-settings 管理环境变量，提供统一的配置入口。
 
-数据源策略（零预算纯免费路线）：
-- 主源：worldcup26.ir（无需 key，已实测可用）
-- 备份源：worldcupstats.football（爬虫）
+数据源策略（权威/稳定/低成本路线）：
+- 权威规则：FIFA 官方规则 PDF / FIFA 官网（已本地化）
+- 实时数据主源：API-Football 免费层（100 req/天，10 req/分）
+- 实时数据备份：worldcup26.ir（无需 key）→ worldcupstats.football（爬虫）
+- 低频元数据：football-data.org 免费层（需 token，默认关闭）
+- 天气：Open-Meteo（免费，已接入）
+- 赔率：The Odds API 免费层 / mock（默认 mock）
+- 历史模型：StatsBomb Open Data + Hicruben（已接入）
 - 兜底：手动录入（admin 后台）
-- 已下线：API-Football、The Odds API（不订阅以保持零预算）
 """
 
 import os
 from pathlib import Path
 
+from pydantic import Field, AliasChoices
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,6 +36,10 @@ class Settings(BaseSettings):
         sync_interval_seconds: 数据同步轮询间隔（秒）。
         worldcup26_base_url: worldcup26.ir API 根地址。
         worldcup26_timeout_seconds: worldcup26.ir 单次请求超时。
+        poisson_home_advantage: Elo→Poisson λ 主场优势偏移。
+        poisson_base_lambda: Elo→Poisson λ 基础期望进球。
+        poisson_goal_per_elo_diff: Elo 分差→λ 的每分进球系数。
+        poisson_lambda_floor: λ 下限，避免极端差距时接近 0。
     """
 
     app_name: str = "2026 FIFA World Cup 赛事分析平台"
@@ -41,7 +50,11 @@ class Settings(BaseSettings):
 
     # 同步配置
     sync_interval_seconds: int = 900  # 15 分钟轮询一次（零预算，避免被封）
-    worldcup26_base_url: str = "https://worldcup26.ir"
+    # Fly secrets 脚本使用 WC26_BASE_URL,本地/文档使用 WORLDCUP26_BASE_URL,两者兼容
+    worldcup26_base_url: str = Field(
+        default="https://worldcup26.ir",
+        validation_alias=AliasChoices("WORLDCUP26_BASE_URL", "WC26_BASE_URL"),
+    )
     worldcup26_timeout_seconds: int = 20
 
     # v0.5.1: football-data.co 元数据接入（免费层，需注册 token）
@@ -56,6 +69,18 @@ class Settings(BaseSettings):
     # v0.5.1: 6h 周期刷新配置(odds 快照打点 + fb-data 元数据)
     periodic_refresh_interval_hours: int = 6
 
+    # v0.14.0: API-Football 实时数据主源（免费层）
+    # 注册: https://www.api-football.com/ / RapidAPI → 免费 tier 100 req/天
+    api_football_enabled: bool = False  # 默认关闭，未配置 key 时自动回退 worldcup26.ir
+    api_football_key: str = ""  # 在 .env 填 API_FOOTBALL_KEY=<your_key>
+    api_football_host: str = "v3.football.api-sports.io"
+    api_football_league_id: int = 1  # FIFA World Cup
+    api_football_season: int = 2026
+    api_football_rate_limit_per_min: int = 10  # 免费层 10 req/min
+    api_football_daily_limit: int = 100  # 免费层 100 req/天
+    api_football_cache_ttl_seconds: int = 900  # 15min 内存缓存
+    api_football_timeout_seconds: int = 20
+
     # v0.7.2: 赔率 API 接入（零预算路线 + Mock 兜底）
     odds_api_enabled: bool = False  # 默认关闭,避免无 key 时所有调用 401
     odds_api_provider: str = "mock"  # mock | the_odds_api | pinnacle
@@ -67,6 +92,19 @@ class Settings(BaseSettings):
     odds_cache_ttl_seconds: int = 900  # 15min
     odds_value_bet_threshold: float = 0.05  # value_bet > 5% 视为强价值
     odds_default_bookmaker: str = "betpawa"  # 业界数据丰富 + 非洲市场覆盖好
+
+    # v0.13.0: 6h 调度器自动拉取/更新赔率
+    odds_auto_refresh_enabled: bool = True  # 是否在每个 6h 周期刷新时拉取赔率
+    odds_fetch_look_ahead_days: int = 7  # 每次拉取未来多少天的比赛赔率
+
+    # Elo→Poisson λ 参数（与 prediction.py / monte_carlo.py 统一，避免两处定义不一致）
+    poisson_home_advantage: float = 60.0
+    poisson_base_lambda: float = 1.35
+    poisson_goal_per_elo_diff: float = 0.0035
+    poisson_lambda_floor: float = 0.3
+
+    # 时区策略：DB 统一存 UTC，API/前端统一按北京时间（Asia/Shanghai UTC+8）展示
+    display_timezone: str = "Asia/Shanghai"
 
     # 已下线配置（保留为占位字段，便于 .env 兼容）
     rapidapi_key: str = ""

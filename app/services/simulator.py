@@ -16,7 +16,8 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from app.models import Match, Standing, Team
-from app.services.prediction import _elo_to_lambda, _predict_score_distribution
+from app.services.elo_params import elo_to_lambda
+from app.services.prediction import _predict_score_distribution
 
 
 DIRECT_QUALIFIERS_PER_GROUP = 2
@@ -79,15 +80,19 @@ def _poisson_sample(lam: float) -> int:
 def _simulate_match(match: Match) -> tuple[int, int]:
     """根据 Elo 模拟一场比赛的进球数."""
     h, a = match.home_team, match.away_team
-    h_lam, a_lam = _elo_to_lambda(h.elo_rating, a.elo_rating)
+    h_lam, a_lam = elo_to_lambda(h.elo_rating, a.elo_rating)
     # 限制 lam 上限避免极端值
     h_lam = min(h_lam, 5.0)
     a_lam = min(a_lam, 5.0)
     return _poisson_sample(h_lam), _poisson_sample(a_lam)
 
 
-def simulate_group_advancement(db: Session) -> list[TeamOdds]:
-    """运行蒙特卡洛模拟，返回每队出线概率列表."""
+def simulate_group_advancement(db: Session, n_sims: int = SIMULATIONS) -> list[TeamOdds]:
+    """运行蒙特卡洛模拟，返回每队出线概率列表.
+
+    Args:
+        n_sims: 模拟次数，默认 SIMULATIONS。总览等高频入口可传较小值以提速。
+    """
     snapshot = _standings_snapshot(db)
     if not snapshot:
         return []
@@ -97,7 +102,7 @@ def simulate_group_advancement(db: Session) -> list[TeamOdds]:
 
     counts = {tid: [0, 0, 0] for tid in snapshot}  # [direct, third, eliminated]
 
-    for _ in range(SIMULATIONS):
+    for _ in range(n_sims):
         sim = {tid: dict(s) for tid, s in snapshot.items()}
         for m in remaining:
             hg, ag = _simulate_match(m)
@@ -148,7 +153,7 @@ def simulate_group_advancement(db: Session) -> list[TeamOdds]:
         if not t:
             continue
         s = snapshot.get(tid, {})
-        advance_overall = round((dq + tp) / SIMULATIONS * 100, 1)
+        advance_overall = round((dq + tp) / n_sims * 100, 1)
         results.append(TeamOdds(
             team_id=tid,
             team_name=t.name_zh,
@@ -157,9 +162,9 @@ def simulate_group_advancement(db: Session) -> list[TeamOdds]:
             points=s.get("points", 0),
             goal_diff=s.get("goal_diff", 0),
             goals_for=s.get("goals_for", 0),
-            direct_qualify_prob=round(dq / SIMULATIONS * 100, 1),
-            third_place_prob=round(tp / SIMULATIONS * 100, 1),
-            eliminated_prob=round(el / SIMULATIONS * 100, 1),
+            direct_qualify_prob=round(dq / n_sims * 100, 1),
+            third_place_prob=round(tp / n_sims * 100, 1),
+            eliminated_prob=round(el / n_sims * 100, 1),
             advance_overall_prob=advance_overall,
         ))
     results.sort(key=lambda x: (x.group_name, -x.points, -x.goal_diff, -x.goals_for))

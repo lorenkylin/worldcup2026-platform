@@ -1,4 +1,4 @@
-# v0.13.0 Fly.io deploy config
+# v0.14.0 Fly.io deploy config
 # PyYAML 解析约束: 全部用冒号语法 (避免 = + 引号 + 中文注释的解析 bug)
 # Fly.io 文档标准也是冒号风格
 
@@ -19,8 +19,8 @@ env:
   DATA_DIR: "/data"
   # Python 不缓冲 stdout 日志立即可见
   PYTHONUNBUFFERED: "1"
-  # 关闭 FastAPI docs 生产环境
-  APP_DEBUG: "false"
+  # 关闭 FastAPI docs 生产环境 (config.py 字段名为 debug,对应环境变量 DEBUG)
+  DEBUG: "false"
 
 # 进程定义 单实例 web 进程
 # scheduler 在 lifespan startup 自动启动 必须 1 实例防重复同步
@@ -66,7 +66,9 @@ services:
 
 # 部署配置
 deploy:
-  # 发布前跑 alembic 迁移 主人应先在本地 alembic upgrade head 验证
-  release_command: "alembic upgrade head"
+  # SQLite + 持久卷场景下, release_command 在临时机运行,不挂载 /data 卷,
+  # 因此不能在这里跑 alembic。schema 由 app/main.py lifespan startup 中
+  # Base.metadata.create_all 自动创建; 数据迁移请在本地 alembic upgrade head
+  # 后通过 migrate_data_to_fly.sh 上传。
   # 部署策略 rolling 减少 downtime
   strategy: "rolling"

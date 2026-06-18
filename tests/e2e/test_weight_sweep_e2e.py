@@ -21,13 +21,11 @@ def test_weight_sweep_endpoint_returns_winner(page, base_url):
 
 
 def test_cockpit_shows_weight_sweep_mini_card(page, base_url):
-    """Cockpit 页面渲染 weight-sweep mini-card."""
-    page.goto(f"{base_url}/#/cockpit", wait_until="domcontentloaded")
-    page.wait_for_timeout(2500)
-    has_card = page.locator("text=权重扫描 v0.7.4").count()
-    assert has_card >= 1, "weight sweep mini-card missing on cockpit"
-    has_winner = page.locator("text=最佳权重").count()
-    assert has_winner >= 1
+    """Cockpit 页面通过快速入口展示权重扫描."""
+    # 用完整页面刷新进入 cockpit，避免 hash 同文档导航时 router 渲染延迟
+    page.goto(f"{base_url}/?_nocache=1#/cockpit", wait_until="domcontentloaded")
+    page.wait_for_selector("text=权重扫描 v0.7.4", timeout=15000)
+    page.wait_for_selector("text=最佳权重", timeout=15000)
 
 
 def test_weight_sweep_baseline_matches_v070a_default(page, base_url):

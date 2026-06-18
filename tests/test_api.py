@@ -4,8 +4,8 @@ import math
 
 import pytest
 
+from app.services.elo_params import elo_to_lambda
 from app.services.prediction import (
-    _elo_to_lambda,
     _poisson_prob,
     _predict_score_distribution,
     predict_match,
@@ -44,7 +44,7 @@ def make_match(home: Team, away: Team) -> Match:
 
 def test_elo_to_lambda_equal_teams_returns_base():
     """两队 Elo 相等时，λ 应接近 BASE_LAMBDA."""
-    h, a = _elo_to_lambda(1500, 1500)
+    h, a = elo_to_lambda(1500, 1500)
     # 主场优势 60 分 = 60 * 0.0035 = 0.21 偏移
     assert h > a  # 主队 λ 略高（主场优势）
     assert h - a == pytest.approx(0.42, abs=0.01)
@@ -53,13 +53,13 @@ def test_elo_to_lambda_equal_teams_returns_base():
 
 def test_elo_to_lambda_higher_home_elo_raises_home_lambda():
     """主队 Elo 更高时，λ_home 应高于 λ_away."""
-    h, a = _elo_to_lambda(1800, 1500)
+    h, a = elo_to_lambda(1800, 1500)
     assert h > a
 
 
 def test_elo_to_lambda_floor_at_min():
     """Elo 极大劣势时，λ 不应低于 0.3."""
-    h, a = _elo_to_lambda(1200, 1900)
+    h, a = elo_to_lambda(1200, 1900)
     assert h >= 0.3
     assert a >= 0.3
 

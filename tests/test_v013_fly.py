@@ -101,13 +101,14 @@ class TestFlyTomlStructure:
         dockerfile_content = DOCKERFILE.read_text(encoding="utf-8")
         assert "EXPOSE 8000" in dockerfile_content, "Dockerfile 必须 EXPOSE 8000"
 
-    def test_release_command_runs_alembic(self):
-        """部署前跑迁移 — 主人应先本地验证"""
+    def test_release_command_does_not_run_alembic_against_sqlite(self):
+        """SQLite + 持久卷: release_command 在临时机不挂载 /data,不能跑 alembic。"""
         with open(FLY_TOML, encoding="utf-8") as f:
             data = yaml.safe_load(f)
         deploy = data.get("deploy", {})
-        assert "alembic upgrade head" in deploy.get("release_command", ""), \
-            f"release_command 必须含 alembic upgrade head, 实际 {deploy.get('release_command')}"
+        release_cmd = deploy.get("release_command", "")
+        assert "alembic" not in release_cmd, \
+            f"release_command 不应包含 alembic (临时机无持久卷): {release_cmd!r}"
 
 
 class TestDeployFlySh:

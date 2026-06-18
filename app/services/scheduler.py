@@ -1,6 +1,8 @@
 """APScheduler 调度任务定义.
 
-零预算路线：仅调度免费源 + 手动兜底，不调度任何付费 API。
+多源路线：
+- 15min 轻量实时同步（API-Football 优先，失败回退 worldcup26.ir）
+- 6h 全量同步由 periodic_refresh 负责
 """
 
 from datetime import datetime
@@ -13,14 +15,16 @@ from sqlalchemy.orm import Session
 from app.config import settings
 
 
-def _job_worldcup26_pull(session_factory: Callable, sync_fn: Callable) -> None:
-    """定时拉取 worldcup26.ir 全部数据."""
+def _job_multi_source_live_sync(session_factory: Callable) -> None:
+    """定时轻量实时同步：比分/状态（多源 fallback）."""
+    from app.services.multi_source_sync import live_sync  # 避免循环 import
+
     db: Session = session_factory()
     try:
-        result = sync_fn(db)
-        print(f"[{datetime.now().isoformat()}] worldcup26.ir 同步: {result}")
+        result = live_sync(db)
+        print(f"[{datetime.now().isoformat()}] 多源实时同步: {result}")
     except Exception as exc:  # noqa: BLE001
-        print(f"[{datetime.now().isoformat()}] worldcup26.ir 同步失败: {exc}")
+        print(f"[{datetime.now().isoformat()}] 多源实时同步失败: {exc}")
     finally:
         db.close()
 
@@ -28,30 +32,28 @@ def _job_worldcup26_pull(session_factory: Callable, sync_fn: Callable) -> None:
 def build_default_jobs(
     scheduler: BackgroundScheduler,
     session_factory: Callable,
-    sync_fn: Callable,
 ) -> None:
     """注册默认轮询任务.
 
     Args:
         scheduler: APScheduler 实例。
         session_factory: SQLAlchemy SessionLocal。
-        sync_fn: 同步函数（应可接收 db Session 并返回 dict）。
     """
     interval = max(settings.sync_interval_seconds, 60)  # 至少 60 秒
 
-    # 主源：worldcup26.ir 全量同步
+    # 多源实时同步（API-Football 优先 → worldcup26.ir 兜底）
     scheduler.add_job(
-        _job_worldcup26_pull,
+        _job_multi_source_live_sync,
         trigger=IntervalTrigger(seconds=interval),
-        args=[session_factory, sync_fn],
-        id="worldcup26_full_sync",
-        name=f"worldcup26.ir 全量同步（每 {interval}s）",
+        args=[session_factory],
+        id="multi_source_live_sync",
+        name=f"多源实时同步（每 {interval}s）",
         replace_existing=True,
         max_instances=1,
         coalesce=True,
     )
 
-    print(f"[scheduler] 已注册 worldcup26.ir 轮询任务，间隔 {interval}s")
+    print(f"[scheduler] 已注册多源实时同步任务，间隔 {interval}s")
 
     # B2 配套：每 30 分钟回填各队 recent_form（比赛日期间足够）
     scheduler.add_job(

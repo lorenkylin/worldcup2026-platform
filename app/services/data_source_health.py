@@ -1,15 +1,16 @@
-"""数据源健康检查服务 (v0.6.0+).
+"""数据源健康检查服务 (v0.14.0+).
 
-监控 4 个数据源实时可达性:
-  1. worldcup26.ir       - 主源 (wc26)
-  2. football-data.org   - 增强 (fb-data, 需 token)
-  3. StatsBomb Open Data  - 对比源 (GitHub raw, 国内不稳)
-  4. worldcupstats.football - 备份 (wcstats)
+监控 5 个数据源健康度:
+  1. API-Football        - 主实时源 (免费层，100 req/天)
+  2. worldcup26.ir       - 备份 (wc26)
+  3. football-data.org   - 增强 (fb-data, 需 token)
+  4. StatsBomb Open Data  - 对比源 (GitHub raw)
+  5. worldcupstats.football - 备份 (wcstats)
 
 策略:
-  - 实时探测 (调用端点) → 状态 + 延迟
-  - 缓存 5min (避免频繁探测)
-  - Dashboard 端点一次返回 4 源状态
+  - 实时探测 worldcup26/football-data/StatsBomb/worldcupstats
+  - API-Football 不直接调用端点（避免消耗配额），从 sync_status 派生健康度
+  - Dashboard 端点一次返回全部源状态
 """
 import time
 import httpx
@@ -17,15 +18,24 @@ from datetime import datetime, timezone
 from typing import Dict, List
 
 from app.config import settings
+from app.services import sync_status
 
 
 # 数据源定义
 SOURCES = [
     {
-        "id": "worldcup26",
-        "name": "worldcup26.ir (主源)",
-        "url": "https://worldcup26.ir/api/health",
+        "id": "api_football",
+        "name": "API-Football (主实时源)",
+        "url": "https://www.api-football.com/",
         "type": "primary",
+        "description": "世界杯赛程/比分/事件/统计 (免费层 100 req/天)",
+        "requires_token": True,
+    },
+    {
+        "id": "worldcup26",
+        "name": "worldcup26.ir (备份)",
+        "url": "https://worldcup26.ir/api/health",
+        "type": "backup",
         "description": "104 场赛程/48 队/16 球场/12 组积分榜 - 含已完成赛果",
         "requires_token": False,
     },
@@ -33,7 +43,7 @@ SOURCES = [
         "id": "worldcup26_get",
         "name": "worldcup26.ir /get/* (实际端点)",
         "url": "https://worldcup26.ir/get/teams",
-        "type": "primary",
+        "type": "backup",
         "description": "真实工作的 API 端点 - 包含已完赛和未开赛数据",
         "requires_token": False,
     },
@@ -66,6 +76,10 @@ SOURCES = [
 
 def _check_source(source: Dict, timeout: float = 8.0) -> Dict:
     """检查单个数据源."""
+    # API-Football 不直接调用端点，避免消耗免费配额；从 sync_status 派生健康度
+    if source["id"] == "api_football":
+        return _check_api_football_health(source)
+
     start = time.time()
     try:
         headers = {}
@@ -102,6 +116,51 @@ def _check_source(source: Dict, timeout: float = 8.0) -> Dict:
             "checked_at": datetime.now(timezone.utc).isoformat(),
             "error": str(e)[:200],
         }
+
+
+def _check_api_football_health(source: Dict) -> Dict:
+    """从 sync_status 推导 API-Football 健康度（不消耗 API 配额）."""
+    enabled = settings.api_football_enabled and bool(settings.api_football_key)
+    status_info = sync_status.get_status()
+    last_success = status_info.get("last_success_at")
+    consecutive_failures = status_info.get("consecutive_failures", 0)
+
+    checked_at = datetime.now(timezone.utc).isoformat()
+    base = {
+        "id": source["id"],
+        "name": source["name"],
+        "type": source["type"],
+        "description": source["description"],
+        "requires_token": source["requires_token"],
+        "url": source["url"],
+        "checked_at": checked_at,
+    }
+
+    if not enabled:
+        return {**base, "status": "disabled", "status_code": None, "latency_ms": None,
+                "error": "API_FOOTBALL_ENABLED=false 或 API_FOOTBALL_KEY 未配置"}
+
+    if not last_success:
+        return {**base, "status": "degraded", "status_code": None, "latency_ms": None,
+                "error": "尚未成功同步"}
+
+    try:
+        last_dt = datetime.fromisoformat(last_success)
+        age_seconds = (datetime.now(timezone.utc) - last_dt).total_seconds()
+    except Exception:
+        return {**base, "status": "degraded", "status_code": None, "latency_ms": None,
+                "error": "sync_status 时间戳异常"}
+
+    if consecutive_failures >= 3:
+        return {**base, "status": "down", "status_code": None, "latency_ms": None,
+                "error": f"连续失败 {consecutive_failures} 次"}
+    if age_seconds <= 1800:  # 30min 内成功
+        return {**base, "status": "ok", "status_code": 200, "latency_ms": None}
+    if age_seconds <= 3600:  # 30-60min
+        return {**base, "status": "degraded", "status_code": None, "latency_ms": None,
+                "error": "超过 30 分钟未同步"}
+    return {**base, "status": "down", "status_code": None, "latency_ms": None,
+            "error": "超过 60 分钟未同步"}
 
 
 def check_all_sources() -> List[Dict]:

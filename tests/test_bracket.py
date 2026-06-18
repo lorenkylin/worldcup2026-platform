@@ -1,5 +1,6 @@
 """Bracket 淘汰赛对阵逻辑测试."""
 
+import json
 from datetime import datetime
 
 import pytest
@@ -7,8 +8,12 @@ from fastapi.testclient import TestClient
 
 from app.db import SessionLocal
 from app.models import Match, Standing, Team
+from pathlib import Path
+
 from app.services.bracket_logic import (
     BracketSlot,
+    StandingRow,
+    _assign_third_place_slots,
     compute_group_standings,
     rank_third_place_teams,
     resolve_r32_matchups,
@@ -274,6 +279,10 @@ def test_api_bracket_returns_structure(db_session, client):
     assert "group_stage_finished" in data
     assert "rounds" in data
     assert len(data["rounds"]["r32"]) == 16
+    # 前端跳转到比赛详情需要真实 match.id(v0.13 修复)
+    for node in data["rounds"]["r32"]:
+        assert "id" in node
+        assert isinstance(node["id"], int)
 
 
 def test_api_bracket_prediction_when_both_teams_known(db_session, client):
@@ -427,6 +436,98 @@ def test_job_bracket_auto_rebuild_skips_when_not_ready(db_session):
         bracket_mod.rebuild_bracket = old_rebuild
 
     assert len(calls) == 0
+
+
+# === FIFA Annex C 官方映射测试 ===
+
+
+def _make_stub_thirds(group_names):
+    """构造只带 group_name 的 StandingRow 列表，用于测分配函数."""
+    class _FakeTeam:
+        def __init__(self, group_name):
+            self.group_name = group_name
+
+    return [StandingRow(team=_FakeTeam(g)) for g in group_names]
+
+
+_ANNEX_C_LOOKUP = json.loads(
+    (
+        Path(__file__).resolve().parent.parent
+        / "data"
+        / "annex_c_lookup.json"
+    ).read_text(encoding="utf-8")
+)
+
+
+@pytest.mark.parametrize(
+    "advancing_groups",
+    [
+        ["E", "F", "G", "H", "I", "J", "K", "L"],  # Option 1
+        ["D", "F", "G", "H", "I", "J", "K", "L"],  # Option 2
+        ["C", "D", "E", "F", "G", "H", "I", "J"],  # Option 45
+        ["A", "B", "C", "D", "E", "F", "I", "J"],  # Option 486
+        ["A", "B", "C", "D", "E", "F", "G", "H"],  # Option 495
+    ],
+)
+def test_annex_c_mapping_matches_official_table(advancing_groups):
+    """_assign_third_place_slots 必须按官方 Annex C 表分配 8 个第三."""
+    from app.services.bracket_logic import _THIRD_LABEL_TO_SOURCE
+
+    assigned = _assign_third_place_slots(_make_stub_thirds(advancing_groups))
+    key = ",".join(sorted(advancing_groups))
+    expected_slots = _ANNEX_C_LOOKUP[key]["slots"]
+
+    for slot_label, source in _THIRD_LABEL_TO_SOURCE.items():
+        expected_group = expected_slots[slot_label][-1]  # "3E" -> "E"
+        assert assigned.get(source) == expected_group, (
+            f"组合 {key} 的槽位 {slot_label} 期望 {expected_group}, "
+            f"实际 {assigned.get(source)}"
+        )
+
+
+def test_annex_c_falls_back_when_less_than_eight_thirds():
+    """不足 8 个第三时应回退到贪心近似，且不抛错."""
+    assigned = _assign_third_place_slots(_make_stub_thirds(["A", "B", "C"]))
+    # 贪心在 3 个第三时只填它能填的槽位，返回 dict 即可
+    assert isinstance(assigned, dict)
+
+
+def test_resolve_r32_uses_annex_c_when_eight_thirds(db_session):
+    """12 组全部有第三且取前 8 时，resolve_r32_matchups 使用官方映射."""
+    config = {
+        # 让 A/B/C/D/E/F/I/J 的第三晋级（G/H/K/L 的第三较差）
+        "A": [(9, 3, 0), (6, 2, 1), (4, 2, 2), (0, 0, 3)],
+        "B": [(9, 3, 0), (6, 2, 1), (4, 2, 2), (0, 0, 3)],
+        "C": [(9, 3, 0), (6, 2, 1), (4, 2, 2), (0, 0, 3)],
+        "D": [(9, 3, 0), (6, 2, 1), (4, 2, 2), (0, 0, 3)],
+        "E": [(9, 3, 0), (6, 2, 1), (4, 2, 2), (0, 0, 3)],
+        "F": [(9, 3, 0), (6, 2, 1), (4, 2, 2), (0, 0, 3)],
+        "G": [(9, 3, 0), (6, 2, 1), (1, 1, 2), (0, 0, 3)],
+        "H": [(9, 3, 0), (6, 2, 1), (1, 1, 2), (0, 0, 3)],
+        "I": [(9, 3, 0), (6, 2, 1), (4, 2, 2), (0, 0, 3)],
+        "J": [(9, 3, 0), (6, 2, 1), (4, 2, 2), (0, 0, 3)],
+        "K": [(9, 3, 0), (6, 2, 1), (1, 1, 2), (0, 0, 3)],
+        "L": [(9, 3, 0), (6, 2, 1), (1, 1, 2), (0, 0, 3)],
+    }
+    _full_seed(db_session, config)
+    standings = compute_group_standings(db_session)
+    thirds = rank_third_place_teams(standings)
+    advancing = sorted({t.team.group_name for t in thirds})
+    assert advancing == ["A", "B", "C", "D", "E", "F", "I", "J"]
+
+    slots = resolve_r32_matchups(standings, thirds)
+    expected_slots = _ANNEX_C_LOOKUP[",".join(advancing)]["slots"]
+
+    # 检查 8 个第三槽位是否一一对应
+    from app.services.bracket_logic import _THIRD_LABEL_TO_SOURCE
+    for slot_label, source in _THIRD_LABEL_TO_SOURCE.items():
+        slot = next(s for s in slots if s.away_source == source)
+        expected_group = expected_slots[slot_label][-1]
+        assert slot.away_team is not None
+        assert slot.away_team.group_name == expected_group, (
+            f"槽位 {slot_label} 期望 {expected_group} 的第三, "
+            f"实际 {slot.away_team.group_name}"
+        )
 
 
 # 需要一个 client fixture（如果 conftest 没有提供）

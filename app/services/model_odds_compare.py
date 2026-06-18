@@ -12,17 +12,10 @@ from typing import Dict, List, Optional, Tuple
 from sqlalchemy.orm import Session
 
 from app.models import Match, MatchOdds
-from app.services.elo import predict_match, predict_match_blend
-from app.services.glicko2 import predict_outcome as glicko2_predict_outcome
+from app.services.elo import predict_match, predict_match_blend, HOME_BONUS
+from app.services import glicko2 as g2_service
 from app.services.odds_service import compute_market_probabilities, value_bet
 from app.config import settings
-
-
-MODEL_REGISTRY = {
-    "blend": predict_match_blend,
-    "elo": predict_match,
-    "glicko2": glicko2_predict_outcome,
-}
 
 
 def _value_tier(rate: float, threshold: float) -> str:
@@ -39,7 +32,7 @@ def predict_match_with_model(
 ) -> Optional[Tuple[float, float, float]]:
     """调用对应模型预测,返回 (home_prob, draw_prob, away_prob).
 
-    Returns None if 模型无该队数据。
+    Returns None if 模型无该队数据或比赛不存在。
     """
     m = db.query(Match).filter(Match.id == match_id).first()
     if not m:
@@ -49,27 +42,41 @@ def predict_match_with_model(
     if not home_code or not away_code:
         return None
 
-    fn = MODEL_REGISTRY.get(model)
-    if fn is None:
+    home_code_u = home_code.upper()
+    away_code_u = away_code.upper()
+
+    # 各模型签名/返回结构不同,显式分发,避免把 Session 错当 source 传入
+    if model == "blend":
+        result = predict_match_blend(home_code_u, away_code_u)
+        if result.get("error") or result.get("blended") is None:
+            return None
+        probs = result["blended"]["probabilities"]
+
+    elif model == "elo":
+        result = predict_match(home_code_u, away_code_u)
+        if result.get("error") or result.get("probabilities") is None:
+            return None
+        probs = result["probabilities"]
+
+    elif model == "glicko2":
+        rh = g2_service.lookup_glicko2_rating(home_code_u)
+        ra = g2_service.lookup_glicko2_rating(away_code_u)
+        if rh is None or ra is None:
+            return None
+        g2_pred = g2_service.predict_outcome(
+            rh["rating"], rh["rd"],
+            ra["rating"], ra["rd"],
+            home_bonus=HOME_BONUS,
+        )
+        probs = {
+            "home_win": g2_pred["win_a"],
+            "draw": g2_pred["draw"],
+            "away_win": g2_pred["win_b"],
+        }
+
+    else:
         return None
 
-    # 不同模型签名不同,按名分发参数
-    if model == "blend":
-        result = fn(home_code, away_code)
-    else:
-        # elo / glicko2
-        result = fn(home_code, away_code, db)
-    # 不同模型返回结构不同,统一提取 1X2 概率
-    # elo/glicko2: result["probabilities"]
-    # blend: result["blended"]["probabilities"]
-    if isinstance(result, dict):
-        probs = result.get("probabilities")
-        if probs is None and "blended" in result:
-            probs = result["blended"].get("probabilities")
-    else:
-        probs = None
-    if probs is None:
-        return None
     return (
         float(probs.get("home_win", 0.0)),
         float(probs.get("draw", 0.0)),

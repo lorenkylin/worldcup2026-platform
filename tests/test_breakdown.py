@@ -2,7 +2,9 @@
 
 import pytest
 
-from app.services.prediction import predict_match, _factors_breakdown
+from app.config import settings
+from app.services.elo_params import elo_to_lambda
+from app.services.prediction import predict_match, _factors_breakdown, _apply_recent_form
 from app.models import Team
 
 
@@ -20,8 +22,7 @@ def test_factors_breakdown_returns_all_sections():
         recent_form_points=7, recent_goal_diff=1,
     )
     h2h = {"home_wins": 0, "away_wins": 1, "draws": 0, "sample": 1, "source": "history"}
-    from app.services.prediction import _elo_to_lambda, _apply_recent_form
-    home_lambda, away_lambda = _elo_to_lambda(home.elo_rating, away.elo_rating)
+    home_lambda, away_lambda = elo_to_lambda(home.elo_rating, away.elo_rating)
     home_lambda, away_lambda = _apply_recent_form(
         home_lambda, away_lambda, home.recent_form_points, away.recent_form_points
     )
@@ -42,7 +43,7 @@ def test_factors_breakdown_returns_all_sections():
     assert elo["home_elo"] == 1700
     assert elo["away_elo"] == 1680
     assert elo["diff"] == 20
-    assert elo["home_advantage"] == 60  # HOME_ADVANTAGE
+    assert elo["home_advantage"] == int(settings.poisson_home_advantage)
     assert "contribution_to_lambda" in elo
 
     # Form
@@ -65,7 +66,7 @@ def test_factors_breakdown_returns_all_sections():
     lam = factors["lambda"]
     assert lam["home"] > 0
     assert lam["away"] > 0
-    assert lam["base"] == 1.35
+    assert lam["base"] == settings.poisson_base_lambda
 
 
 def test_factors_breakdown_with_no_form_data():
@@ -78,8 +79,7 @@ def test_factors_breakdown_with_no_form_data():
         id=2, fifa_code="BBB", name_zh="B", name_en="B",
         group_name="A", elo_rating=1500, recent_form_points=None,
     )
-    from app.services.prediction import _elo_to_lambda
-    home_lambda, away_lambda = _elo_to_lambda(home.elo_rating, away.elo_rating)
+    home_lambda, away_lambda = elo_to_lambda(home.elo_rating, away.elo_rating)
 
     factors = _factors_breakdown(home, away, home_lambda, away_lambda, None, None, {"sample": 0, "source": "none"})
 
@@ -93,8 +93,7 @@ def test_factors_breakdown_with_no_h2h():
     """无 H2H 数据时 sample=0."""
     home = Team(id=1, fifa_code="AAA", name_zh="A", name_en="A", group_name="A", elo_rating=1500)
     away = Team(id=2, fifa_code="BBB", name_zh="B", name_en="B", group_name="A", elo_rating=1500)
-    from app.services.prediction import _elo_to_lambda
-    home_lambda, away_lambda = _elo_to_lambda(home.elo_rating, away.elo_rating)
+    home_lambda, away_lambda = elo_to_lambda(home.elo_rating, away.elo_rating)
 
     factors = _factors_breakdown(home, away, home_lambda, away_lambda, None, None, {"sample": 0, "source": "none"})
 
@@ -107,14 +106,14 @@ def test_factors_breakdown_elo_diff_calculation():
     """Elo diff 应为 home - away."""
     home = Team(id=1, fifa_code="A", name_zh="A", name_en="A", group_name="A", elo_rating=2000)
     away = Team(id=2, fifa_code="B", name_zh="B", name_en="B", group_name="A", elo_rating=1800)
-    from app.services.prediction import _elo_to_lambda
-    home_lambda, away_lambda = _elo_to_lambda(home.elo_rating, away.elo_rating)
+    home_lambda, away_lambda = elo_to_lambda(home.elo_rating, away.elo_rating)
 
     factors = _factors_breakdown(home, away, home_lambda, away_lambda, None, None, {"sample": 0, "source": "none"})
 
     assert factors["elo"]["diff"] == 200  # 2000 - 1800
-    # contribution = (200 + 60) * 0.0035 = 0.91
-    assert abs(factors["elo"]["contribution_to_lambda"] - 0.91) < 0.001
+    # contribution = (200 + home_advantage) * goal_per_elo_diff
+    expected_contribution = (200 + settings.poisson_home_advantage) * settings.poisson_goal_per_elo_diff
+    assert abs(factors["elo"]["contribution_to_lambda"] - expected_contribution) < 0.001
 
 
 # =============== 集成测试 ===============

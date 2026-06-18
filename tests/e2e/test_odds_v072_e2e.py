@@ -106,11 +106,11 @@ def test_admin_fetch_odds_rejects_bad_token(page, base_url):
 
 
 def test_admin_fetch_odds_upserts_to_db(page, base_url):
-    """POST /api/admin/odds/fetch?dates=2026-06-11 → 200 + 写入 DB."""
+    """POST /api/admin/odds/fetch?dates=2026-06-20 → 200 + 写入 DB(日期按北京时间)."""
     from app.config import settings
     resp = page.evaluate(
         f"""async () => {{
-            const r = await fetch('{base_url}/api/admin/odds/fetch?dates=2026-06-11&use_cache=false', {{
+            const r = await fetch('{base_url}/api/admin/odds/fetch?dates=2026-06-20&use_cache=false', {{
                 method: 'POST',
                 headers: {{ 'X-Admin-Token': '{settings.admin_token}' }}
             }});
@@ -131,7 +131,7 @@ def test_compare_model_after_admin_fetch(page, base_url):
     from app.config import settings
     page.evaluate(
         f"""async () => {{
-            await fetch('{base_url}/api/admin/odds/fetch?dates=2026-06-11&use_cache=false', {{
+            await fetch('{base_url}/api/admin/odds/fetch?dates=2026-06-20&use_cache=false', {{
                 method: 'POST',
                 headers: {{ 'X-Admin-Token': '{settings.admin_token}' }}
             }});

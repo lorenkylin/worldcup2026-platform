@@ -138,7 +138,7 @@ def walkforward_adaptive_validate(db: Session) -> Dict:
 
     matches = (
         db.query(Match)
-        .filter(Match.status == "完赛", Match.home_score.isnot(None), Match.away_score.isnot(None))
+        .filter(Match.status == "finished", Match.home_score.isnot(None), Match.away_score.isnot(None))
         .order_by(Match.kickoff_at.asc())
         .all()
     )

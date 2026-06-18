@@ -1,8 +1,10 @@
 """v0.7.2 赔率 API + 模型对比单元/集成测试."""
 from datetime import datetime, timezone
+from unittest.mock import MagicMock
 
 import pytest
 
+from app.config import settings
 from app.models import Match, MatchOdds
 from app.services.odds_api_client import (
     fetch_upcoming_odds,
@@ -24,7 +26,8 @@ def minimal_match(db_session):
     if m is None:
         pytest.skip("conftest 未 seed match_id=1")
     m.status = "scheduled"
-    m.kickoff_at = datetime(2099, 6, 11, 19, 0, tzinfo=timezone.utc)
+    # 选 UTC 10:00,对应北京时间 18:00,保证 .date() 仍是 2099-06-11
+    m.kickoff_at = datetime(2099, 6, 11, 10, 0, tzinfo=timezone.utc)
     m.home_score = None
     m.away_score = None
     db_session.commit()
@@ -168,6 +171,34 @@ def test_compare_match_odds_invalid_model(db_session, minimal_match):
     assert result is None
 
 
+def test_compare_match_odds_elo_model(db_session, minimal_match):
+    """elo 模型应正确返回概率,不将 db Session 误当 source."""
+    fetch_date = minimal_match.kickoff_at.date().isoformat()
+    payload = fetch_upcoming_odds(db_session, target_dates=[fetch_date])
+    upsert_to_match_odds(db_session, payload)
+
+    result = compare_match_odds(db_session, match_id=1, model="elo")
+    if result is None:
+        pytest.skip("elo 模型无 MEX/RSA 评分,跳过")
+    assert result["model"] == "elo"
+    probs = result["model_probs"]
+    assert abs(probs["home"] + probs["draw"] + probs["away"] - 1.0) < 1e-3
+
+
+def test_compare_match_odds_glicko2_model(db_session, minimal_match):
+    """glicko2 模型应正确查 rating/RD 后返回概率,不 500."""
+    fetch_date = minimal_match.kickoff_at.date().isoformat()
+    payload = fetch_upcoming_odds(db_session, target_dates=[fetch_date])
+    upsert_to_match_odds(db_session, payload)
+
+    result = compare_match_odds(db_session, match_id=1, model="glicko2")
+    if result is None:
+        pytest.skip("glicko2 模型无 MEX/RSA 评分,跳过")
+    assert result["model"] == "glicko2"
+    probs = result["model_probs"]
+    assert abs(probs["home"] + probs["draw"] + probs["away"] - 1.0) < 1e-6
+
+
 # === find_value_bets ===
 def test_find_value_bets_returns_list(db_session, minimal_match):
     """find_value_bets 返回列表(可能为空)."""
@@ -184,3 +215,77 @@ def test_find_value_bets_returns_list(db_session, minimal_match):
         assert "best_rate" in item
         assert "tier" in item
         assert item["tier"] in ("edge", "strong")
+
+
+def test_fetch_the_odds_api_parses_response(db_session, minimal_match, monkeypatch):
+    """The Odds API 响应解析：mock httpx 返回 sample event，验证映射到 match_id=1."""
+    monkeypatch.setattr(settings, "odds_api_enabled", True)
+    monkeypatch.setattr(settings, "odds_api_provider", "the_odds_api")
+    monkeypatch.setattr(settings, "odds_api_key", "test-key")
+
+    sample_events = [
+        {
+            "home_team": "Mexico",
+            "away_team": "South Africa",
+            "bookmakers": [
+                {
+                    "key": "betpawa",
+                    "markets": {
+                        "h2h": {
+                            "outcomes": [
+                                {"name": "Mexico", "price": 1.9},
+                                {"name": "Draw", "price": 3.4},
+                                {"name": "South Africa", "price": 4.2},
+                            ]
+                        },
+                        "totals": {
+                            "outcomes": [
+                                {"name": "Over", "price": 1.95},
+                                {"name": "Under", "price": 2.05},
+                            ]
+                        },
+                    },
+                },
+                {
+                    "key": "betfair",
+                    "markets": {
+                        "h2h": {
+                            "outcomes": [
+                                {"name": "Mexico", "price": 1.85},
+                                {"name": "Draw", "price": 3.5},
+                                {"name": "South Africa", "price": 4.4},
+                            ]
+                        },
+                    },
+                },
+            ],
+        }
+    ]
+
+    fake_resp = MagicMock()
+    fake_resp.raise_for_status = MagicMock()
+    fake_resp.json = MagicMock(return_value=sample_events)
+
+    fake_client = MagicMock()
+    fake_client.__enter__ = MagicMock(return_value=fake_client)
+    fake_client.__exit__ = MagicMock(return_value=False)
+    fake_client.get = MagicMock(return_value=fake_resp)
+
+    import httpx
+    monkeypatch.setattr(httpx, "Client", lambda **kwargs: fake_client)
+
+    result = fetch_upcoming_odds(db_session, target_dates=["2099-06-11"], use_cache=False)
+
+    assert len(result) == 1, f"应解析出 1 条赔率,实际 {len(result)}"
+    item = result[0]
+    assert item["match_id"] == minimal_match.id
+    assert item["source"] == "the_odds_api"
+    assert item["bookmaker"] == settings.odds_default_bookmaker
+    assert item["home_win"] is not None
+    assert item["draw"] is not None
+    assert item["away_win"] is not None
+    assert 1.85 <= item["home_win"] <= 1.95
+    assert 3.4 <= item["draw"] <= 3.55
+    assert 4.2 <= item["away_win"] <= 4.45
+    assert item["over_2_5"] == 1.95
+    assert item["under_2_5"] == 2.05

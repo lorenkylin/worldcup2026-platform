@@ -1,0 +1,51 @@
+........................................................................ [ 16%]
+.......................................s................................ [ 33%]
+........................................................................ [ 49%]
+........................................................................ [ 66%]
+........................................................................ [ 83%]
+................F....................................................... [ 99%]
+.                                                                        [100%]
+============================ slowest 40 durations =============================
+1.63s call     tests/test_monte_carlo.py::test_mc_3000_sims_under_10s
+1.30s setup    tests/test_adaptive_weight.py::test_adaptive_blend_uses_max_of_two_teams
+1.24s setup    tests/test_weight_sweep.py::test_load_match_pairs_pairing
+1.21s setup    tests/test_odds_api_v072.py::test_fetch_upcoming_odds_returns_dicts
+1.17s setup    tests/test_prediction_log.py::TestTopBias::test_top_bias_finds_wrong_predictions
+1.11s setup    tests/test_edge_cases.py::test_today_matches_returns_correct_count
+1.10s call     tests/test_football_data.py::test_cache_expired_refetches
+1.07s call     tests/test_monte_carlo.py::test_mc_round_distribution_monotonic
+1.03s setup    tests/test_edge_cases.py::test_today_matches_live_first
+1.02s setup    tests/test_prediction_log.py::TestAccuracyStats::test_by_model_breakdown
+1.00s call     tests/test_monte_carlo.py::test_mc_strong_team_higher_champion_prob
+0.98s setup    tests/test_v013_fly.py::TestDockerfileFlyCompat::test_dockerfile_workers_1
+0.98s setup    tests/test_api.py::test_predict_match_equal_teams_roughly_50_percent
+0.97s setup    tests/test_api.py::test_stars_low_confidence_returns_low
+0.96s call     tests/test_monte_carlo.py::test_mc_deterministic_with_seed
+0.96s setup    tests/test_odds_api_v072.py::test_compare_match_odds_returns_expected_structure
+0.94s setup    tests/test_periodic_refresh.py::test_run_periodic_refresh_fb_failure_does_not_block_snapshot
+0.92s setup    tests/test_forward_testing.py::test_record_prediction_snapshot_group
+0.92s setup    tests/test_forward_testing.py::test_live_accuracy_mixed
+0.92s setup    tests/test_v013_fly.py::TestFlySecretsSetSh::test_secrets_sh_validates_token_length
+0.91s setup    tests/test_mc_cache.py::test_mc_cache_refresh_param_bypasses_cache
+0.91s setup    tests/test_forward_testing.py::test_live_accuracy_unsettled_excluded
+0.91s setup    tests/test_api_integration.py::test_team_detail
+0.91s setup    tests/test_api_integration.py::test_match_not_found_404
+0.91s setup    tests/test_weight_sweep.py::test_evaluate_perfect_g2
+0.90s setup    tests/test_glicko2.py::TestGlicko2Algorithm::test_scale_conversion_roundtrip
+0.89s setup    tests/test_v013_fly.py::TestDockerfileFlyCompat::test_dockerfile_chowns_app_dir
+0.89s setup    tests/test_admin_odds.py::test_create_odds_overwrite
+0.88s setup    tests/test_bracket.py::test_build_bracket_group_stage_not_finished
+0.88s setup    tests/test_prediction_log.py::TestSettle::test_settle_idempotent
+0.88s setup    tests/test_forward_testing.py::test_live_window_filters_backfill
+0.88s setup    tests/test_backtest.py::test_brier_score_random_three_way
+0.87s setup    tests/test_api_integration.py::test_index_page_serves
+0.86s setup    tests/test_odds_history.py::test_build_odds_model_history_outside_window_skipped
+0.85s setup    tests/test_prediction_log_lifespan.py::test_auto_log_predictions_skips_finished_match
+0.85s setup    tests/test_prediction_log.py::TestRecordPrediction::test_different_model_no_dedup
+0.85s setup    tests/test_edge_cases.py::test_teams_h2h_opponents_with_no_history
+0.85s setup    tests/test_adaptive_weight.py::test_adaptive_blend_unknown_team_returns_404_like
+0.85s setup    tests/test_v076_data_coverage.py::test_data_coverage_report_markdown_written
+0.84s setup    tests/test_weight_sweep.py::test_blend_5_5
+=========================== short test summary info ===========================
+FAILED tests/test_v012_deployment.py::TestCIWorkflow::test_ignores_e2e_in_ci
+1 failed, 431 passed, 1 skipped in 352.53s (0:05:52)

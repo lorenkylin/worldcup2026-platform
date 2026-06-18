@@ -5,7 +5,7 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, Text, Index
 from sqlalchemy.orm import relationship
 
 from app.db import Base
@@ -41,7 +41,8 @@ class Stadium(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name_zh = Column(String(100), nullable=False)
-    name_en = Column(String(100), nullable=False)
+    # v0.13: name_en 加唯一约束，防止 seed/sync 产生重复球场
+    name_en = Column(String(100), unique=True, nullable=False)
     city = Column(String(100), nullable=False)
     country = Column(String(50), nullable=False)
     latitude = Column(Float, default=None)
@@ -256,7 +257,11 @@ class OddsSnapshot(Base):
 
 
 class TeamEloRating(Base):
-    """M1 球队历史评分（多源聚合）.
+    """M1 球队历史评分（多源聚合）—— 历史保留表.
+
+    注(v0.13): 当前运行时代码直接使用 data/seed/hicruben/results.json 与
+    data/seed/statsbomb/statsbomb_elo.json,不再读取本表。本表仅作为 M1 历史
+    数据保留,供旧脚本/报告追溯,未来若接入"评分时间序列"功能可重新启用。
 
     字段语义：
     - team_id：teams.id 外键，48 支参赛队
@@ -265,10 +270,8 @@ class TeamEloRating(Base):
     - rank：当月官方排名（1 表示世界第一；可为 NULL）
     - source：数据来源（wikipedia / fifa / elo）
     - scraped_at：爬取入库时间（UTC）
-
-    查询模式：找某场比赛日 T 之前最近的 (team_id, source) 评分。
-    索引：team_id + as_of_date 复合索引加速"截至 T 的最近评分"查询。
     """
+
 
     __tablename__ = "team_elo_ratings"
 
@@ -376,7 +379,7 @@ class MCRunHistory(Base):
 
     __tablename__ = "mc_run_history"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
     model = Column(String(20), nullable=False, index=True)
     n_sims = Column(Integer, nullable=False, index=True)
     seed = Column(Integer, nullable=False, index=True)
@@ -401,5 +404,6 @@ class MCRunHistory(Base):
     total_matches_per_sim = Column(Integer, nullable=False)
 
     __table_args__ = (
+        Index("ix_mc_run_history_lookup", "model", "n_sims", "seed", "generated_at"),
         {"sqlite_autoincrement": True},
     )

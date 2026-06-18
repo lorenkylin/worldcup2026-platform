@@ -20,12 +20,31 @@ async function api(path) {
   return res.json();
 }
 
+// ---------- 北京时间工具函数 ----------
+
+function _beijingDateString(isoOrDate) {
+  const d = typeof isoOrDate === 'string' ? new Date(isoOrDate) : isoOrDate;
+  return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' });
+}
+function _nowBeijingDateString() {
+  return _beijingDateString(new Date());
+}
+function _beijingHour(iso) {
+  return parseInt(new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', timeZone: 'Asia/Shanghai', hour12: false }), 10);
+}
+function _fmtBeijingShort(iso) {
+  const d = new Date(iso);
+  const p = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d);
+  const get = type => p.find(x => x.type === type).value;
+  return `${get('month')}/${get('day')} ${get('hour')}:${get('minute')}`;
+}
+
 function fmtDate(iso) {
   const d = new Date(iso);
-  const now = new Date();
-  const isToday = d.toDateString() === now.toDateString();
-  const time = d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-  const date = d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', weekday: 'short' });
+  const dateStr = _beijingDateString(d);
+  const isToday = dateStr === _nowBeijingDateString();
+  const time = d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' });
+  const date = d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', weekday: 'short', timeZone: 'Asia/Shanghai' });
   return { isToday, time, date, full: `${date} ${time}` };
 }
 
@@ -286,20 +305,22 @@ async function renderSchedule() {
     return;
   }
 
-  // 计算筛选条件
+  // 计算筛选条件（基于北京时间）
   const now = new Date();
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
-  const tomorrow = new Date(now.getTime() + 86400000);
-  const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth()+1).padStart(2,'0')}-${String(tomorrow.getDate()).padStart(2,'0')}`;
+  const todayStr = _nowBeijingDateString();
+  const tomorrowStr = (() => {
+    const [y, m, d] = todayStr.split('-').map(Number);
+    return _beijingDateString(new Date(Date.UTC(y, m - 1, d + 1)));
+  })();
   const weekEnd = new Date(now.getTime() + 7 * 86400000);
 
   let filtered = matches;
   let emptyHint = '';
   if (_scheduleFilter === 'today') {
-    filtered = matches.filter(m => m.kickoff_at.startsWith(todayStr));
+    filtered = matches.filter(m => _beijingDateString(m.kickoff_at) === todayStr);
     emptyHint = '今日无比赛';
   } else if (_scheduleFilter === 'tomorrow') {
-    filtered = matches.filter(m => m.kickoff_at.startsWith(tomorrowStr));
+    filtered = matches.filter(m => _beijingDateString(m.kickoff_at) === tomorrowStr);
     emptyHint = '明日无比赛';
   } else if (_scheduleFilter === 'week') {
     filtered = matches.filter(m => {
@@ -308,7 +329,7 @@ async function renderSchedule() {
     });
     emptyHint = '本周暂无未来比赛';
   } else if (_scheduleFilter === 'date' && _scheduleDate) {
-    filtered = matches.filter(m => m.kickoff_at.startsWith(_scheduleDate));
+    filtered = matches.filter(m => _beijingDateString(m.kickoff_at) === _scheduleDate);
     emptyHint = `${_scheduleDate} 无比赛`;
   }
 
@@ -319,13 +340,13 @@ async function renderSchedule() {
     byDate[d].push(m);
   });
 
-  // A5: 日期 chip 列表（从全部 matches 提取日期）
-  const allDates = [...new Set(matches.map(m => m.kickoff_at.slice(0, 10)))].sort();
+  // A5: 日期 chip 列表（从全部 matches 提取北京时间日期）
+  const allDates = [...new Set(matches.map(m => _beijingDateString(m.kickoff_at)))].sort();
 
   // A4: 筛选 chip 列表
   const filterChips = [
-    { key: 'today', label: '今日', count: matches.filter(m => m.kickoff_at.startsWith(todayStr)).length },
-    { key: 'tomorrow', label: '明日', count: matches.filter(m => m.kickoff_at.startsWith(tomorrowStr)).length },
+    { key: 'today', label: '今日', count: matches.filter(m => _beijingDateString(m.kickoff_at) === todayStr).length },
+    { key: 'tomorrow', label: '明日', count: matches.filter(m => _beijingDateString(m.kickoff_at) === tomorrowStr).length },
     { key: 'week', label: '本周', count: matches.filter(m => { const d = new Date(m.kickoff_at); return d >= now && d <= weekEnd; }).length },
     { key: 'all', label: '全部', count: matches.length },
   ];
@@ -350,8 +371,7 @@ async function renderSchedule() {
     <!-- A5: 日期 chip 横滚 -->
     <div class="flex gap-2 mb-4 overflow-x-auto pb-2 border-b border-slate-800/50">
       ${allDates.slice(0, 30).map(d => {
-        const dObj = new Date(d + 'T00:00:00');
-        const wd = ['日','一','二','三','四','五','六'][dObj.getDay()];
+        const wd = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', weekday: 'narrow' }).format(new Date(d + 'T12:00:00+08:00'));
         const isActive = _scheduleDate === d;
         const isToday = d === todayStr;
         return `
@@ -435,7 +455,7 @@ let _teamsCache = [];
 
 // Elo 数据源切换状态
 let _eloSource = 'hicruben'; // 'hicruben' | 'statsbomb'
-let _eloModel = 'blend';   // v0.7.0a: 'elo' | 'glicko2' | 'blend' (默认 blend)
+let _eloModel = 'blend';   // v0.13.0: 'elo' | 'glicko2' | 'blend' | 'adaptive' | 'marketblend'
 let _g2Open = false;       // v0.7.0a: Glicko-2 评分榜默认折叠
 
 function setEloSource(source) {
@@ -446,7 +466,7 @@ function setEloSource(source) {
 
 // v0.7.0a ModelBlend 入口: 1v1 预测器切模型 (直接重渲整页,简单稳定)
 function setEloModel(model) {
-  if (model !== 'elo' && model !== 'glicko2' && model !== 'blend' && model !== 'adaptive') return;
+  if (model !== 'elo' && model !== 'glicko2' && model !== 'blend' && model !== 'adaptive' && model !== 'marketblend') return;
   _eloModel = model;
   renderElo();
 }
@@ -708,10 +728,7 @@ async function loadOddsTrend(matchId) {
       }
     }
     labels.push(...Array.from(labelSet).sort());
-    const labelFmt = labels.map(t => {
-      const d = new Date(t);
-      return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-    });
+    const labelFmt = labels.map(t => _fmtBeijingShort(t));
 
     // 三种 metric 的 datasets(主胜 / 平 / 客胜)
     const buildDatasets = (metric) => bookmakers.map((bm, idx) => {
@@ -836,10 +853,7 @@ async function loadOddsModelHistory(matchId) {
     emptyEl.classList.add('hidden');
     wrapperEl.classList.remove('hidden');
 
-    const labels = data.points.map(p => {
-      const d = new Date(p.ts);
-      return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-    });
+    const labels = data.points.map(p => _fmtBeijingShort(p.ts));
 
     const buildDatasets = (outcome) => ({
       market: data.points.map(p => p.market ? p.market[outcome] : null),
@@ -1382,71 +1396,18 @@ function renderMonteCarloResult(data) {
 // 🎛 总览驾驶舱 Cockpit (PC + 横屏优化)
 // ============================================================
 
-/** 把 ISO 字符串（球场本地 wall-clock）+ IANA 时区转北京时间字符串 */
-function fmtBeijingFromTZ(isoWallClock, tz, withDate) {
-  try {
-    // 1. 把 wall-clock 字符串解析成"该时区的本地时间"
-    //    用 Intl.DateTimeFormat 把 wall-clock 重新格式化成带时区后缀
-    const [datePart, timePart] = isoWallClock.split('T');
-    const [y, mo, d] = datePart.split('-').map(Number);
-    const [h, mi, s = 0] = (timePart || '00:00:00').split(':').map(Number);
-    // 2. 用时区反推 UTC 毫秒：构造一个 Date 当作 UTC，然后用时区偏移修正
-    const fakeUTC = Date.UTC(y, mo - 1, d, h, mi, s);
-    // 取该时区在那一分钟的 offset（分钟数）
-    const tzFmt = new Intl.DateTimeFormat('en-US', {
-      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-    });
-    const parts = Object.fromEntries(tzFmt.formatToParts(new Date(fakeUTC)).map(p => [p.type, p.value]));
-    const tzAsUTC = Date.UTC(
-      Number(parts.year), Number(parts.month) - 1, Number(parts.day),
-      Number(parts.hour) % 24, Number(parts.minute), Number(parts.second)
-    );
-    const offsetMs = tzAsUTC - fakeUTC; // 该时区当时的 offset (ms)
-    const realUTCms = fakeUTC - offsetMs;
-    // 3. 转北京时间 (UTC+8)
-    const beijingMs = realUTCms + 8 * 3600 * 1000;
-    const bj = new Date(beijingMs);
-    const pad = n => String(n).padStart(2, '0');
-    const m = bj.getUTCMonth() + 1;
-    const day = bj.getUTCDate();
-    const hh = bj.getUTCHours();
-    const mm = bj.getUTCMinutes();
-    if (withDate) {
-      return `${bj.getUTCFullYear()}-${pad(m)}-${pad(day)} ${pad(hh)}:${pad(mm)}`;
-    }
-    return `${pad(hh)}:${pad(mm)}`;
-  } catch (e) {
-    return isoWallClock.slice(11, 16) || '--:--';
-  }
-}
-
 function beijingNowString() {
   const d = new Date();
-  const pad = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' }) + ' ' +
+    d.toLocaleTimeString('en-GB', { timeZone: 'Asia/Shanghai', hour12: false });
 }
 
 /** 距离开赛还有多久（返回中文短串） */
-function countdownText(isoWallClock, tz) {
+function countdownText(iso) {
   try {
-    const [datePart, timePart] = isoWallClock.split('T');
-    const [y, mo, d] = datePart.split('-').map(Number);
-    const [h, mi, s = 0] = (timePart || '00:00:00').split(':').map(Number);
-    const fakeUTC = Date.UTC(y, mo - 1, d, h, mi, s);
-    const tzFmt = new Intl.DateTimeFormat('en-US', {
-      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-    });
-    const parts = Object.fromEntries(tzFmt.formatToParts(new Date(fakeUTC)).map(p => [p.type, p.value]));
-    const tzAsUTC = Date.UTC(
-      Number(parts.year), Number(parts.month) - 1, Number(parts.day),
-      Number(parts.hour) % 24, Number(parts.minute), Number(parts.second)
-    );
-    const offsetMs = tzAsUTC - fakeUTC;
-    const realUTCms = fakeUTC - offsetMs;
+    const kickMs = new Date(iso).getTime();
     const now = Date.now();
-    const diffMs = realUTCms - now;
+    const diffMs = kickMs - now;
     if (diffMs < -2 * 3600 * 1000) return '已结束';
     if (diffMs < 0) return '进行中';
     const days = Math.floor(diffMs / 86400000);
@@ -1768,26 +1729,116 @@ async function onOddsCardModelChange(selectEl, matchId) {
 }
 
 async function renderCockpit() {
-  // 切换为宽布局
+  // 新版总览驾驶舱：只做统计 + 总预览 + 互联互通，不重复详情页内容
   const app = $('#app');
   app.classList.remove('max-w-2xl');
   app.classList.add('max-w-none', 'px-4');
 
-  let today, allMatches, groups, teams, accuracy, weightSweep, syncStatus, liveWindow, liveAll;  // v0.10/0.11
+  // 局部 helper（只在 cockpit 内使用）
+  function milestoneBadge(label, locked, detail) {
+    const color = locked
+      ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
+      : 'bg-slate-800 border-slate-700 text-slate-500';
+    const icon = locked ? '✅' : '⏳';
+    return `
+      <div class="${color} border rounded-lg p-2 text-center">
+        <div class="text-lg">${icon}</div>
+        <div class="text-xs font-bold">${label}</div>
+        <div class="text-[10px] opacity-80">${detail}</div>
+      </div>
+    `;
+  }
+  function healthBadge(status) {
+    const map = {
+      ok: { cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40', t: '正常' },
+      degraded: { cls: 'bg-amber-500/15 text-amber-400 border-amber-500/40', t: '降级' },
+      down: { cls: 'bg-rose-500/15 text-rose-400 border-rose-500/40', t: '故障' },
+      timeout: { cls: 'bg-amber-500/15 text-amber-400 border-amber-500/40', t: '超时' },
+      disabled: { cls: 'bg-slate-700 text-slate-400 border-slate-600', t: '未启用' },
+    };
+    const m = map[status] || map.disabled;
+    return `<span class="${m.cls} border rounded px-1.5 py-0.5 text-[10px] font-bold">${m.t}</span>`;
+  }
+  function consensusBars(pred) {
+    if (!pred || !pred.consensus) return '';
+    const c = pred.consensus;
+    const max = Math.max(c.home_win || 0, c.draw || 0, c.away_win || 0);
+    const bar = (val, label, color) => `
+      <div class="flex-1">
+        <div class="flex justify-between text-[10px] text-slate-400 mb-0.5">
+          <span>${label}</span><span>${(val * 100).toFixed(0)}%</span>
+        </div>
+        <div class="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+          <div class="h-full ${color} rounded-full" style="width:${(val * 100).toFixed(1)}%"></div>
+        </div>
+      </div>
+    `;
+    return `
+      <div class="flex gap-2 mt-2">
+        ${bar(c.home_win, '主', 'bg-emerald-500')}
+        ${bar(c.draw, '平', 'bg-slate-400')}
+        ${bar(c.away_win, '客', 'bg-blue-500')}
+      </div>
+    `;
+  }
+  function countdown(iso) {
+    const diff = new Date(iso).getTime() - Date.now();
+    if (diff <= 0) return '进行中';
+    const h = Math.floor(diff / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    return `${h}h ${m}m`;
+  }
+  function criticalMatchCard(m) {
+    const fmt = fmtDate(m.kickoff_at);
+    const labels = {
+      '淘汰赛': 'bg-violet-500/15 text-violet-400 border-violet-500/30',
+      '头名之争': 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+      '生死战': 'bg-rose-500/15 text-rose-400 border-rose-500/30',
+      '出线关键战': 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+      '强弱对话': 'bg-blue-500/15 text-blue-400 border-blue-500/30',
+      '荣誉战': 'bg-slate-700 text-slate-400 border-slate-600',
+    };
+    const badgeCls = labels[m.impact_label] || labels['出线关键战'];
+    const home = m.home_team || {};
+    const away = m.away_team || {};
+    return `
+      <a href="#/match/${m.match_id}" class="block bg-slate-900 rounded-xl p-3 border border-slate-800 hover:border-slate-600 transition">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs text-slate-500">${fmt.date} ${fmt.time}</span>
+          <span class="text-xs font-bold ${badgeCls} border rounded px-1.5 py-0.5">${m.impact_label}</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2 flex-1">
+            <span class="text-xl">${home.flag_emoji || ''}</span>
+            <span class="font-bold text-sm truncate">${escapeHtml(home.name_zh || home.fifa_code)}</span>
+          </div>
+          <span class="text-xs text-slate-500 px-2">VS</span>
+          <div class="flex items-center gap-2 flex-1 justify-end">
+            <span class="font-bold text-sm truncate">${escapeHtml(away.name_zh || away.fifa_code)}</span>
+            <span class="text-xl">${away.flag_emoji || ''}</span>
+          </div>
+        </div>
+        ${consensusBars(m.prediction)}
+        <div class="flex items-center justify-between mt-2 text-[10px] text-slate-500">
+          <span>模型分歧 ${((m.prediction.disagreement || 0) * 100).toFixed(1)}pp</span>
+          <span>⏱ ${countdown(m.kickoff_at)}</span>
+        </div>
+      </a>
+    `;
+  }
+  function quickLinkCard(icon, title, desc, href) {
+    return `
+      <a href="${href}" class="block bg-slate-900 rounded-xl p-3 border border-slate-800 hover:border-emerald-500/40 transition">
+        <div class="text-xl mb-1">${icon}</div>
+        <div class="font-bold text-sm text-slate-200">${title}</div>
+        <div class="text-[10px] text-slate-500">${desc}</div>
+      </a>
+    `;
+  }
+
+  let data;
   try {
-    [today, allMatches, groups, teams, accuracy, weightSweep, syncStatus, liveWindow, liveAll] = await Promise.all([
-      apiWithRetry('/matches/today'),
-      apiWithRetry('/matches?limit=200'),
-      apiWithRetry('/groups'),
-      apiWithRetry('/teams'),
-      apiWithRetry('/elo/accuracy-stats?days=180').catch(() => null),
-      apiWithRetry('/elo/weight-sweep').catch(() => null),
-      // v0.10: 数据新鲜度 (公开端点,无 auth)
-      apiWithRetry('/health/sync-status').catch(() => null),
-      // v0.11: 真 forward 准确率 mini-card
-      apiWithRetry('/elo/live-window-accuracy?days=7').catch(() => null),
-      apiWithRetry('/elo/live-accuracy?is_live=true').catch(() => null),
-    ]);
+    data = await apiWithRetry('/cockpit/summary');
   } catch (err) {
     app.classList.add('max-w-2xl');
     app.classList.remove('max-w-none');
@@ -1795,100 +1846,24 @@ async function renderCockpit() {
     return;
   }
 
-  if (!allMatches.length) {
-    app.classList.add('max-w-2xl');
-    app.classList.remove('max-w-none');
-    $('#app').innerHTML = renderEmpty('📊', '暂无比赛数据', '数据源异常或赛事未开始', '#/schedule', '查看赛程');
-    return;
-  }
+  const progress = data.tournament_progress || {};
+  const qual = data.qualification_summary || {};
+  const health = data.data_health || {};
+  const critical = data.critical_matches || [];
+  const consensus = data.model_consensus || [];
+  const divergence = data.market_model_divergence || [];
+  const eloTop = data.elo_top_teams || [];
+  const sync = health.sync || {};
+  const srcSummary = (health.sources && health.sources.summary) || { total: 0, ok: 0, degraded: 0, down: 0 };
 
-  const finished = allMatches.filter(m => m.status === 'finished');
-  const scheduled = allMatches.filter(m => m.status === 'scheduled');
-  const nowMs = Date.now();
-  // 24h 内开赛：用 beijing 转换后比较
-  const in24h = scheduled.filter(m => {
-    const tz = m.stadium && m.stadium.timezone ? m.stadium.timezone : 'UTC';
-    const [datePart, timePart] = m.kickoff_at.split('T');
-    const [y, mo, d] = datePart.split('-').map(Number);
-    const [h, mi, s = 0] = (timePart || '00:00:00').split(':').map(Number);
-    const fakeUTC = Date.UTC(y, mo - 1, d, h, mi, s);
-    const tzFmt = new Intl.DateTimeFormat('en-US', {
-      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-    });
-    const parts = Object.fromEntries(tzFmt.formatToParts(new Date(fakeUTC)).map(p => [p.type, p.value]));
-    const tzAsUTC = Date.UTC(
-      Number(parts.year), Number(parts.month) - 1, Number(parts.day),
-      Number(parts.hour) % 24, Number(parts.minute), Number(parts.second)
-    );
-    const offsetMs = tzAsUTC - fakeUTC;
-    const realUTCms = fakeUTC - offsetMs;
-    return (realUTCms - nowMs) >= 0 && (realUTCms - nowMs) < 24 * 3600 * 1000;
-  });
+  const finished = progress.finished_matches || 0;
+  const total = progress.total_matches || 0;
+  const completionRate = progress.completion_rate || 0;
+  const milestones = progress.milestones || {};
 
-  // 进球统计
-  const totalGoals = finished.reduce((s, m) => s + (m.home_score || 0) + (m.away_score || 0), 0);
-  const avgGoals = finished.length ? (totalGoals / finished.length).toFixed(2) : '0.00';
+  // 进球统计：摘要里暂时没有，直接复用一个轻量端点太浪费，先展示基础 KPI
+  const avgGoals = Number.isFinite(progress.avg_goals) ? progress.avg_goals.toFixed(2) : '—';
 
-  // 冠军热门：Elo 最高的队
-  const topTeam = teams.slice().sort((a, b) => (b.elo_rating || 0) - (a.elo_rating || 0))[0];
-
-  // Top 16 Elo
-  const top16 = teams.slice().sort((a, b) => (b.elo_rating || 0) - (a.elo_rating || 0)).slice(0, 16);
-  const maxElo = top16[0] ? top16[0].elo_rating : 2000;
-  const minElo = top16[top16.length - 1] ? top16[top16.length - 1].elo_rating : 1800;
-
-  // 12 小组，按字母排
-  const groupKeys = Object.keys(groups).sort();
-
-  // 24h 时间线（按北京时间的"小时"分桶：未来 24 小时每场比赛落入哪个小时槽）
-  // 用当前北京时间为基准
-  const nowBj = new Date(new Date().getTime() + 8 * 3600 * 1000); // 粗略北京
-  // 更准：直接用 Date.now()，然后把 scheduled 都转成 UTC ms，桶到"距今 X 小时"
-  const hourBuckets = Array.from({ length: 24 }, () => []);
-  scheduled.forEach(m => {
-    const tz = m.stadium && m.stadium.timezone ? m.stadium.timezone : 'UTC';
-    const [datePart, timePart] = m.kickoff_at.split('T');
-    const [y, mo, d] = datePart.split('-').map(Number);
-    const [h, mi, s = 0] = (timePart || '00:00:00').split(':').map(Number);
-    const fakeUTC = Date.UTC(y, mo - 1, d, h, mi, s);
-    const tzFmt = new Intl.DateTimeFormat('en-US', {
-      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-    });
-    const parts = Object.fromEntries(tzFmt.formatToParts(new Date(fakeUTC)).map(p => [p.type, p.value]));
-    const tzAsUTC = Date.UTC(
-      Number(parts.year), Number(parts.month) - 1, Number(parts.day),
-      Number(parts.hour) % 24, Number(parts.minute), Number(parts.second)
-    );
-    const offsetMs = tzAsUTC - fakeUTC;
-    const realUTCms = fakeUTC - offsetMs;
-    const diffH = (realUTCms - nowMs) / 3600000;
-    if (diffH >= 0 && diffH < 24) {
-      const bucket = Math.floor(diffH);
-      if (hourBuckets[bucket]) hourBuckets[bucket].push(m);
-    }
-  });
-
-  // 16 球场聚合
-  const stadiumMap = {};
-  allMatches.forEach(m => {
-    if (!m.stadium) return;
-    const k = m.stadium.name_en;
-    if (!stadiumMap[k]) {
-      stadiumMap[k] = { info: m.stadium, total: 0, finished: 0, todayCount: 0 };
-    }
-    stadiumMap[k].total++;
-    if (m.status === 'finished') stadiumMap[k].finished++;
-  });
-  today.forEach(m => {
-    if (m.stadium && stadiumMap[m.stadium.name_en]) {
-      stadiumMap[m.stadium.name_en].todayCount++;
-    }
-  });
-  const stadiums = Object.values(stadiumMap).sort((a, b) => b.total - a.total);
-
-  // ============= 渲染 =============
   $('#app').innerHTML = `
     <!-- 顶栏 -->
     <div class="cockpit-header flex items-center justify-between mb-4 px-1">
@@ -1896,7 +1871,7 @@ async function renderCockpit() {
         <span class="text-2xl">🎛</span>
         <div>
           <div class="text-xl font-bold text-emerald-400">赛事总览驾驶舱</div>
-          <div class="text-xs text-slate-500">PC / 平板横屏 优化版</div>
+          <div class="text-xs text-slate-500">统计 · 预览 · 关联（去重设计版）</div>
         </div>
       </div>
       <div class="flex items-center gap-3">
@@ -1910,125 +1885,187 @@ async function renderCockpit() {
       </div>
     </div>
 
-    <!-- KPI 卡片 -->
-    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
-      ${kpiCard('✅', '已完赛', finished.length, '场', 'emerald')}
-      ${kpiCard('📅', '今日', today.length, '场', 'amber')}
-      ${kpiCard('⏰', '24h 内', in24h.length, '场', 'blue')}
+    <!-- 赛事进度 + 里程碑 -->
+    <section class="cockpit-section mb-4">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="cockpit-section-title m-0">🏁 赛事进度</h2>
+        <span class="text-sm text-slate-400">${finished} / ${total} 场已完赛 (${completionRate}%)</span>
+      </div>
+      <div class="w-full bg-slate-800 rounded-full h-2.5 mb-3">
+        <div class="bg-emerald-500 h-2.5 rounded-full transition-all" style="width:${completionRate}%"></div>
+      </div>
+      <div class="grid grid-cols-3 md:grid-cols-6 gap-2">
+        ${milestoneBadge('小组赛', progress.group_stage_finished, progress.group_stage_finished ? '已结束' : '进行中')}
+        ${milestoneBadge('32强', milestones.r32_locked, milestones.r32_locked ? '落位' : '待定')}
+        ${milestoneBadge('16强', milestones.r16_locked, milestones.r16_locked ? '产生' : '待定')}
+        ${milestoneBadge('8强', milestones.qf_locked, milestones.qf_locked ? '产生' : '待定')}
+        ${milestoneBadge('4强', milestones.sf_locked, milestones.sf_locked ? '产生' : '待定')}
+        ${milestoneBadge('决赛', milestones.final_locked, milestones.final_locked ? '落定' : '待定')}
+      </div>
+    </section>
+
+    <!-- 精简 KPI -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+      ${kpiCard('✅', '已完赛', finished, '场', 'emerald')}
+      ${kpiCard('📅', '今日', progress.today_matches, '场', 'amber')}
+      ${kpiCard('⏰', '24h 内', progress.in24h_matches, '场', 'blue')}
       ${kpiCard('⚽', '场均进球', avgGoals, '', 'rose')}
-      ${kpiCard('🏆', '热门第 1', topTeam ? topTeam.flag_emoji + ' ' + topTeam.name_zh : '-', '', 'violet', topTeam ? 'Elo ' + topTeam.elo_rating : '')}
-      ${kpiCard('🎯', '模型胜率', accuracy && accuracy.n_settled > 0 ? (accuracy.accuracy * 100).toFixed(1) + '%' : '—', accuracy ? `n=${accuracy.n_settled}` : '暂无', 'cyan', accuracy && accuracy.by_model ? `🏅 ${bestModelLabel(accuracy.by_model)}` : '—')}
     </div>
 
-    <!-- v0.10 数据新鲜度 widget (主人知道 worldcup26.ir 是否还在正常同步) -->
-    ${syncStatus ? renderFreshnessCard(syncStatus) : ''}
-
-    <!-- v0.11 真 forward 准确率 mini-card (与历史回填区分) -->
-    ${renderLiveAccuracyCard(liveWindow, liveAll)}
-
-    <!-- 模型准确率 mini-card: 3 模型横评 -->
-    ${accuracy && accuracy.n_settled > 0 ? `
-    <section class="cockpit-section mb-4">
-      <h2 class="cockpit-section-title">🎯 3 模型横评（最近 ${accuracy.n_settled} 场已结算）</h2>
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-        ${accuracyMiniCard('🧠 全部模型汇总', accuracy, '')}
-        ${accuracyMiniCard('⚡ Glicko-2 v3', accuracy.by_model['v3_glicko2'], 'cyan')}
-        ${accuracyMiniCard('📊 Elo M1 v1', accuracy.by_model['v1_elo'], 'violet')}
-      </div>
-      <div class="mt-2 text-xs text-slate-500">
-        ▎ 准确率 ≥ 60% 绿 / 55-60% 橙 / &lt;55% 红 · 详情见 <a href="#/accuracy" class="text-blue-600 hover:underline">#/accuracy</a>
-      </div>
-    </section>
-    ` : ''}
-
-    <!-- v0.7.4 weight sweep: 在 913 场历史 walk-forward 上找最佳 (w_elo, w_g2) -->
-    ${weightSweep ? `
-    <section class="cockpit-section mb-4">
-      <h2 class="cockpit-section-title">⚖️ 权重扫描 v0.7.4（${weightSweep.n_matches} 场 walk-forward）</h2>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div class="cockpit-mini-card border-l-4 border-amber-400">
-          <div class="text-xs text-slate-500">🏆 最佳权重（brier 最低）</div>
-          <div class="text-2xl font-bold text-amber-600 mt-1">
-            w_elo=${weightSweep.winner.w_elo.toFixed(1)} · w_g2=${weightSweep.winner.w_g2.toFixed(1)}
+    <!-- 数据健康 + 模型健康 -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+      ${sync && sync.freshness ? renderFreshnessCard(sync) : ''}
+      <section class="cockpit-section">
+        <h2 class="cockpit-section-title">📡 数据源健康</h2>
+        <div class="bg-slate-900 rounded-xl p-3 border border-slate-800">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">🌐</span>
+              <span class="font-bold text-slate-200">${srcSummary.ok}/${srcSummary.total} 正常</span>
+            </div>
+            <a href="#/health" class="text-xs text-blue-400 hover:underline">详情 →</a>
           </div>
-          <div class="text-xs text-slate-600 mt-1">
-            命中 ${(weightSweep.winner.accuracy * 100).toFixed(1)}% · brier ${weightSweep.winner.brier.toFixed(4)}
+          <div class="space-y-1.5">
+            ${(health.sources && health.sources.sources || []).slice(0, 5).map(s => `
+              <div class="flex items-center justify-between text-xs">
+                <span class="text-slate-400">${escapeHtml(s.name)}</span>
+                ${healthBadge(s.status)}
+              </div>
+            `).join('')}
           </div>
         </div>
-        <div class="cockpit-mini-card border-l-4 border-slate-300">
-          <div class="text-xs text-slate-500">📊 v0.7.0a 默认 50/50</div>
-          <div class="text-2xl font-bold text-slate-700 mt-1">
-            命中 ${(weightSweep.baseline_50_50.accuracy * 100).toFixed(1)}%
-          </div>
-          <div class="text-xs text-slate-600 mt-1">
-            brier ${weightSweep.baseline_50_50.brier.toFixed(4)} · log_loss ${weightSweep.baseline_50_50.log_loss.toFixed(4)}
-          </div>
+      </section>
+    </div>
+
+    <!-- 晋级总览 + 最佳第 3 名 -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+      <section class="cockpit-section lg:col-span-2">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="cockpit-section-title m-0">🎯 晋级 / 淘汰总览</h2>
+          <a href="#/simulator" class="text-xs text-blue-400 hover:underline">完整模拟 →</a>
         </div>
-      </div>
-      <div class="mt-2 text-xs text-slate-500">
-        ▎ 7 组 (w_elo, w_g2) 评估 · ${weightSweep.recommendation}
-      </div>
-      </div>
-    </section>
-    ` : ''}
-    ${accuracy ? `
-    <section class="cockpit-section mb-4">
-      <h2 class="cockpit-section-title">🎯 3 模型横评</h2>
-      <div class="text-slate-500 text-sm py-4 text-center">
-        ⏳ 暂无已结算预测 · 预测日志正在积累中,预计 15 分钟内首批结算入库
-      </div>
-    </section>
-    ` : ''}
-
-    <!-- 焦点战 -->
-    <section class="cockpit-section mb-4">
-      <h2 class="cockpit-section-title">⚽ 今日焦点战</h2>
-      <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-        ${(today.length ? today : allMatches.slice(0, 6)).slice(0, 6).map(m => focusCard(m)).join('')}
-        ${!today.length ? '<div class="text-slate-500 text-sm col-span-full text-center py-6">今日无比赛，展示最近 6 场</div>' : ''}
-      </div>
-    </section>
-
-    <!-- 12 小组热力图 + Elo Top 16 -->
-    <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-4">
-      <section class="cockpit-section xl:col-span-2">
-        <h2 class="cockpit-section-title">📊 12 小组积分热力图</h2>
-        <div class="text-xs text-slate-500 mb-2">▎ 第 1-2 名 绿 / 第 3 名 蓝 / 第 4 名 红</div>
-        <div class="overflow-x-auto pb-2">
-          <div class="grid grid-cols-12 gap-1 min-w-[1100px]">
-            ${groupKeys.map(g => groupHeatCell(g, groups[g])).join('')}
-          </div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+          ${kpiCard('✅', '已晋级', qual.qualified || 0, '队', 'emerald', `直接 ${qual.direct_qualifiers || 0}`)}
+          ${kpiCard('🏅', '第 3 名晋级', qual.third_place_qualifiers || 0, '队', 'amber')}
+          ${kpiCard('⏳', '待定', qual.pending || 0, '队', 'blue')}
+          ${kpiCard('❌', '已淘汰', qual.eliminated || 0, '队', 'rose')}
+        </div>
+        <div class="text-xs text-slate-500">
+          ▎ 基于当前积分榜 + 蒙特卡洛模拟（5000 次）· 阈值 99% 视为确定
         </div>
       </section>
       <section class="cockpit-section">
-        <h2 class="cockpit-section-title">🏆 Elo 战力 Top 16</h2>
-        <div class="cockpit-top16 pr-1">
-          ${top16.map((t, i) => eloRow(i + 1, t, maxElo, minElo)).join('')}
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="cockpit-section-title m-0">🏅 最佳第 3 名竞争</h2>
+          <a href="#/bracket" class="text-xs text-blue-400 hover:underline">对阵 →</a>
+        </div>
+        <div class="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+          ${(qual.best_thirds || []).slice(0, 8).map((t, i) => `
+            <div class="flex items-center justify-between text-sm bg-slate-900 rounded px-2 py-1.5 border border-slate-800">
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-slate-500 w-4">${i + 1}</span>
+                <span>${t.flag_emoji || ''}</span>
+                <span class="font-medium">${escapeHtml(t.name_zh)}</span>
+                <span class="text-xs text-slate-500">${t.group_name}组</span>
+              </div>
+              <div class="text-xs font-bold ${t.advance_prob >= 50 ? 'text-emerald-400' : 'text-slate-400'}">${t.advance_prob}%</div>
+            </div>
+          `).join('')}
+          ${!qual.best_thirds || qual.best_thirds.length === 0 ? '<div class="text-slate-500 text-sm text-center py-4">暂无数据</div>' : ''}
         </div>
       </section>
     </div>
 
-    <!-- 24h 时间线 -->
+    <!-- 未来关键战 -->
     <section class="cockpit-section mb-4">
-      <h2 class="cockpit-section-title">📅 未来 24 小时开赛时间线（北京时间）</h2>
-      <div class="text-xs text-slate-500 mb-2">▎ 每格 = 1 小时，色深 = 该小时比赛数</div>
-      <div class="cockpit-timeline">
-        ${hourBuckets.map((bucket, h) => hourCell(h, bucket)).join('')}
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="cockpit-section-title m-0">⚔️ 未来 72 小时关键战</h2>
+        <a href="#/schedule" class="text-xs text-blue-400 hover:underline">完整赛程 →</a>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+        ${critical.length ? critical.map(m => criticalMatchCard(m)).join('') : '<div class="text-slate-500 text-sm col-span-full text-center py-6">未来 72 小时内无比赛</div>'}
       </div>
     </section>
 
-    <!-- 16 球场 -->
-    <section class="cockpit-section mb-4">
-      <h2 class="cockpit-section-title">🏟 16 个球场赛事分布</h2>
-      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-        ${stadiums.map(s => stadiumCard(s)).join('')}
-      </div>
-    </section>
+    <!-- 模型共识 + 市场分歧 -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+      <section class="cockpit-section">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="cockpit-section-title m-0">🧠 模型高共识预测</h2>
+          <a href="#/accuracy" class="text-xs text-blue-400 hover:underline">准确率 →</a>
+        </div>
+        <div class="space-y-2">
+          ${consensus.length ? consensus.map(m => `
+            <a href="#/match/${m.match_id}" class="block bg-slate-900 rounded-xl p-3 border border-slate-800 hover:border-slate-600 transition">
+              <div class="flex items-center justify-between text-sm mb-2">
+                <span class="font-bold text-slate-200">${m.home_team.flag_emoji || ''} ${escapeHtml(m.home_team.name_zh || m.home_team.fifa_code)} vs ${escapeHtml(m.away_team.name_zh || m.away_team.fifa_code)} ${m.away_team.flag_emoji || ''}</span>
+                <span class="text-xs text-emerald-400 font-bold">置信 ${(Math.max(...Object.values(m.prediction.consensus || {})) * 100).toFixed(0)}%</span>
+              </div>
+              ${consensusBars(m.prediction)}
+            </a>
+          `).join('') : '<div class="text-slate-500 text-sm text-center py-4">暂无高共识场次</div>'}
+        </div>
+      </section>
+      <section class="cockpit-section">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="cockpit-section-title m-0">💰 市场 vs 模型分歧</h2>
+          <a href="#/odds" class="text-xs text-blue-400 hover:underline">赔率 →</a>
+        </div>
+        <div class="space-y-2">
+          ${divergence.length ? divergence.slice(0, 5).map(d => `
+            <a href="#/match/${d.match_id}" class="block bg-slate-900 rounded-xl p-3 border border-slate-800 hover:border-slate-600 transition">
+              <div class="flex items-center justify-between text-sm mb-1">
+                <span class="font-bold text-slate-200">${escapeHtml(d.home_team.name_zh || d.home_team.fifa_code)} vs ${escapeHtml(d.away_team.name_zh || d.away_team.fifa_code)}</span>
+                <span class="text-xs ${d.tier === 'strong' ? 'text-rose-400' : 'text-amber-400'} font-bold">${d.tier === 'strong' ? '强价值' : '价值'}</span>
+              </div>
+              <div class="text-xs text-slate-400">
+                模型 ${(d.model_prob * 100).toFixed(1)}% · 市场 ${(d.market_prob * 100).toFixed(1)}% · 偏离 ${((d.model_prob - d.market_prob) * 100).toFixed(1)}pp
+              </div>
+            </a>
+          `).join('') : '<div class="text-slate-500 text-sm text-center py-4">暂无赔率数据</div>'}
+        </div>
+      </section>
+    </div>
 
-    <!-- 数据状态 -->
+    <!-- Elo Top 5 + 快速入口 -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+      <section class="cockpit-section">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="cockpit-section-title m-0">🏆 Elo 战力 Top 5</h2>
+          <a href="#/elo" class="text-xs text-blue-400 hover:underline">完整榜单 →</a>
+        </div>
+        <div class="space-y-1.5">
+          ${eloTop.length ? eloTop.map((t, i) => `
+            <a href="#/team/${t.fifa_code}" class="flex items-center justify-between bg-slate-900 rounded px-2 py-1.5 border border-slate-800 hover:border-slate-600 transition">
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-slate-500 w-4">${i + 1}</span>
+                <span>${t.flag_emoji || ''}</span>
+                <span class="font-medium text-sm">${escapeHtml(t.name_zh)}</span>
+              </div>
+              <span class="text-sm font-bold text-emerald-400">${t.elo_rating}</span>
+            </a>
+          `).join('') : '<div class="text-slate-500 text-sm text-center py-4">暂无数据</div>'}
+        </div>
+      </section>
+      <section class="cockpit-section lg:col-span-2">
+        <h2 class="cockpit-section-title m-0 mb-3">🚀 快速入口</h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          ${quickLinkCard('📅', '赛程', '今日/明日/完整时间线', '#/schedule')}
+          ${quickLinkCard('📊', '积分榜', '12 组实时排名', '#/groups')}
+          ${quickLinkCard('🏆', '晋级路线', 'Bracket 32 强对阵', '#/bracket')}
+          ${quickLinkCard('🎲', '出线模拟', '蒙特卡洛概率', '#/simulator')}
+          ${quickLinkCard('⚽', '48 球队', 'Elo / 赛程 / 球员', '#/teams')}
+          ${quickLinkCard('💰', '赔率', '市场 vs 模型', '#/odds')}
+          ${quickLinkCard('🎯', '准确率', '模型复盘', '#/accuracy')}
+          ${quickLinkCard('🧪', '权重扫描 v0.7.4', '最佳权重 Elo/G2 配比', '#/elo')}
+          ${quickLinkCard('📡', '健康', '数据源状态', '#/health')}
+        </div>
+      </section>
+    </div>
+
+    <!-- 页脚 -->
     <div class="text-center text-xs text-slate-600 py-2">
-      数据源：${escapeHtml(allMatches[0] ? (allMatches[0].data_source || 'worldcupstats.football') : '未知')} ·
-      共 ${allMatches.length} 场赛事 · 完赛率 ${allMatches.length ? ((finished.length / allMatches.length) * 100).toFixed(1) : '0'}%
+      v0.14.2 总览去重设计 · 数据聚合自赛程 / 积分 / 模拟 / 赔率 / Elo 多模块 · 生成于 ${new Date(data.generated_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}
     </div>
   `;
 
@@ -2183,11 +2220,12 @@ async function renderElo() {
             <button onclick="setEloModel('glicko2')" class="text-xs px-3 py-1.5 transition ${_eloModel === 'glicko2' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-cyan-400'}">⚡ Glicko-2 v3</button>
             <button onclick="setEloModel('blend')" class="text-xs px-3 py-1.5 transition ${_eloModel === 'blend' ? 'bg-gradient-to-r from-violet-600 to-cyan-600 text-white' : 'text-slate-400 hover:text-violet-400'}">🧠 Blend ⭐ (默认)</button>
             <button onclick="setEloModel('adaptive')" class="text-xs px-3 py-1.5 transition ${_eloModel === 'adaptive' ? 'bg-gradient-to-r from-emerald-600 to-cyan-600 text-white' : 'text-slate-400 hover:text-emerald-400'}">🌱 Adaptive <span class="text-[9px]">v7.5</span></button>
+            <button onclick="setEloModel('marketblend')" class="text-xs px-3 py-1.5 transition ${_eloModel === 'marketblend' ? 'bg-gradient-to-r from-amber-500 to-rose-500 text-white' : 'text-slate-400 hover:text-amber-400'}">💰 MarketBlend <span class="text-[9px]">v7c</span></button>
             <!-- v0.8.1 关停: Calibrated 实验未达 1.5pp 门槛,UI 移除 -->
 
           </div>
           <span class="text-[10px] text-slate-500 hidden md:inline">
-            ${_eloModel === 'elo' ? '· Hicruben Elo (v1)' : _eloModel === 'glicko2' ? '· 913 场 walk-forward · 准确率 62.7%' : _eloModel === 'adaptive' ? '· 按距上次比赛天数自动调 w_g2' : '· Elo + Glicko-2 等权 (w_elo=0.5)'}
+            ${_eloModel === 'elo' ? '· Hicruben Elo (v1)' : _eloModel === 'glicko2' ? '· 913 场 walk-forward · 准确率 62.7%' : _eloModel === 'adaptive' ? '· 按距上次比赛天数自动调 w_g2' : _eloModel === 'marketblend' ? '· Elo + Glicko-2 + 市场赔率 0.4/0.3/0.3' : '· Elo + Glicko-2 等权 (w_elo=0.5)'}
           </span>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-7 gap-3 items-center">
@@ -2416,6 +2454,7 @@ async function _renderEloPredict(homeCode, awayCode) {
   if (model === 'elo') return _renderEloM1Predict(homeCode, awayCode);
   if (model === 'glicko2') return _renderGlicko2Predict(homeCode, awayCode);
   if (model === 'adaptive') return _renderAdaptivePredict(homeCode, awayCode);
+  if (model === 'marketblend') return _renderMarketBlendPredict(homeCode, awayCode);
   if (model === 'calibrated') return _renderBlendPredict(homeCode, awayCode);  // v0.8.1 关停后 fallback
   return _renderBlendPredict(homeCode, awayCode);
 }
@@ -2646,6 +2685,86 @@ async function _renderAdaptivePredict(homeCode, awayCode) {
     `;
   } catch (e) {
     return '<div class="text-rose-400 text-sm text-center py-4">Adaptive 预测失败：' + escapeHtml(e.message || '') + '</div>';
+  }
+}
+
+// v0.13.0 MarketBlend: Elo + Glicko-2 + 市场赔率三方融合
+async function _renderMarketBlendPredict(homeCode, awayCode) {
+  try {
+    const b = await apiWithRetry('/elo/predict-market-blend/' + homeCode + '/' + awayCode);
+    const probs = b.blended.probabilities;
+    const hWin = (probs.home_win * 100).toFixed(1);
+    const draw = (probs.draw * 100).toFixed(1);
+    const aWin = (probs.away_win * 100).toFixed(1);
+    const maxProb = Math.max(probs.home_win, probs.draw, probs.away_win);
+    const winnerText = maxProb === probs.home_win ? '主胜倾向' : maxProb === probs.away_win ? '客胜倾向' : '平局倾向';
+    const winnerColor = maxProb === probs.home_win ? 'text-emerald-400' : maxProb === probs.away_win ? 'text-rose-400' : 'text-amber-400';
+    const weights = b.blended.weights;
+    const isFallback = b.fallback_reason === 'market_odds_unavailable';
+    const marketBlock = b.market ? `
+      <div class="bg-slate-800/40 rounded p-2">
+        <div class="text-[10px] text-slate-500">💰 市场 (${escapeHtml(b.market.bookmaker)})</div>
+        <div class="text-[11px] font-mono text-amber-400">
+          ${(b.market.probabilities.home_win * 100).toFixed(1)} / ${(b.market.probabilities.draw * 100).toFixed(1)} / ${(b.market.probabilities.away_win * 100).toFixed(1)}
+        </div>
+        <div class="text-[9px] text-slate-600">赔率 ${b.market.odds.home_win} / ${b.market.odds.draw} / ${b.market.odds.away_win}</div>
+      </div>
+    ` : `
+      <div class="bg-slate-800/40 rounded p-2">
+        <div class="text-[10px] text-slate-500">💰 市场</div>
+        <div class="text-[11px] text-slate-500">无本地赔率</div>
+        <div class="text-[9px] text-amber-500">已 fallback</div>
+      </div>
+    `;
+    return `
+      <div class="space-y-3">
+        <div>
+          <div class="flex justify-between text-sm mb-2">
+            <span>主胜 <b class="text-emerald-400">${hWin}%</b></span>
+            <span>平 <b class="text-amber-400">${draw}%</b></span>
+            <span>客胜 <b class="text-rose-400">${aWin}%</b></span>
+          </div>
+          <div class="flex h-3 rounded-full overflow-hidden bg-slate-800">
+            <div class="bg-emerald-500" style="width:${hWin}%"></div>
+            <div class="bg-amber-500" style="width:${draw}%"></div>
+            <div class="bg-rose-500" style="width:${aWin}%"></div>
+          </div>
+        </div>
+        <div class="flex items-center justify-center gap-2 text-[10px] text-slate-500">
+          <span>权重</span>
+          <span class="font-mono text-violet-400">Elo ${weights.elo.toFixed(1)}</span>
+          <span>/</span>
+          <span class="font-mono text-cyan-400">G2 ${weights.glicko2.toFixed(1)}</span>
+          <span>/</span>
+          <span class="font-mono text-amber-400">Mkt ${weights.market.toFixed(1)}</span>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center">
+          <div class="bg-slate-800/40 rounded p-2">
+            <div class="text-[10px] text-slate-500">📊 Elo M1</div>
+            <div class="text-[11px] font-mono text-violet-400">${(b.elo.probabilities.home_win * 100).toFixed(1)} / ${(b.elo.probabilities.draw * 100).toFixed(1)} / ${(b.elo.probabilities.away_win * 100).toFixed(1)}</div>
+          </div>
+          <div class="bg-slate-800/40 rounded p-2">
+            <div class="text-[10px] text-slate-500">⚡ Glicko-2</div>
+            <div class="text-[11px] font-mono text-cyan-400">${(b.glicko2.probabilities.home_win * 100).toFixed(1)} / ${(b.glicko2.probabilities.draw * 100).toFixed(1)} / ${(b.glicko2.probabilities.away_win * 100).toFixed(1)}</div>
+          </div>
+          ${marketBlock}
+        </div>
+        <div class="text-center">
+          <span class="text-xs text-slate-500">结论：</span>
+          <span class="${winnerColor} font-bold">${winnerText}</span>
+          <span class="text-xs text-slate-500 ml-2">（MarketBlend 最高概率 ${(maxProb * 100).toFixed(1)}%）</span>
+        </div>
+        <div class="text-center text-[10px] ${isFallback ? 'text-amber-500' : 'text-slate-600'}">
+          💰 MarketBlend · ${isFallback ? '市场赔率不可用, 已 fallback 到 Elo + Glicko-2' : 'Elo + Glicko-2 + 市场赔率 0.4/0.3/0.3'}
+        </div>
+      </div>
+    `;
+  } catch (e) {
+    if (e.message && e.message.includes('404')) {
+      const fallback = await _renderEloM1Predict(homeCode, awayCode);
+      return fallback + '<div class="text-center text-amber-400 text-[10px] mt-1">⚠️ MarketBlend 无法预测, 已降级到 Elo M1</div>';
+    }
+    return '<div class="text-rose-400 text-sm text-center py-4">MarketBlend 预测失败：' + escapeHtml(e.message || '') + '</div>';
   }
 }
 
@@ -2903,9 +3022,8 @@ function bestModelLabel(byModel) {
 }
 
 function focusCard(m) {
-  const tz = m.stadium && m.stadium.timezone ? m.stadium.timezone : 'UTC';
-  const bj = fmtBeijingFromTZ(m.kickoff_at, tz, true);
-  const cd = countdownText(m.kickoff_at, tz);
+  const { full } = fmtDate(m.kickoff_at);
+  const cd = countdownText(m.kickoff_at);
   const home = m.home_team || { name_zh: m.home_team_placeholder || '待定', flag_emoji: '🏳️' };
   const away = m.away_team || { name_zh: m.away_team_placeholder || '待定', flag_emoji: '🏳️' };
   const score = (m.status === 'finished' || (m.home_score !== null && m.away_score !== null))
@@ -2914,7 +3032,7 @@ function focusCard(m) {
   return `
     <a href="#/match/${m.id}" class="block bg-slate-900 hover:bg-slate-800 rounded-xl p-3 border border-slate-800 transition">
       <div class="flex items-center justify-between mb-2">
-        <span class="text-xs text-slate-500">${bj} 北京</span>
+        <span class="text-xs text-slate-500">${full} 北京</span>
         <span class="text-xs ${m.status === 'finished' ? 'text-slate-400' : 'text-emerald-400'}">${cd || statusBadgeText(m.status)}</span>
       </div>
       <div class="flex items-center justify-between gap-2">
@@ -3100,9 +3218,22 @@ function showSkeleton(type) {
  * @param {Error|string} err
  * @param {Function} retryFn - 点击"重试"时调用，可为 null
  */
+// v0.13: 重试闭包注册表,避免 renderError 字符串化箭头函数丢失局部变量
+window.__retryFns = window.__retryFns || {};
+let __retryIdCounter = 0;
+window.__runRetry = (id) => {
+  const fn = window.__retryFns[id];
+  if (fn) fn();
+};
+
 function renderError(err, retryFn) {
   const msg = (err && err.message) ? err.message : (typeof err === 'string' ? err : '未知错误');
-  const retryAttr = retryFn ? `onclick="(${retryFn.toString()})()"` : '';
+  let retryAttr = '';
+  if (retryFn) {
+    const rid = `retry_${++__retryIdCounter}_${Date.now()}`;
+    window.__retryFns[rid] = retryFn;
+    retryAttr = `onclick="window.__runRetry('${rid}')"`;
+  }
   return `
     <div class="state-card state-card-error text-center">
       <div class="text-5xl mb-3">😵</div>
@@ -3510,10 +3641,10 @@ function renderBracketColumnSummary(label, matches, expectedCount, placeholderHi
     .sort((a, b) => a - b);
   let rangeText = '';
   if (times.length >= 2) {
-    const fmt = d => `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const fmt = iso => _beijingDateString(iso).slice(5);
     rangeText = `${fmt(times[0])} ~ ${fmt(times[times.length - 1])}`;
   } else if (times.length === 1) {
-    rangeText = `${String(times[0].getMonth() + 1).padStart(2, '0')}-${String(times[0].getDate()).padStart(2, '0')}`;
+    rangeText = _beijingDateString(times[0]).slice(5);
   }
 
   // 提取场地（去重，最多 3 个）
@@ -3578,10 +3709,9 @@ function renderBracketNode(m, positionLabel) {
   let timeText = '';
   if (m.kickoff_at) {
     try {
-      const tz = (m.stadium && m.stadium.timezone) || 'UTC';
-      timeText = fmtBeijingFromTZ(m.kickoff_at, tz, true);
+      timeText = fmtDate(m.kickoff_at).full;
     } catch (e) {
-      timeText = new Date(m.kickoff_at).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
+      timeText = new Date(m.kickoff_at).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric', timeZone: 'Asia/Shanghai' });
     }
   }
 
@@ -3686,7 +3816,7 @@ function renderBracketNodeReal(m, positionLabel) {
   let timeText = '';
   if (m.kickoff_at) {
     try {
-      timeText = new Date(m.kickoff_at).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
+      timeText = new Date(m.kickoff_at).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric', timeZone: 'Asia/Shanghai' });
     } catch (e) {
       timeText = '';
     }
@@ -3723,7 +3853,7 @@ function renderBracketNodeReal(m, positionLabel) {
     `;
   }
 
-  const linkHref = isDetermined && m.match_number ? `#/match/${m.match_number}` : '#/bracket';
+  const linkHref = isDetermined && m.id ? `#/match/${m.id}` : '#/bracket';
 
   return `
     <a href="${linkHref}" class="bracket-node ${statusBorder} ${statusBg}" title="${escapeHtml(positionLabel)} · ${escapeHtml(home.name_zh)} vs ${escapeHtml(away.name_zh)}">
@@ -4337,7 +4467,7 @@ async function renderHealth() {
   // v0.6.0: 数据源健康 dashboard
   let data;
   try {
-    data = await apiWithRetry('/api/health/sources');
+    data = await apiWithRetry('/health/sources');
   } catch (e) {
     $('#app').innerHTML = `<div class="p-8 text-center text-red-600">数据源健康检查失败: ${e.message}</div>`;
     return;

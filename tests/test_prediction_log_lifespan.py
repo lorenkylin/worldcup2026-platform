@@ -209,9 +209,16 @@ def test_auto_log_predictions_subset_models():
         db.close()
 
 
-def test_run_periodic_refresh_includes_predictions_step():
+def test_run_periodic_refresh_includes_predictions_step(monkeypatch):
     """run_periodic_refresh 应包含 predictions_added / by_model 字段 (v0.7.0b step 3)."""
+    from app.services import periodic_refresh
     from app.services.periodic_refresh import run_periodic_refresh
+
+    # 隔离外部多源同步：测试只关心 predictions 步骤被正确编排
+    monkeypatch.setattr(
+        "app.services.multi_source_sync.full_sync",
+        lambda _db: {"ok": True, "primary_source": "test"},
+    )
 
     db = app_db.SessionLocal()
     try:

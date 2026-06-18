@@ -5,6 +5,8 @@
   2. 可选：用 football-data.co 更新已有 match 元数据（status / score / kickoff_at）
      - 仅当配置 enabled + 有 api_key 时执行
      - 只更新已有比赛，不创建新比赛（避免与 wc26 主源冲突）
+  3. (v0.7.0b) 自动写库：未来 7+1 天比赛 prediction_log 自动累积
+  4. (v0.13.0) 自动拉取/更新未来 N 天赔率
 
 幂等性:
   - snapshot 同一 bookmaker + 同一秒（精度 1s）会被去重（防止重复打点）
@@ -243,7 +245,7 @@ def refresh_match_metadata_from_football_data(
 
 
 def run_periodic_refresh(db: Session, fb_client=None) -> dict:
-    """编排 6h 周期刷新: snapshot + 可选 fb-data 更新.
+    """编排 6h 周期刷新: 全量同步 + snapshot + 可选 fb-data 更新.
 
     Args:
         db: SQLAlchemy Session.
@@ -251,6 +253,7 @@ def run_periodic_refresh(db: Session, fb_client=None) -> dict:
 
     Returns:
         {
+          "full_sync_status": "ok"/"error",
           "snapshots_added": N,
           "fb_status": "ok"/"skipped"/"error",
           "fb_matches_updated": N,
@@ -258,6 +261,21 @@ def run_periodic_refresh(db: Session, fb_client=None) -> dict:
         }
     """
     result = {"executed_at": datetime.now(timezone.utc).isoformat()}
+
+    # Step 0 (v0.14.0): 多源全量同步（API-Football 优先 → worldcup26.ir 兜底）
+    try:
+        from app.services.multi_source_sync import full_sync  # 避免循环 import
+
+        full_result = full_sync(db)
+        result["full_sync_status"] = "ok" if full_result.get("ok") else "error"
+        result["full_sync_source"] = full_result.get("primary_source", "unknown")
+        if full_result.get("api_football_error"):
+            result["full_sync_api_football_error"] = full_result["api_football_error"]
+        if full_result.get("worldcup26_error"):
+            result["full_sync_worldcup26_error"] = full_result["worldcup26_error"]
+    except Exception as exc:
+        result["full_sync_status"] = "error"
+        result["full_sync_error"] = str(exc)[:200]
 
     # Step 1: odds snapshot 打点(总执行,即使 fb-data 失败也不影响)
     try:
@@ -294,5 +312,17 @@ def run_periodic_refresh(db: Session, fb_client=None) -> dict:
     except Exception as exc:
         result["predictions_status"] = "error"
         result["predictions_error"] = str(exc)[:200]
+
+    # Step 4 (v0.13.0): 自动拉取/更新未来 N 天赔率
+    try:
+        from app.services.odds_api_client import refresh_odds  # 避免循环 import
+
+        odds_result = refresh_odds(db)
+        result["odds_fetched"] = odds_result["fetched"]
+        result["odds_written"] = odds_result["written"]
+        result["odds_status"] = odds_result.get("status", "ok")
+    except Exception as exc:
+        result["odds_status"] = "error"
+        result["odds_error"] = str(exc)[:200]
 
     return result

@@ -1,9 +1,10 @@
 """Pydantic 数据模型（请求/响应 schema）."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_serializer
 
 
 class TeamOut(BaseModel):
@@ -93,6 +94,14 @@ class MatchOut(BaseModel):
     data_source: str = "manual"
     events: list[MatchEventOut] = []
     stats: list[MatchStatsOut] = []
+
+    @field_serializer("kickoff_at")
+    def serialize_kickoff_at(self, dt: datetime) -> str:
+        """DB 存 UTC，API 返回北京时间 ISO-8601（含 +08:00 偏移）."""
+        if dt is None:
+            return None
+        utc = dt.replace(tzinfo=timezone.utc)
+        return utc.astimezone(ZoneInfo("Asia/Shanghai")).isoformat()
 
 
 class GroupStandingOut(BaseModel):

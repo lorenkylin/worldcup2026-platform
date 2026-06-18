@@ -30,6 +30,7 @@ from app.services.bracket_logic import (
     rank_third_place_teams,
 )
 from app.services.elo import HOME_BONUS, match_prob
+from app.services.elo_params import elo_to_lambda
 from app.services.glicko2 import predict_outcome as g2_predict_outcome, lookup_glicko2_rating
 
 
@@ -205,18 +206,6 @@ def _poisson_sample(lam: float, rng: random.Random) -> int:
             return k - 1
 
 
-def _elo_to_lambda(home_elo: float, away_elo: float) -> Tuple[float, float]:
-    """Elo → 期望进球 lambda (简化复刻 v0.3.0 逻辑)."""
-    # 与 prediction.py 保持一致: HOME_ADVANTAGE=80, BASE_LAMBDA=1.3
-    HOME_ADVANTAGE = 80
-    BASE_LAMBDA = 1.3
-    GOAL_PER_ELO_DIFF = 0.005
-    diff = home_elo - away_elo + HOME_ADVANTAGE
-    h_lam = max(0.3, BASE_LAMBDA + diff * GOAL_PER_ELO_DIFF)
-    a_lam = max(0.3, BASE_LAMBDA - diff * GOAL_PER_ELO_DIFF)
-    return h_lam, a_lam
-
-
 def _load_group_matches(db: Session) -> List[_GroupMatchLite]:
     """载入所有小组赛比赛 + 已完赛比分."""
     out = []
@@ -261,7 +250,7 @@ def _simulate_group_stage(
         else:
             elo_h = elo_cache.elo.get(h, 1500)
             elo_a = elo_cache.elo.get(a, 1500)
-            h_lam, a_lam = _elo_to_lambda(elo_h, elo_a)
+            h_lam, a_lam = elo_to_lambda(elo_h, elo_a)
             h_lam = min(h_lam, 5.0)
             a_lam = min(a_lam, 5.0)
             hg = _poisson_sample(h_lam, rng)
@@ -618,7 +607,7 @@ def _resolve_r32_slots_for_sim(
 ) -> List[Dict[str, Optional[int]]]:
     """解析 R32 16 个槽位,返回 [{home_id, away_id}, ...].
 
-    关键: 复用 bracket_logic._assign_third_place_slots 的贪心分配算法,
+    关键: 复用 bracket_logic._assign_third_place_slots 的 FIFA Annex C 官方映射,
     避免同一支第 3 名队伍被多个 3XXX 槽位重复选中。
     """
     # 1) 按 group 聚合 standings (供 _1/_2 解析)
@@ -646,7 +635,7 @@ def _resolve_r32_slots_for_sim(
     )
     top_8_thirds = thirds_flat[:TOTAL_PLAYOFF_THIRD_PLACES]
 
-    # 3) 复用 bracket_logic 的贪心分配
+    # 3) 复用 bracket_logic 的 FIFA Annex C 官方映射
     # 构造 StandingRow-like 对象
     class _StubTeam:
         def __init__(self, group_name: str):

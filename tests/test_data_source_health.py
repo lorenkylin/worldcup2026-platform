@@ -1,6 +1,7 @@
-"""数据源健康检查单测 (v0.6.0+)."""
+"""数据源健康检查单测 (v0.14.0+)."""
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -11,8 +12,13 @@ PROJECT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_DIR))
 
 from app.services.data_source_health import (
-    SOURCES, _check_source, get_health_summary, check_all_sources,
+    SOURCES, _check_source, _check_api_football_health, get_health_summary, check_all_sources,
 )
+
+
+def _source_by_id(source_id: str):
+    """按 id 取数据源定义."""
+    return next(s for s in SOURCES if s["id"] == source_id)
 
 
 class TestCheckSource:
@@ -25,7 +31,7 @@ class TestCheckSource:
 
             with patch("app.services.data_source_health.settings") as mock_settings:
                 mock_settings.football_data_api_key = ""
-                result = _check_source(SOURCES[0])  # worldcup26
+                result = _check_source(_source_by_id("worldcup26"))
             assert result["status"] == "ok"
             assert result["status_code"] == 200
             assert "latency_ms" in result
@@ -39,7 +45,7 @@ class TestCheckSource:
 
             with patch("app.services.data_source_health.settings") as mock_settings:
                 mock_settings.football_data_api_key = ""
-                result = _check_source(SOURCES[0])
+                result = _check_source(_source_by_id("worldcup26"))
             assert result["status"] == "degraded"
             assert result["status_code"] == 404
 
@@ -49,7 +55,7 @@ class TestCheckSource:
             mock_client.return_value.__enter__.return_value.get.side_effect = httpx.TimeoutException("slow")
             with patch("app.services.data_source_health.settings") as mock_settings:
                 mock_settings.football_data_api_key = ""
-                result = _check_source(SOURCES[0])
+                result = _check_source(_source_by_id("worldcup26"))
             assert result["status"] == "timeout"
 
     def test_down_status(self):
@@ -58,7 +64,7 @@ class TestCheckSource:
             mock_client.return_value.__enter__.return_value.get.side_effect = Exception("DNS failed")
             with patch("app.services.data_source_health.settings") as mock_settings:
                 mock_settings.football_data_api_key = ""
-                result = _check_source(SOURCES[0])
+                result = _check_source(_source_by_id("worldcup26"))
             assert result["status"] == "down"
             assert "error" in result
 
@@ -71,12 +77,56 @@ class TestCheckSource:
 
             with patch("app.services.data_source_health.settings") as mock_settings:
                 mock_settings.football_data_api_key = "test_token_123"
-                _check_source(SOURCES[2])  # football-data
+                _check_source(_source_by_id("football_data"))
                 # 验证 X-Auth-Token header 注入
                 call_args = mock_client.return_value.__enter__.return_value.get.call_args
                 assert call_args is not None
                 headers = call_args.kwargs.get("headers", {})
                 assert headers.get("X-Auth-Token") == "test_token_123"
+
+
+class TestApiFootballHealth:
+    def test_disabled_when_no_key(self):
+        """未启用时返回 disabled."""
+        with patch("app.services.data_source_health.settings") as mock_settings:
+            mock_settings.api_football_enabled = False
+            mock_settings.api_football_key = ""
+            result = _check_api_football_health(_source_by_id("api_football"))
+            assert result["status"] == "disabled"
+
+    def test_ok_when_recent_success(self):
+        """30min 内有成功同步则 ok."""
+        now = "2026-06-17T12:00:00+00:00"
+        with patch("app.services.data_source_health.settings") as mock_settings:
+            mock_settings.api_football_enabled = True
+            mock_settings.api_football_key = "test"
+            with patch("app.services.data_source_health.sync_status.get_status") as mock_get:
+                mock_get.return_value = {
+                    "last_success_at": now,
+                    "consecutive_failures": 0,
+                }
+                with patch("app.services.data_source_health.datetime") as mock_dt:
+                    mock_dt.now.return_value = MagicMock(
+                        isoformat=lambda: now,
+                        __sub__=lambda self, other: MagicMock(total_seconds=lambda: 60),
+                    )
+                    mock_dt.fromisoformat = datetime.fromisoformat
+                    mock_dt.timezone = timezone
+                    result = _check_api_football_health(_source_by_id("api_football"))
+                    assert result["status"] == "ok"
+
+    def test_down_after_many_failures(self):
+        """连续失败 3 次返回 down."""
+        with patch("app.services.data_source_health.settings") as mock_settings:
+            mock_settings.api_football_enabled = True
+            mock_settings.api_football_key = "test"
+            with patch("app.services.data_source_health.sync_status.get_status") as mock_get:
+                mock_get.return_value = {
+                    "last_success_at": "2026-06-17T10:00:00+00:00",
+                    "consecutive_failures": 3,
+                }
+                result = _check_api_football_health(_source_by_id("api_football"))
+                assert result["status"] == "down"
 
 
 class TestHealthSummary:
@@ -117,10 +167,11 @@ class TestHealthSummary:
 
 
 class TestSourcesList:
-    def test_all_5_sources_defined(self):
-        """5 个数据源: wc26(2)+fb-data+statsbomb+wcstats."""
-        assert len(SOURCES) == 5
-        ids = [s["id"] for s in SOURCES]
+    def test_all_6_sources_defined(self):
+        """6 个数据源: api-football + wc26(2)+fb-data+statsbomb+wcstats."""
+        assert len(SOURCES) == 6
+        ids = {s["id"] for s in SOURCES}
+        assert "api_football" in ids
         assert "worldcup26" in ids
         assert "worldcup26_get" in ids
         assert "football_data" in ids

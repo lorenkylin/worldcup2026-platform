@@ -1,10 +1,10 @@
 """数据同步端点（手动触发）.
 
-零预算纯免费路线：
-- 主源：worldcup26.ir（无需 key）
-- 备份源：worldcupstats.football（爬虫）
+多源路线（v0.14.0）：
+- 主源：API-Football 免费层（需 key，默认关闭）
+- 备份源：worldcup26.ir（无需 key）→ worldcupstats.football（爬虫）
+- 低频增强：football-data.org（默认关闭）
 - 兜底：手动录入（admin 后台）
-- 已下线：API-Football、The Odds API
 """
 
 from datetime import datetime, timezone
@@ -13,12 +13,12 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db import get_db
-from app.services.worldcup26_sync import full_sync as wc26_full_sync
-from app.services.stadium_geo import fill_stadium_coordinates
-from app.services.recent_form import compute_and_persist_recent_form
+from app.db import get_db, SessionLocal
+from app.services.multi_source_sync import full_sync as multi_source_full_sync
+from app.services.multi_source_sync import live_sync as multi_source_live_sync
 from app.services.h2h_backfill import backfill_h2h_history
-from app.db import SessionLocal
+from app.services.recent_form import compute_and_persist_recent_form
+from app.services.stadium_geo import fill_stadium_coordinates
 
 
 router = APIRouter()
@@ -29,29 +29,49 @@ def verify_admin_token(x_admin_token: str = Header(...)) -> None:
         raise HTTPException(status_code=403, detail="管理员 Token 无效")
 
 
+@router.post("/full")
+def sync_full(
+    _: None = Depends(verify_admin_token),
+) -> dict:
+    """一键全量同步（API-Football 优先，失败回退 worldcup26.ir）.
+
+    同步范围：球队、球场、赛程、比分、积分榜、事件。
+    建议 6h 调用一次，或由 6h 周期调度器自动执行。
+    """
+    db = SessionLocal()
+    try:
+        result = multi_source_full_sync(db)
+        return {"ok": bool(result.get("ok")), "synced_at": result["synced_at"], "summary": result}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"同步失败：{str(exc)[:500]}")
+    finally:
+        db.close()
+
+
+@router.post("/live")
+def sync_live(
+    _: None = Depends(verify_admin_token),
+) -> dict:
+    """一键轻量实时同步：比分/状态（API-Football 优先，失败回退 worldcup26.ir）.
+
+    建议 15-20 分钟调用一次，或由调度器自动执行。
+    """
+    db = SessionLocal()
+    try:
+        result = multi_source_live_sync(db)
+        return {"ok": bool(result.get("ok")), "synced_at": result["synced_at"], "summary": result}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"同步失败：{str(exc)[:500]}")
+    finally:
+        db.close()
+
+
 @router.post("/worldcup26/full")
 def sync_worldcup26_full(
     _: None = Depends(verify_admin_token),
 ) -> dict:
-    """一键全量同步 worldcup26.ir（teams/stadiums/matches/standings/events）.
-
-    免费、无 key；建议每 15-30 分钟调用一次。
-    """
-    try:
-        result = wc26_full_sync()
-        # 同步完成后自动补全球场经纬度（首次部署或新增球场时）
-        coords = fill_stadium_coordinates()
-        result["stadium_coords"] = coords
-        # B2: 同步比赛结果后立即回填各队近期状态因子
-        db = SessionLocal()
-        try:
-            form = compute_and_persist_recent_form(db, lookback=5)
-        finally:
-            db.close()
-        result["recent_form"] = form
-        return {"ok": True, "synced_at": result["synced_at"], "summary": result}
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"同步失败：{str(exc)[:500]}")
+    """一键全量同步（兼容旧端点，实际调用多源编排器，API-Football 优先）."""
+    return sync_full(_)
 
 
 @router.post("/recent-form/backfill")
@@ -186,16 +206,17 @@ def run_backtest_endpoint(
 
 
 @router.get("/status")
-def sync_status(
+def sync_status_endpoint(
     _: None = Depends(verify_admin_token),
 ) -> dict:
     """同步配置与数据源状态."""
     return {
-        "data_strategy": "zero-budget / fully free",
-        "primary_source": "worldcup26.ir (https://worldcup26.ir)",
-        "backup_source": "worldcupstats.football (crawler)",
+        "data_strategy": "multi-source / free-first",
+        "primary_source": "api-football (free tier, 100 req/day)",
+        "primary_source_enabled": settings.api_football_enabled and bool(settings.api_football_key),
+        "backup_sources": ["worldcup26.ir", "worldcupstats.football"],
+        "enhance_source": "football-data.org (free tier, default off)",
         "fallback": "manual entry via /api/admin/* endpoints",
-        "deprecated_sources": ["API-Football", "The Odds API"],
         "sync_interval_seconds": settings.sync_interval_seconds,
         "scheduler_running": True,
     }

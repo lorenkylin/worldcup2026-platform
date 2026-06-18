@@ -15,8 +15,10 @@ from typing import List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.models import Team, Match, MatchEvent, H2HHistoricalMatch
 from app.schemas import PredictionOut
+from app.services.elo_params import elo_to_lambda
 from app.services.h2h_backfill import query_h2h_history
 
 
@@ -64,22 +66,11 @@ def elo_from_fifa_rank(rank: Optional[int]) -> int:
 
 
 # =============== 基础预测参数 ===============
-HOME_ADVANTAGE = 60.0  # 中立场地优势（世界杯是中性，但模拟赛仍有微调）
-GOAL_PER_ELO_DIFF = 0.0035
-BASE_LAMBDA = 1.35
 MAX_STARS = 5
 
 # B2: 近期状态因子系数（±10% λ 调整）
 RECENT_FORM_WEIGHT = 0.10
 RECENT_FORM_MAX = 15  # 5 场全胜 5*3=15
-
-
-def _elo_to_lambda(home_elo: float, away_elo: float) -> tuple[float, float]:
-    """将 Elo 分差转换为两队期望进球（中性 + 主场优势）。"""
-    diff = home_elo - away_elo + HOME_ADVANTAGE
-    home_lambda = BASE_LAMBDA + diff * GOAL_PER_ELO_DIFF
-    away_lambda = BASE_LAMBDA - diff * GOAL_PER_ELO_DIFF
-    return max(0.3, home_lambda), max(0.3, away_lambda)
 
 
 def _apply_recent_form(
@@ -291,15 +282,15 @@ def _factors_breakdown(
         }
     """
     elo_diff = home.elo_rating - away.elo_rating
-    elo_diff_with_advantage = elo_diff + HOME_ADVANTAGE
-    lambda_advantage = elo_diff_with_advantage * GOAL_PER_ELO_DIFF
+    elo_diff_with_advantage = elo_diff + settings.poisson_home_advantage
+    lambda_advantage = elo_diff_with_advantage * settings.poisson_goal_per_elo_diff
 
     return {
         "elo": {
             "home_elo": home.elo_rating,
             "away_elo": away.elo_rating,
             "diff": elo_diff,
-            "home_advantage": int(HOME_ADVANTAGE),
+            "home_advantage": int(settings.poisson_home_advantage),
             "contribution_to_lambda": round(lambda_advantage, 3),
         },
         "form": {
@@ -319,7 +310,7 @@ def _factors_breakdown(
         "lambda": {
             "home": round(home_lambda, 3),
             "away": round(away_lambda, 3),
-            "base": BASE_LAMBDA,
+            "base": settings.poisson_base_lambda,
         },
     }
 
@@ -413,7 +404,7 @@ def predict_match(
     整合 B1（Elo 校准）/ B2（近期状态 λ 调整）/ B3（H2H 查表）。
     """
     # B1: 用 fifa_rank 校准后的 Elo（已是 home.elo_rating，seed 时已校准）
-    home_lambda, away_lambda = _elo_to_lambda(home.elo_rating, away.elo_rating)
+    home_lambda, away_lambda = elo_to_lambda(home.elo_rating, away.elo_rating)
     home_lambda, away_lambda = _apply_recent_form(
         home_lambda, away_lambda, home.recent_form_points, away.recent_form_points
     )

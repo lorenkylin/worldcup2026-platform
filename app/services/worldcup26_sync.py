@@ -7,8 +7,10 @@
 """
 
 import json
+import re
 from datetime import datetime, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy.orm import Session
@@ -16,10 +18,11 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import SessionLocal
 from app.models import Match, MatchEvent, Stadium, Standing, Team, ApiUsageLog
+from app.services import data_quality
 
 
-BASE_URL = "https://worldcup26.ir"
-TIMEOUT = 20.0
+BASE_URL = settings.worldcup26_base_url
+TIMEOUT = float(getattr(settings, "worldcup26_timeout_seconds", 20))
 
 
 def _to_bool(v) -> bool:
@@ -45,13 +48,22 @@ def _to_int_or_none(v) -> Optional[int]:
     return int(v)
 
 
-def _parse_local_date(date_str: str) -> Optional[datetime]:
-    """解析 local_date (格式 06/11/2026 13:00)."""
+def _parse_local_date(date_str: str, stadium_tz: str = "UTC") -> Optional[datetime]:
+    """解析 local_date 并转换为 UTC naive 存储.
+
+    worldcup26.ir 的 `local_date` 是球场本地墙钟时间，需按 stadium.timezone
+    解析为 aware datetime 后再转 UTC，最终去掉 tzinfo 存入 DB。
+    """
     if not date_str:
         return None
     for fmt in ("%m/%d/%Y %H:%M", "%Y-%m-%d %H:%M", "%m/%d/%Y %H:%M:%S"):
         try:
-            return datetime.strptime(date_str, fmt)
+            local = datetime.strptime(date_str, fmt)
+            return (
+                local.replace(tzinfo=ZoneInfo(stadium_tz))
+                .astimezone(timezone.utc)
+                .replace(tzinfo=None)
+            )
         except ValueError:
             continue
     return None
@@ -105,6 +117,58 @@ def _extract_minute(scorer_text: str) -> int:
     return 0
 
 
+def _normalize_stadium_name(name: str) -> str:
+    """球场名规范化：忽略尾部 Stadium 与大小写，用于兜底匹配.
+
+    注意：只去尾部的 Stadium，保留 Field（如 GEHA Field at Arrowhead）。
+    否则 "GEHA Field at Arrowhead Stadium" 与 "GEHA Field at Arrowhead"
+    会被错误地匹配到不同 key，导致重复插入。
+    """
+    s = name.strip().lower()
+    s = re.sub(r"\s+stadium\s*$", "", s)
+    return s
+
+
+def _normalize_country(country: str) -> str:
+    """国家名规范化：处理 USA/United States 等变体，用于兜底匹配."""
+    s = (country or "").strip().lower()
+    if s in ("usa", "us", "united states of america"):
+        return "united states"
+    return s
+
+
+def _cleanup_stale_rows(db: Session) -> dict:
+    """同步后清理占位球队和 match_number 越界的孤儿比赛."""
+    deleted = {"placeholder_teams": 0, "orphan_matches": 0}
+
+    placeholder_ids = [
+        r[0]
+        for r in db.query(Team.id).filter(
+            (Team.name_en.like("Team %")) | (Team.fifa_code.op("GLOB")("[A-L][1-8]"))
+        ).all()
+    ]
+    if placeholder_ids:
+        db.query(Match).filter(Match.home_team_id.in_(placeholder_ids)).update(
+            {"home_team_id": None}, synchronize_session=False
+        )
+        db.query(Match).filter(Match.away_team_id.in_(placeholder_ids)).update(
+            {"away_team_id": None}, synchronize_session=False
+        )
+        deleted["placeholder_teams"] = db.query(Team).filter(
+            Team.id.in_(placeholder_ids)
+        ).delete(synchronize_session=False)
+
+    # 仅删除非手动的孤儿比赛（match_number 越界可能是占位/测试数据）
+    # 手动录入的比赛（admin/data_source='manual'）保留，避免误删人工测试数据
+    deleted["orphan_matches"] = db.query(Match).filter(
+        (Match.data_source != "manual")
+        & ((Match.match_number < 1) | (Match.match_number > 104))
+    ).delete(synchronize_session=False)
+
+    db.commit()
+    return deleted
+
+
 def fetch_json(path: str) -> Optional[dict]:
     """同步拉取 worldcup26.ir JSON 端点.
 
@@ -145,8 +209,20 @@ def sync_teams(db: Session) -> int:
     if not data:
         return 0
     teams_raw = data.get("teams", [])
+
+    teams = data_quality.deduplicate(
+        teams_raw,
+        key_func=lambda t: (t.get("fifa_code") or "").upper() or None,
+        keep="last",
+    )
+    data_quality.assert_unique(
+        teams,
+        key_func=lambda t: (t.get("fifa_code") or "").upper() or None,
+        label="worldcup26.ir teams",
+    )
+
     count = 0
-    for t in teams_raw:
+    for t in teams:
         en_name = t.get("name_en", "").strip()
         if not en_name:
             continue
@@ -175,24 +251,58 @@ def sync_stadiums(db: Session) -> int:
     if not data:
         return 0
     stadiums_raw = data.get("stadiums", [])
+
+    stadiums = data_quality.deduplicate(
+        stadiums_raw,
+        key_func=lambda s: (s.get("name_en") or "").strip() or None,
+        keep="last",
+    )
+    data_quality.assert_unique(
+        stadiums,
+        key_func=lambda s: (s.get("name_en") or "").strip() or None,
+        label="worldcup26.ir stadiums",
+    )
+
     count = 0
-    for s in stadiums_raw:
+    for s in stadiums:
         en_name = s.get("name_en", "").strip()
+        city = s.get("city_en", "")
+        country = s.get("country_en", "")
         if not en_name:
             continue
-        # 用 fifa_name 作为唯一键（FIFA 官方命名）
+        # 1) 精确匹配 name_en（唯一约束后优先）
         stadium = db.query(Stadium).filter(Stadium.name_en == en_name).first()
-        if not stadium:
+        # 2) 兜底：同名变体（如 Arrowhead / Arrowhead Stadium）+ 同城市/国家
+        #    国家做规范化，避免 DB 里是 "USA" 而 API 返回 "United States" 导致重复
+        if stadium is None and city and country:
+            target_key = _normalize_stadium_name(en_name)
+            norm_country = _normalize_country(country)
+            candidates = (
+                db.query(Stadium)
+                .filter(Stadium.city == city, Stadium.name_en != "")
+                .all()
+            )
+            for cand in candidates:
+                if (
+                    _normalize_country(cand.country) == norm_country
+                    and _normalize_stadium_name(cand.name_en) == target_key
+                ):
+                    stadium = cand
+                    break
+        if stadium is None:
             stadium = Stadium(
                 name_zh=en_name,
                 name_en=en_name,
-                city=s.get("city_en", ""),
-                country=s.get("country_en", ""),
+                city=city,
+                country=country,
             )
             db.add(stadium)
         else:
-            stadium.city = s.get("city_en", stadium.city)
-            stadium.country = s.get("country_en", stadium.country)
+            stadium.city = city or stadium.city
+            stadium.country = country or stadium.country
+            # 若原 name_en 是旧/短名称，可更新为 API 返回的正式名
+            if _normalize_stadium_name(stadium.name_en) == _normalize_stadium_name(en_name):
+                stadium.name_en = en_name
         count += 1
     db.commit()
     return count
@@ -210,7 +320,19 @@ def sync_matches(db: Session) -> int:
     data = fetch_json("/get/games")
     if not data:
         return 0
-    games = data.get("games", [])
+    games_raw = data.get("games", [])
+
+    # 使用前分析：去重 + 唯一性检查
+    games = data_quality.deduplicate(
+        games_raw,
+        key_func=lambda g: str(_to_int_or_none(g.get("id")) or ""),
+        keep="last",
+    )
+    data_quality.assert_unique(
+        games,
+        key_func=lambda g: str(_to_int_or_none(g.get("id")) or ""),
+        label="worldcup26.ir games",
+    )
 
     # 拉 wc26 teams 构建 wc26_id → fifa_code 映射（用于正确联表，避免 ID 错位）
     wc26_id_to_fifa: dict[int, str] = {}
@@ -235,6 +357,7 @@ def sync_matches(db: Session) -> int:
     print(f"[sync_matches] wc26_id → stadium_name 映射 {len(wc26_id_to_stadium_name)} 条")
 
     count = 0
+    now = data_quality.now_utc()
     for g in games:
         match_num = _to_int_or_none(g.get("id"))
         if match_num is None:
@@ -244,6 +367,12 @@ def sync_matches(db: Session) -> int:
         if not match:
             match = Match(match_number=match_num)
             db.add(match)
+
+        # 数据源优先级保护：manual 永不覆盖；api-football 在 6h 内不覆盖
+        if not data_quality.can_overwrite(
+            match.data_source, "worldcup26.ir", match.last_updated_at
+        ):
+            continue
 
         # 球队 ID 映射：用 fifa_code 联表（wc26 的 team_id 跟我们的 teams.id 不一致）
         home_team_id = _to_int_or_none(g.get("home_team_id"))
@@ -265,6 +394,7 @@ def sync_matches(db: Session) -> int:
 
         # 球场（用 name_en 联表，wc26 stadium_id 跟我们的 Stadium.id 不一致）
         stadium_wc26_id = _to_int_or_none(g.get("stadium_id"))
+        stadium = None
         if stadium_wc26_id:
             stadium_name = wc26_id_to_stadium_name.get(stadium_wc26_id)
             if stadium_name:
@@ -272,24 +402,27 @@ def sync_matches(db: Session) -> int:
                 if stadium:
                     match.stadium_id = stadium.id
 
+        # 状态机保护
+        is_finished = _to_bool(g.get("finished"))
+        time_elapsed = g.get("time_elapsed", "")
+        if is_finished:
+            new_status = "finished"
+        elif time_elapsed and time_elapsed not in ("", "scheduled", "notstarted"):
+            new_status = "live"
+        else:
+            new_status = "scheduled"
+        if not data_quality.is_status_transition_allowed(match.status, new_status):
+            continue
+
         # 比分
         home_score = _to_int_or_none(g.get("home_score"))
         away_score = _to_int_or_none(g.get("away_score"))
-        if home_score is not None and (match.home_score is None or match.data_source != "manual"):
+        if home_score is not None:
             match.home_score = home_score
-        if away_score is not None and (match.away_score is None or match.data_source != "manual"):
+        if away_score is not None:
             match.away_score = away_score
 
-        # 状态
-        is_finished = _to_bool(g.get("finished"))
-        time_elapsed = g.get("time_elapsed", "")
-        if match.data_source != "manual":
-            if is_finished:
-                match.status = "finished"
-            elif time_elapsed and time_elapsed not in ("", "scheduled", "notstarted"):
-                match.status = "live"
-            else:
-                match.status = "scheduled"
+        match.status = new_status
         match.time_elapsed = time_elapsed or match.time_elapsed or ""
 
         # 阶段与轮次
@@ -297,15 +430,16 @@ def sync_matches(db: Session) -> int:
         match.group_name = g.get("group", match.group_name) or match.group_name
         match.round_number = _to_int_or_none(g.get("matchday")) or match.round_number or 1
 
-        # 开球时间
-        kickoff = _parse_local_date(g.get("local_date", ""))
-        if kickoff:
+        # 开球时间：按球场本地时区解析后转 UTC 存储，并校验合理窗口
+        stadium_tz = stadium.timezone if stadium else "UTC"
+        kickoff = _parse_local_date(g.get("local_date", ""), stadium_tz)
+        if kickoff and data_quality.validate_kickoff_window(
+            kickoff.replace(tzinfo=timezone.utc), context=f"match {match_num}"
+        ):
             match.kickoff_at = kickoff
 
-        # 数据源（手动优先级最高）
-        if match.data_source != "manual":
-            match.data_source = "worldcup26.ir"
-        match.last_updated_at = datetime.now(timezone.utc)
+        match.data_source = "worldcup26.ir"
+        match.last_updated_at = now
         count += 1
 
     db.commit()
@@ -330,12 +464,24 @@ def _sync_events_for_finished_matches(db: Session, games: list[dict]) -> int:
         match = db.query(Match).filter(Match.match_number == match_num).first()
         if not match:
             continue
-        # 若已有手工事件则跳过
-        if db.query(MatchEvent).filter(MatchEvent.match_id == match.id).count() > 0:
-            continue
+        # 若已有事件则跳过（避免重复写入，手工事件也视为有效）
+        existing_keys = {
+            f"{e.event_type}:{e.minute}:{e.player_name}"
+            for e in db.query(MatchEvent).filter(MatchEvent.match_id == match.id).all()
+        }
 
-        home_scorers = _parse_scorers(g.get("home_scorers", ""))
+        def _event_key(scorer: str, team_id: Optional[int]) -> str:
+            return f"goal:{_extract_minute(scorer)}:{_clean_player_name(scorer)}"
+
+        home_scorers = data_quality.deduplicate(
+            _parse_scorers(g.get("home_scorers", "")),
+            key_func=lambda s: _event_key(s, match.home_team_id),
+            keep="last",
+        )
         for scorer in home_scorers:
+            key = _event_key(scorer, match.home_team_id)
+            if key in existing_keys:
+                continue
             event = MatchEvent(
                 match_id=match.id,
                 team_id=match.home_team_id,
@@ -345,10 +491,18 @@ def _sync_events_for_finished_matches(db: Session, games: list[dict]) -> int:
                 extra_info="worldcup26.ir 自动同步",
             )
             db.add(event)
+            existing_keys.add(key)
             count += 1
 
-        away_scorers = _parse_scorers(g.get("away_scorers", ""))
+        away_scorers = data_quality.deduplicate(
+            _parse_scorers(g.get("away_scorers", "")),
+            key_func=lambda s: _event_key(s, match.away_team_id),
+            keep="last",
+        )
         for scorer in away_scorers:
+            key = _event_key(scorer, match.away_team_id)
+            if key in existing_keys:
+                continue
             event = MatchEvent(
                 match_id=match.id,
                 team_id=match.away_team_id,
@@ -358,6 +512,7 @@ def _sync_events_for_finished_matches(db: Session, games: list[dict]) -> int:
                 extra_info="worldcup26.ir 自动同步",
             )
             db.add(event)
+            existing_keys.add(key)
             count += 1
 
     db.commit()
@@ -394,7 +549,8 @@ def sync_standings(db: Session) -> int:
         if t.fifa_code
     }
 
-    count = 0
+    # 扁平化并去重
+    entries: List[Tuple[str, int, dict]] = []
     for g in groups:
         group_name = g.get("name", "")
         for t in g.get("teams", []):
@@ -410,23 +566,39 @@ def sync_standings(db: Session) -> int:
             if not team_id:
                 print(f"[sync_standings] 跳过：fifa={fifa} 不在 teams 表")
                 continue
-            standing = (
-                db.query(Standing)
-                .filter_by(group_name=group_name, team_id=team_id)
-                .first()
-            )
-            if not standing:
-                standing = Standing(group_name=group_name, team_id=team_id)
-                db.add(standing)
-            standing.played = _to_int_or_none(t.get("mp")) or 0
-            standing.won = _to_int_or_none(t.get("w")) or 0
-            standing.drawn = _to_int_or_none(t.get("d")) or 0
-            standing.lost = _to_int_or_none(t.get("l")) or 0
-            standing.goals_for = _to_int_or_none(t.get("gf")) or 0
-            standing.goals_against = _to_int_or_none(t.get("ga")) or 0
-            standing.points = _to_int_or_none(t.get("pts")) or 0
-            standing.updated_at = datetime.now(timezone.utc)
-            count += 1
+            entries.append((group_name, team_id, t))
+
+    unique_entries = data_quality.deduplicate(
+        entries,
+        key_func=lambda e: f"{e[0]}:{e[1]}",
+        keep="last",
+    )
+    data_quality.assert_unique(
+        entries,
+        key_func=lambda e: f"{e[0]}:{e[1]}",
+        label="worldcup26.ir standings entries",
+    )
+
+    count = 0
+    now = data_quality.now_utc()
+    for group_name, team_id, t in unique_entries:
+        standing = (
+            db.query(Standing)
+            .filter_by(group_name=group_name, team_id=team_id)
+            .first()
+        )
+        if not standing:
+            standing = Standing(group_name=group_name, team_id=team_id)
+            db.add(standing)
+        standing.played = _to_int_or_none(t.get("mp")) or 0
+        standing.won = _to_int_or_none(t.get("w")) or 0
+        standing.drawn = _to_int_or_none(t.get("d")) or 0
+        standing.lost = _to_int_or_none(t.get("l")) or 0
+        standing.goals_for = _to_int_or_none(t.get("gf")) or 0
+        standing.goals_against = _to_int_or_none(t.get("ga")) or 0
+        standing.points = _to_int_or_none(t.get("pts")) or 0
+        standing.updated_at = now
+        count += 1
     db.commit()
     return count
 
@@ -454,6 +626,8 @@ def full_sync(db: Optional[Session] = None) -> dict:
             "standings": sync_standings(db),
             "synced_at": datetime.now(timezone.utc).isoformat(),
         }
+        # 同步后清理占位球队/孤儿比赛，结果不混入主 result 以保持可序列化
+        _cleanup_stale_rows(db)
         record_success(result)
         return result
     except Exception as exc:

@@ -403,6 +403,62 @@ def predict_blend(
     return result
 
 
+# === v0.13.0 MarketBlend (Elo + Glicko-2 + 市场赔率) ===
+
+@router.get("/elo/predict-market-blend/{home_code}/{away_code}")
+def predict_market_blend_endpoint(
+    home_code: str,
+    away_code: str,
+    match_id: Optional[int] = Query(None, description="比赛 ID, 提供时强制使用该场比赛赔率并自动记录 prediction_log"),
+    w_elo: float = Query(0.4, ge=0.0, le=1.0, description="Elo 权重 (0-1, 默认 0.4)"),
+    w_glicko2: float = Query(0.3, ge=0.0, le=1.0, description="Glicko-2 权重 (0-1, 默认 0.3)"),
+    w_market: float = Query(0.3, ge=0.0, le=1.0, description="市场赔率权重 (0-1, 默认 0.3)"),
+    db: Session = Depends(get_db),
+) -> Dict:
+    """v0.13.0 MarketBlend: Elo + Glicko-2 + 市场赔率 三方加权融合.
+
+    默认权重 0.4 / 0.3 / 0.3。当本地无市场赔率时自动 fallback 到 Elo + Glicko-2。
+    """
+    if abs((w_elo + w_glicko2 + w_market) - 1.0) > 1e-6:
+        raise HTTPException(status_code=422, detail="w_elo + w_glicko2 + w_market 必须等于 1.0")
+
+    from app.services.market_blend import predict_market_blend
+
+    result = predict_market_blend(
+        db=db,
+        home_code=home_code,
+        away_code=away_code,
+        match_id=match_id,
+        w_elo=w_elo,
+        w_glicko2=w_glicko2,
+        w_market=w_market,
+    )
+    if result.get("error"):
+        status_code = 404 if "不在" in result["error"] or "不在" in result["error"] else 400
+        raise HTTPException(status_code=status_code, detail=result["error"])
+
+    # 自动写 prediction_log (即使 market 赔率不可用导致 fallback, 也按请求 match_id 记录)
+    if match_id is not None:
+        try:
+            from app.services.prediction_log import record_prediction
+            blended = result["blended"]["probabilities"]
+            record_prediction(
+                db=db,
+                match_id=match_id,
+                model_version="v7c_market_blend",
+                pred_home_win=blended["home_win"],
+                pred_draw=blended["draw"],
+                pred_away_win=blended["away_win"],
+                elo_home=result.get("home", {}).get("elo"),
+                elo_away=result.get("away", {}).get("elo"),
+                source="market_blend",
+            )
+        except Exception as e:
+            print(f"[prediction_log] v7c_market_blend 写入失败: {e}")
+
+    return result
+
+
 # === 准确率 dashboard (v0.6.0+) ===
 
 @router.get("/elo/accuracy-stats")

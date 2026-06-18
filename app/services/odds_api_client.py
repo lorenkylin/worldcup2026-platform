@@ -16,18 +16,110 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 import time
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models import Match, OddsSnapshot, PredictionLog, Team
+from app.services.odds_service import aggregate_multi_bookmaker
 
 logger = logging.getLogger(__name__)
+
+
+# The Odds API 队名 → FIFA code 常见别名(与 DB name_en 有差异时兜底)
+_ODDS_API_TEAM_ALIASES: Dict[str, str] = {
+    "south korea": "KOR",
+    "korea republic": "KOR",
+    "united states": "USA",
+    "usa": "USA",
+    "bosnia and herzegovina": "BIH",
+    "bosnia & herzegovina": "BIH",
+    "ivory coast": "CIV",
+    "cote d'ivoire": "CIV",
+    "cape verde": "CPV",
+    "cape verde islands": "CPV",
+    "curaçao": "CUW",
+    "curacao": "CUW",
+    "dr congo": "COD",
+    "democratic republic of the congo": "COD",
+    "haiti": "HAI",
+    "jordan": "JOR",
+    "saudi arabia": "KSA",
+    "czech republic": "CZE",
+    "czechia": "CZE",
+    "england": "ENG",
+    "scotland": "SCO",
+    "wales": "WAL",
+    "northern ireland": "NIR",
+    "uruguay": "URU",
+    "paraguay": "PAR",
+    "ecuador": "ECU",
+    "peru": "PER",
+    "chile": "CHI",
+    "venezuela": "VEN",
+    "bolivia": "BOL",
+    "argentina": "ARG",
+    "brazil": "BRA",
+    "germany": "GER",
+    "france": "FRA",
+    "spain": "ESP",
+    "portugal": "POR",
+    "netherlands": "NED",
+    "belgium": "BEL",
+    "switzerland": "SUI",
+    "croatia": "CRO",
+    "serbia": "SRB",
+    "denmark": "DEN",
+    "sweden": "SWE",
+    "norway": "NOR",
+    "poland": "POL",
+    "ukraine": "UKR",
+    "turkey": "TUR",
+    "austria": "AUT",
+    "hungary": "HUN",
+    "romania": "ROU",
+    "slovakia": "SVK",
+    "slovenia": "SVN",
+    "russia": "RUS",
+    "greece": "GRE",
+    "israel": "ISR",
+    "egypt": "EGY",
+    "morocco": "MAR",
+    "nigeria": "NGA",
+    "senegal": "SEN",
+    "tunisia": "TUN",
+    "algeria": "ALG",
+    "cameroon": "CMR",
+    "ghana": "GHA",
+    "mali": "MLI",
+    "burkina faso": "BFA",
+    "south africa": "RSA",
+    "new zealand": "NZL",
+    "australia": "AUS",
+    "japan": "JPN",
+    "iran": "IRN",
+    "iraq": "IRQ",
+    "uzbekistan": "UZB",
+    "qatar": "QAT",
+    "canada": "CAN",
+    "mexico": "MEX",
+    "panama": "PAN",
+    "honduras": "HON",
+    "costa rica": "CRC",
+    "jamaica": "JAM",
+    "guatemala": "GUA",
+    "el salvador": "SLV",
+    "nicaragua": "NCA",
+    "dominican republic": "DOM",
+    "cuba": "CUB",
+}
 
 
 # === 滑动窗口限速 ===
@@ -124,10 +216,13 @@ def _fetch_mock(db: Session, target_dates: List[str]) -> List[Dict]:
     """Mock 赔率生成器:基于 DB 中未完赛比赛 + Elo 评分生成合理赔率.
 
     Args:
-        target_dates: ["2026-06-11", "2026-06-12", ...] ISO date list
+        target_dates: ["2026-06-11", "2026-06-12", ...] ISO date list(北京时间)
     Returns:
         [{match_id, bookmaker, home_win, draw, away_win, over_2_5, under_2_5, source, fetched_at}, ...]
     """
+    from zoneinfo import ZoneInfo
+
+    display_tz = ZoneInfo(settings.display_timezone)
     target_dt = [datetime.fromisoformat(d).date() for d in target_dates]
 
     matches = (
@@ -140,7 +235,11 @@ def _fetch_mock(db: Session, target_dates: List[str]) -> List[Dict]:
     fetched_at = datetime.now(timezone.utc)
 
     for m in matches:
-        if m.kickoff_at.date() not in target_dt:
+        if not m.kickoff_at:
+            continue
+        # 统一按北京时间(展示时区)过滤,与前端/admin 语义一致
+        beijing = m.kickoff_at.replace(tzinfo=timezone.utc).astimezone(display_tz)
+        if beijing.date() not in target_dt:
             continue
 
         home_elo = m.home_team.elo_rating if m.home_team and m.home_team.elo_rating else 1500
@@ -165,9 +264,16 @@ def _fetch_mock(db: Session, target_dates: List[str]) -> List[Dict]:
     return result
 
 
+def _normalize_team_name(name: Optional[str]) -> str:
+    """统一队名用于查找：小写、去首尾空格、压缩连续空格."""
+    if not name:
+        return ""
+    return re.sub(r"\s+", " ", name.strip().lower())
+
+
 # === The Odds API ===
-def _fetch_the_odds_api(target_dates: List[str]) -> List[Dict]:
-    """The Odds API 客户端(占位,真实接入需要 key).
+def _fetch_the_odds_api(db: Session, target_dates: List[str]) -> List[Dict]:
+    """The Odds API 客户端：解析响应并映射到 Match.id.
 
     API 文档: https://the-odds-api.com/liveapi/guides/v4/
     端点: GET /v4/sports/soccer/odds/?regions=uk&markets=h2h,totals&oddsFormat=decimal
@@ -195,9 +301,102 @@ def _fetch_the_odds_api(target_dates: List[str]) -> List[Dict]:
         logger.error("[odds_api] The Odds API 调用失败: %s", e)
         return []
 
-    # TODO: 解析 The Odds API 响应,映射到 Match.id (需要 team_name → fifa_code 映射)
-    # 当前实现返回空列表,占位
-    return []
+    # 队名查找表
+    teams = db.query(Team).all()
+    name_to_code: Dict[str, str] = {}
+    for t in teams:
+        name_to_code[_normalize_team_name(t.name_en)] = t.fifa_code
+        name_to_code[_normalize_team_name(t.name_zh)] = t.fifa_code
+    name_to_code.update({k: v for k, v in _ODDS_API_TEAM_ALIASES.items()})
+
+    display_tz = ZoneInfo(settings.display_timezone)
+    target_dt = {datetime.fromisoformat(d).date() for d in target_dates}
+
+    def _map_team(name: Optional[str]) -> Optional[str]:
+        return name_to_code.get(_normalize_team_name(name))
+
+    result: List[Dict] = []
+    fetched_at = datetime.now(timezone.utc)
+    for event in events or []:
+        home_name = event.get("home_team")
+        away_name = event.get("away_team")
+        home_code = _map_team(home_name)
+        away_code = _map_team(away_name)
+        if not home_code or not away_code:
+            logger.warning(
+                "[odds_api] 无法映射队名: home=%r away=%r",
+                home_name,
+                away_name,
+            )
+            continue
+
+        # 找目标日期内的未完赛比赛
+        match = (
+            db.query(Match)
+            .filter(
+                Match.home_team.has(fifa_code=home_code),
+                Match.away_team.has(fifa_code=away_code),
+                Match.status.in_(["scheduled", "notstarted", "live"]),
+            )
+            .first()
+        )
+        if not match or not match.kickoff_at:
+            continue
+        beijing = match.kickoff_at.replace(tzinfo=timezone.utc).astimezone(display_tz)
+        if beijing.date() not in target_dt:
+            continue
+
+        # 解析 h2h 市场（多家 bookmaker 取平均）
+        h2h_list: List[Dict[str, float]] = []
+        over_prices: List[float] = []
+        under_prices: List[float] = []
+        for bm in event.get("bookmakers", []):
+            markets = bm.get("markets") or {}
+            if isinstance(markets, list):
+                markets = {m.get("key"): m for m in markets}
+
+            h2h = markets.get("h2h")
+            if h2h:
+                outcomes = {o.get("name"): o.get("price") for o in h2h.get("outcomes", [])}
+                home_price = outcomes.get(home_name) or outcomes.get("Home")
+                draw_price = outcomes.get("Draw")
+                away_price = outcomes.get(away_name) or outcomes.get("Away")
+                if home_price and draw_price and away_price:
+                    h2h_list.append(
+                        {"home_win": float(home_price), "draw": float(draw_price), "away_win": float(away_price)}
+                    )
+
+            totals = markets.get("totals")
+            if totals:
+                for o in totals.get("outcomes", []):
+                    price = o.get("price")
+                    if price is None:
+                        continue
+                    name = (o.get("name") or "").lower()
+                    if name in ("over", "over 2.5"):
+                        over_prices.append(float(price))
+                    elif name in ("under", "under 2.5"):
+                        under_prices.append(float(price))
+
+        if not h2h_list:
+            logger.warning("[odds_api] match_id=%s 无可用 h2h 赔率", match.id)
+            continue
+
+        avg = aggregate_multi_bookmaker(h2h_list)
+        result.append({
+            "match_id": match.id,
+            "bookmaker": settings.odds_default_bookmaker,
+            "home_win": avg["home_win"],
+            "draw": avg["draw"],
+            "away_win": avg["away_win"],
+            "over_2_5": round(sum(over_prices) / len(over_prices), 2) if over_prices else 1.95,
+            "under_2_5": round(sum(under_prices) / len(under_prices), 2) if under_prices else 2.05,
+            "source": "the_odds_api",
+            "fetched_at": fetched_at,
+        })
+
+    logger.info("[odds_api] 解析到 %s 条可用赔率", len(result))
+    return result
 
 
 # === 公共接口 ===
@@ -228,7 +427,7 @@ def fetch_upcoming_odds(
     result: List[Dict] = []
 
     if provider == "the_odds_api" and settings.odds_api_enabled:
-        result = _fetch_the_odds_api(target_dates)
+        result = _fetch_the_odds_api(db, target_dates)
         if not result:
             logger.info("[odds_api] The Odds API 返回空,降级 mock")
             result = _fetch_mock(db, target_dates)
@@ -239,6 +438,38 @@ def fetch_upcoming_odds(
         _cache_set(cache_key, result, settings.odds_cache_ttl_seconds)
 
     return result
+
+
+def refresh_odds(db: Session, days: Optional[int] = None) -> Dict[str, object]:
+    """为 6h 周期调度器拉取未来 N 天赔率并写入 match_odds.
+
+    Args:
+        db: SQLAlchemy Session
+        days: 拉取未来天数,默认取 settings.odds_fetch_look_ahead_days
+    Returns:
+        {"fetched": int, "written": int, "dates": ["YYYY-MM-DD", ...], "status": str}
+    """
+    if not settings.odds_auto_refresh_enabled:
+        return {"fetched": 0, "written": 0, "dates": [], "status": "disabled"}
+
+    if days is None:
+        days = settings.odds_fetch_look_ahead_days
+
+    display_tz = ZoneInfo(settings.display_timezone)
+    now_beijing = datetime.now(display_tz)
+    target_dates = [
+        (now_beijing + timedelta(days=i)).date().isoformat()
+        for i in range(days)
+    ]
+
+    fetched = fetch_upcoming_odds(db, target_dates=target_dates, use_cache=True)
+    written = upsert_to_match_odds(db, fetched) if fetched else 0
+    return {
+        "fetched": len(fetched),
+        "written": written,
+        "dates": target_dates,
+        "status": "ok",
+    }
 
 
 def upsert_to_match_odds(db: Session, odds_list: List[Dict]) -> int:

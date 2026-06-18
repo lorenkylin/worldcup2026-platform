@@ -93,9 +93,9 @@ class BacktestReport:
 
 
 # =============== 复用 prediction.py 的核心函数 ===============
+from app.services.elo_params import elo_to_lambda
 from app.services.prediction import (
     elo_from_fifa_rank,
-    _elo_to_lambda,
     _apply_recent_form,
     _predict_score_distribution,
     FALLBACK_ELO_NO_RANK,
@@ -132,7 +132,7 @@ def _predict_for_backtest(
     away_elo = elo_from_fifa_rank(away.fifa_rank)
 
     # 中立场地（世界杯都是中立场）
-    home_lambda, away_lambda = _elo_to_lambda(home_elo, away_elo)
+    home_lambda, away_lambda = elo_to_lambda(home_elo, away_elo)
 
     # B2: 近期状态 - 历史比赛无 form 数据，跳过
     home_lambda, away_lambda = _apply_recent_form(

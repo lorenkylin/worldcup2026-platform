@@ -138,6 +138,8 @@ def test_mc_returns_basic_structure():
 
 
 # === T2 ===
+@pytest.mark.slow
+@pytest.mark.slow
 def test_mc_champion_distribution_sums_to_one():
     """冠军分布和 = 1.0 ± 0.001."""
     db = app_db.SessionLocal()
@@ -152,6 +154,7 @@ def test_mc_champion_distribution_sums_to_one():
 
 
 # === T3 ===
+@pytest.mark.slow
 def test_mc_finalist_distribution_geq_champion():
     """对每队: finalist_prob >= champion_prob (晋级决赛 ⊇ 夺冠)."""
     db = app_db.SessionLocal()
@@ -169,6 +172,7 @@ def test_mc_finalist_distribution_geq_champion():
 
 
 # === T4 ===
+@pytest.mark.slow
 def test_mc_round_distribution_monotonic():
     """对每队: group_advance >= r32 >= r16 >= qf >= sf >= finalist >= champion."""
     db = app_db.SessionLocal()
@@ -199,6 +203,7 @@ def test_mc_round_distribution_monotonic():
 
 
 # === T5 ===
+@pytest.mark.slow
 def test_mc_top_matchups_ordered_and_bounded():
     """top_final_matchups 按 prob 降序, top-5 概率和 < 1.0."""
     db = app_db.SessionLocal()
@@ -219,6 +224,7 @@ def test_mc_top_matchups_ordered_and_bounded():
 
 
 # === T6 ===
+@pytest.mark.slow
 def test_mc_strong_team_higher_champion_prob():
     """高 Elo 队(1845) champion_prob > 低 Elo 队(1500)."""
     db = app_db.SessionLocal()
@@ -237,6 +243,7 @@ def test_mc_strong_team_higher_champion_prob():
 
 
 # === T7 ===
+@pytest.mark.slow
 def test_mc_deterministic_with_seed():
     """同 seed 两次 MC, champion 分布完全一致."""
     db = app_db.SessionLocal()
@@ -289,6 +296,7 @@ def test_mc_endpoint_rejects_invalid_model():
 
 
 # === Bonus: 性能基准 (轻量, 不超时) ===
+@pytest.mark.slow
 def test_mc_3000_sims_under_10s():
     """3000 sims 跑完应 < 10s."""
     import time
