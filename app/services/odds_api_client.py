@@ -227,7 +227,7 @@ def _fetch_mock(db: Session, target_dates: List[str]) -> List[Dict]:
 
     matches = (
         db.query(Match)
-        .filter(Match.status.in_(["scheduled", "notstarted", "live"]))
+        .filter(Match.status.in_(["scheduled", "live"]))
         .all()
     )
 
@@ -336,7 +336,7 @@ def _fetch_the_odds_api(db: Session, target_dates: List[str]) -> List[Dict]:
             .filter(
                 Match.home_team.has(fifa_code=home_code),
                 Match.away_team.has(fifa_code=away_code),
-                Match.status.in_(["scheduled", "notstarted", "live"]),
+                Match.status.in_(["scheduled", "live"]),
             )
             .first()
         )

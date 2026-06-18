@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.models import Match, Team
 from app.services import data_source_health, simulator, sync_status
 from app.services.elo import predict_match as elo_predict
-from app.services.elo import predict_match_blend
+from app.services.elo import predict_match_blend, HOME_BONUS
 from app.services import glicko2 as g2_service
 
 
@@ -84,12 +84,12 @@ def get_tournament_progress(db: Session) -> Dict:
     }
 
 
-def get_qualification_summary(db: Session) -> Dict:
+def get_qualification_summary(db: Session, advance_odds=None) -> Dict:
     """晋级/淘汰总览 + 最佳第 3 名竞争榜.
 
     基于 simulator.simulate_group_advancement 的蒙特卡洛概率。
     """
-    odds = simulator.simulate_group_advancement(db, n_sims=1000)
+    odds = advance_odds if advance_odds is not None else simulator.simulate_group_advancement(db, n_sims=1000)
     if not odds:
         return {
             "qualified": 0,
@@ -157,7 +157,7 @@ def _match_prediction_summary(match: Match) -> Optional[Dict]:
     g2_result = None
     if rh and ra:
         g2_pred = g2_service.predict_outcome(
-            rh["rating"], rh["rd"], ra["rating"], ra["rd"], home_bonus=60.0,
+            rh["rating"], rh["rd"], ra["rating"], ra["rd"], home_bonus=HOME_BONUS,
         )
         g2_result = {
             "probabilities": {
@@ -221,7 +221,7 @@ def _impact_label(match: Match, advance_map: Dict[int, float]) -> str:
     return "出线关键战"
 
 
-def get_critical_matches(db: Session, hours: int = 72, limit: int = 8) -> List[Dict]:
+def get_critical_matches(db: Session, hours: int = 72, limit: int = 8, advance_odds=None) -> List[Dict]:
     """未来 N 小时关键战，附带模型共识与出线影响标签."""
     now = datetime.now(timezone.utc)
     cutoff = now + timedelta(hours=hours)
@@ -238,7 +238,7 @@ def get_critical_matches(db: Session, hours: int = 72, limit: int = 8) -> List[D
     )
 
     # 出线概率映射
-    odds = simulator.simulate_group_advancement(db, n_sims=1000)
+    odds = advance_odds if advance_odds is not None else simulator.simulate_group_advancement(db, n_sims=1000)
     advance_map = {o.team_id: o.advance_overall_prob for o in odds}
 
     results: List[Dict] = []
@@ -347,11 +347,12 @@ def get_data_health() -> Dict:
 
 def build_cockpit_summary(db: Session) -> Dict:
     """构建总览驾驶舱完整摘要."""
-    critical = get_critical_matches(db)
+    advance_odds = simulator.simulate_group_advancement(db, n_sims=1000)
+    critical = get_critical_matches(db, advance_odds=advance_odds)
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "tournament_progress": get_tournament_progress(db),
-        "qualification_summary": get_qualification_summary(db),
+        "qualification_summary": get_qualification_summary(db, advance_odds=advance_odds),
         "data_health": get_data_health(),
         "critical_matches": critical,
         "model_consensus": get_model_consensus_highlights(critical),

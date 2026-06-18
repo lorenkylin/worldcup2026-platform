@@ -52,6 +52,10 @@ function escapeHtml(str) {
   return String(str || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
 }
 
+// P2: 安全格式化，避免后端字段缺失时 .toFixed() 抛错
+function fmtPct(v, digits = 1) { return v != null ? (v * 100).toFixed(digits) : '—'; }
+function fmtDecimal(v, digits = 2) { return v != null ? v.toFixed(digits) : '—'; }
+
 function statusBadge(status) {
   if (status === 'live') return '<span class="badge-live inline-block px-2 py-0.5 rounded text-xs font-bold text-white">进行中</span>';
   if (status === 'finished') return '<span class="inline-block px-2 py-0.5 rounded text-xs bg-slate-700 text-slate-300">已结束</span>';
@@ -116,25 +120,27 @@ function renderOddsDetail(oddsData, homeName, awayName) {
     `;
   }
   const consensus = oddsData.consensus;
+  const marketProb = consensus && consensus.market_prob ? consensus.market_prob : {};
+  const consensusOdds = consensus && consensus.odds ? consensus.odds : {};
   const cmpHtml = consensus ? `
     <div class="grid grid-cols-3 gap-2 mt-3 text-center text-xs">
       <div class="bg-slate-950 rounded p-2">
         <div class="text-slate-500">主胜概率</div>
-        <div class="text-base font-bold ${consensus.market_prob.home_prob > 0.5 ? 'text-emerald-400' : 'text-white'}">${(consensus.market_prob.home_prob * 100).toFixed(1)}%</div>
-        <div class="text-slate-500 text-[10px]">赔率 ${consensus.odds.home_win.toFixed(2)}</div>
+        <div class="text-base font-bold ${marketProb.home_prob > 0.5 ? 'text-emerald-400' : 'text-white'}">${fmtPct(marketProb.home_prob)}%</div>
+        <div class="text-slate-500 text-[10px]">赔率 ${fmtDecimal(consensusOdds.home_win)}</div>
       </div>
       <div class="bg-slate-950 rounded p-2">
         <div class="text-slate-500">平局概率</div>
-        <div class="text-base font-bold ${consensus.market_prob.draw_prob > 0.3 ? 'text-emerald-400' : 'text-white'}">${(consensus.market_prob.draw_prob * 100).toFixed(1)}%</div>
-        <div class="text-slate-500 text-[10px]">赔率 ${consensus.odds.draw.toFixed(2)}</div>
+        <div class="text-base font-bold ${marketProb.draw_prob > 0.3 ? 'text-emerald-400' : 'text-white'}">${fmtPct(marketProb.draw_prob)}%</div>
+        <div class="text-slate-500 text-[10px]">赔率 ${fmtDecimal(consensusOdds.draw)}</div>
       </div>
       <div class="bg-slate-950 rounded p-2">
         <div class="text-slate-500">客胜概率</div>
-        <div class="text-base font-bold ${consensus.market_prob.away_prob > 0.5 ? 'text-emerald-400' : 'text-white'}">${(consensus.market_prob.away_prob * 100).toFixed(1)}%</div>
-        <div class="text-slate-500 text-[10px]">赔率 ${consensus.odds.away_win.toFixed(2)}</div>
+        <div class="text-base font-bold ${marketProb.away_prob > 0.5 ? 'text-emerald-400' : 'text-white'}">${fmtPct(marketProb.away_prob)}%</div>
+        <div class="text-slate-500 text-[10px]">赔率 ${fmtDecimal(consensusOdds.away_win)}</div>
       </div>
     </div>
-    <div class="text-xs text-slate-500 text-right mt-1">博彩公司利润 (vig) ${(consensus.market_prob.total_vig * 100).toFixed(1)}%</div>
+    <div class="text-xs text-slate-500 text-right mt-1">博彩公司利润 (vig) ${fmtPct(marketProb.total_vig)}%</div>
   ` : '';
 
   // 列出各家赔率
@@ -2815,12 +2821,16 @@ function _backtestCard(label, value, sub, color) {
   `;
 }
 
-// 离开 cockpit 时还原 max-w-2xl
+// 离开 cockpit 时还原 max-w-2xl 并清理时钟 interval
 function restoreAppWidth() {
   const app = $('#app');
   if (!app) return;
   app.classList.remove('max-w-none');
   app.classList.add('max-w-2xl');
+  if (window.__cockpitClock) {
+    clearInterval(window.__cockpitClock);
+    window.__cockpitClock = null;
+  }
 }
 
 function kpiCard(icon, label, value, unit, color, sub) {

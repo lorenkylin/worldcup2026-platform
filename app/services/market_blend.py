@@ -89,7 +89,7 @@ def _find_match_with_odds(
         .filter(
             HomeTeam.fifa_code == home_code,
             AwayTeam.fifa_code == away_code,
-            Match.status.in_(["scheduled", "notstarted", "live"]),
+            Match.status.in_(["scheduled", "live"]),
             Match.kickoff_at.isnot(None),
         )
         .order_by(Match.kickoff_at.asc())

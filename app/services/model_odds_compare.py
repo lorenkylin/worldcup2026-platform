@@ -191,7 +191,7 @@ def find_value_bets(
     rows = (
         db.query(Match, MatchOdds)
         .join(MatchOdds, MatchOdds.match_id == Match.id)
-        .filter(Match.status.in_(["scheduled", "notstarted", "live"]))
+        .filter(Match.status.in_(["scheduled", "live"]))
         .filter(MatchOdds.bookmaker == settings.odds_default_bookmaker)
         .order_by(Match.kickoff_at.asc())
         .all()

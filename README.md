@@ -104,7 +104,7 @@ worldcup2026-platform/
 │   │   ├── prediction.py    # Elo-Poisson v1
 │   │   ├── prediction_cache.py  # F2 缓存层
 │   │   ├── prediction_log.py    # 预测日志 / 结算 / 准确率
-│   │   ├── backtest.py      # 历史回测
+│   │   ├── backtest.py      # B6 历史回测（111 场 H2H + 当前 FIFA 排名静态代理）
 │   │   ├── elo.py           # Elo + Dixon-Coles + form/H2H 增强 + Blend
 │   │   ├── statsbomb_elo.py # StatsBomb 双数据源
 │   │   ├── glicko2.py       # Glicko-2 实现
@@ -468,7 +468,7 @@ alembic revision --autogenerate -m "改了什么"
 | POST | `/api/admin/sync/stadium-coords/fill` | 补球场经纬度 |
 | POST | `/api/admin/sync/h2h/backfill` | 触发 H2H 种子回填 |
 | POST | `/api/admin/sync/worldcupstats/schedule` | 触发备份源抓取 |
-| POST | `/api/admin/sync/backtest/run` | 触发回测 |
+| POST | `/api/admin/sync/backtest/run` | 触发 B6 回测（111 场 H2H 历史种子 + 当前 FIFA 排名代理）|
 
 ### 6.6 手动更新示例
 
@@ -517,7 +517,7 @@ P(away_win) = Σ P(i:j) for i < j
 
 **模型**：Elo（K=60, home_bonus=70）+ Dixon-Coles bivariate Poisson（ρ=-0.13）。
 
-**4 年 walk-forward 回测**（burn-in 150 场 + 评估 763 场）：
+**离线 4 年 walk-forward 回测**（`scripts/m1_backtest.py`，burn-in 150 场 + 评估 763 场）：
 
 | 指标 | 我们的实现 | 投币基线 | 提升 |
 |------|------------|----------|------|
@@ -526,6 +526,8 @@ P(away_win) = Σ P(i:j) for i < j
 | Brier score (↓) | **0.5752** | 0.67 | **-14%** |
 | 准确率 (↑) | **58.3%** | 33% | **+77%** |
 | 期望校准误差 | 11.75% | - | （10 段分箱偏粗） |
+
+> ⚠️ 注意：平台内置回测引擎 `app/services/backtest.py`（`/api/admin/sync/backtest/run`）与上述离线回测不同。它使用 2018+2022 世界杯 **111 场 H2H 历史种子**和**当前 FIFA 排名静态代理**，仅验证模型对历史大赛的校准度，不重复 913 场 walk-forward。
 
 **48 队 Elo 评分 Top 10**：ESP 2010 / FRA 2009 / ENG 1993 / ARG 1976 / BRA 1955 / POR 1945 / GER 1926 / ITA 1901 / NED 1894 / NOR 1880
 
@@ -536,7 +538,7 @@ GET /api/elo/ratings                  # 48 队评分
 GET /api/elo/ratings/{FIFA}           # 单队评分
 GET /api/elo/predict/{home}/{away}    # 1v1 预测
 GET /api/elo/top?limit=10             # Top N
-GET /api/elo/backtest                 # 4 年回测指标
+GET /api/elo/backtest                 # 离线 4 年回测指标（预生成）
 ```
 
 **示例**（ESP vs HAI）：
