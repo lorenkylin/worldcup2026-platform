@@ -21,6 +21,9 @@ env:
   PYTHONUNBUFFERED: "1"
   # 关闭 FastAPI docs 生产环境 (config.py 字段名为 debug,对应环境变量 DEBUG)
   DEBUG: "false"
+  # v0.14.2: 生产环境跳过 lifespan 启动全量同步，避免每次部署依赖外部源并拖慢启动
+  # 数据由 6h 调度器周期性刷新；首次部署可临时改为 false 让 lifespan 灌入基础数据
+  SKIP_STARTUP_SYNC: "true"
 
 # 进程定义 单实例 web 进程
 # scheduler 在 lifespan startup 自动启动 必须 1 实例防重复同步

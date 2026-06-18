@@ -150,6 +150,12 @@ function renderOddsDetail(oddsData, homeName, awayName) {
 
   // 列出各家赔率
   const bookmakers = oddsData.bookmakers || [];
+  const hasSimulated = bookmakers.some(b => b.is_simulated);
+  const simulatedWarning = hasSimulated ? `
+    <div class="mb-2 text-xs text-amber-300 bg-amber-900/30 border border-amber-600/40 rounded-lg px-2 py-1.5 flex items-center gap-1.5">
+      <span>⚠️</span><span>当前赔率为模拟/种子数据，非真实市场赔率，请勿作为投注依据。</span>
+    </div>
+  ` : '';
   const bookmakersHtml = bookmakers.length > 1 ? `
     <div class="mt-3 pt-3 border-t border-slate-800">
       <div class="text-xs text-slate-500 mb-1">各博彩公司</div>
@@ -173,6 +179,7 @@ function renderOddsDetail(oddsData, homeName, awayName) {
   return `
     <div class="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-4 border border-slate-700 mb-4">
       <h3 class="font-bold text-cyan-400 mb-2">💰 市场赔率 · 多家公司共识</h3>
+      ${simulatedWarning}
       ${cmpHtml}
       ${bookmakersHtml}
       <div class="text-[10px] text-slate-500 mt-2">赔率为 decimal 欧式赔率，市场概率已去除博彩公司利润(vig)。仅供分析，不构成投注建议。</div>
@@ -1529,9 +1536,12 @@ function renderOddsServiceStatusBar(status) {
     ? new Date(status.last_fetch_at).toLocaleString('zh-CN', { hour12: false })
     : '未拉取';
   const rateStr = rate != null ? `· 限速剩余 <span class="font-mono text-emerald-400">${rate}</span>` : '';
+  const simulatedWarning = status.is_simulated
+    ? `<span class="ml-2 px-1.5 py-0.5 rounded bg-amber-600/30 text-amber-300 border border-amber-500/40">模拟数据</span>`
+    : '';
   return `<div data-testid="odds-status-bar" class="mb-3 text-xs text-slate-300 bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 flex items-center gap-3">
-    <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-    <span>赔率服务: <span class="text-cyan-400 font-medium">${escapeHtml(provider)}</span></span>
+    <span class="inline-block w-2 h-2 rounded-full ${status.is_simulated ? 'bg-amber-400' : 'bg-emerald-400'} ${status.is_simulated ? '' : 'animate-pulse'}"></span>
+    <span>赔率服务: <span class="text-cyan-400 font-medium">${escapeHtml(provider)}</span>${simulatedWarning}</span>
     <span class="text-slate-500">${rateStr}</span>
     <span class="text-slate-500 ml-auto">最近拉取: ${lastFetch}</span>
   </div>`;
