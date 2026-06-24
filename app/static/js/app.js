@@ -353,8 +353,8 @@ async function renderFocusPrediction(m, teamMap, totalToday) {
               </div>
               <div class="bg-slate-950/50 rounded-xl p-3">
                 <div class="text-xs text-slate-500 mb-1">首选比分</div>
-                <div class="text-white font-extrabold">${p.primary_score || p.recommended_score || '—'}</div>
-                <div class="text-[10px] text-slate-400 mt-1">次选 ${p.secondary_score || '—'}</div>
+                <div class="text-amber-300 font-extrabold text-lg">${p.primary_score || p.recommended_score || '—'}</div>
+                <div class="text-[10px] text-emerald-300 mt-1 font-semibold">次选 ${p.secondary_score || '—'}</div>
               </div>
               <div class="bg-slate-950/50 rounded-xl p-3">
                 <div class="text-xs text-slate-500 mb-1">最高信心</div>
@@ -1221,7 +1221,13 @@ async function renderMatchDetail(id) {
     <div class="glass-card glow-border rounded-xl p-4 mb-4 border border-amber-500/20">
       <div class="flex justify-between items-center mb-3">
         <h3 class="font-extrabold text-amber-400 flex items-center gap-2"><span>🧠</span>AI 预测 v1 · Elo-Poisson</h3>
-        <span class="text-xs text-slate-400">推荐：首选 ${prediction.primary_score || prediction.recommended_score || '—'} · 次选 ${prediction.secondary_score || '—'}</span>
+        <span class="text-xs flex items-center gap-1.5">
+          <span class="text-slate-400 font-medium">推荐</span>
+          <span class="bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-extrabold border border-amber-500/30">${prediction.primary_score || prediction.recommended_score || '—'}</span>
+          <span class="text-slate-500">·</span>
+          <span class="text-slate-400 font-medium">次选</span>
+          <span class="bg-emerald-500/15 text-emerald-300 px-1.5 py-0.5 rounded font-extrabold border border-emerald-500/20">${prediction.secondary_score || '—'}</span>
+        </span>
       </div>
       <div class="grid grid-cols-3 gap-2 text-center mb-3">
         <div class="bg-slate-950/60 rounded-lg p-2"><div class="text-xs text-slate-500">主胜</div><div class="text-lg font-extrabold text-white">${prediction.home_win_prob ?? '—'}%</div></div>
@@ -1407,8 +1413,8 @@ function renderPostMatchReview(m, prediction) {
       <div class="grid grid-cols-3 gap-2 text-center mb-3 text-sm relative z-10">
         <div class="bg-slate-950/40 rounded-lg p-2">
           <div class="text-xs text-slate-500">预测比分</div>
-          <div class="font-extrabold text-white font-mono">${prediction.primary_score || prediction.recommended_score}</div>
-          <div class="text-[10px] text-slate-400">次选 ${prediction.secondary_score || '—'}</div>
+          <div class="font-extrabold text-amber-300 font-mono text-base">${prediction.primary_score || prediction.recommended_score}</div>
+          <div class="text-[10px] text-emerald-300 font-semibold">次选 ${prediction.secondary_score || '—'}</div>
         </div>
         <div class="bg-slate-950/40 rounded-lg p-2">
           <div class="text-xs text-slate-500">实际比分</div>
