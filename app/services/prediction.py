@@ -11,12 +11,12 @@
 
 import math
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models import Team, Match, MatchEvent, H2HHistoricalMatch
+from app.models import Team, Match, H2HHistoricalMatch
 from app.schemas import PredictionOut
 from app.services.elo_params import elo_to_lambda
 from app.services.h2h_backfill import query_h2h_history
@@ -107,35 +107,144 @@ def _poisson_prob(lam: float, k: int) -> float:
     return (lam**k) * math.exp(-lam) / math.factorial(k)
 
 
-def _predict_score_distribution(home_lambda: float, away_lambda: float, max_goals: int = 7):
-    """计算比分分布矩阵与胜负平概率."""
+def _predict_score_distribution(home_lambda: float, away_lambda: float, max_goals: int = 9):
+    """计算比分分布矩阵与胜负平概率.
+
+    返回:
+        home_win, draw, away_win: 1X2 概率
+        recommended_score: 全局最可能比分（追求最高完全命中概率）
+        outcome_aligned_score: 与预测赛果方向一致的最可能比分
+        top_scores: 概率最高的 3 个比分及概率
+        score_confidence: recommended_score 的概率值
+    """
     home_probs = [_poisson_prob(home_lambda, g) for g in range(max_goals + 1)]
     away_probs = [_poisson_prob(away_lambda, g) for g in range(max_goals + 1)]
 
     home_win = draw = away_win = 0.0
-    best_prob = 0.0
-    best_score = "0:0"
+    matrix: Dict[Tuple[int, int], float] = {}
 
     for i, hp in enumerate(home_probs):
         for j, ap in enumerate(away_probs):
             p = hp * ap
+            matrix[(i, j)] = p
             if i > j:
                 home_win += p
             elif i == j:
                 draw += p
             else:
                 away_win += p
-            if p > best_prob:
-                best_prob = p
-                best_score = f"{i}:{j}"
 
-    return home_win, draw, away_win, best_score
+    total = home_win + draw + away_win
+    if total > 0:
+        home_win /= total
+        draw /= total
+        away_win /= total
+        matrix = {k: v / total for k, v in matrix.items()}
+
+    # 全局最可能比分
+    best_prob = 0.0
+    best_score = "0:0"
+    # 各赛果方向内的最可能比分
+    best_by_outcome: Dict[str, Tuple[str, float]] = {
+        "H": ("0:0", 0.0),
+        "D": ("0:0", 0.0),
+        "A": ("0:0", 0.0),
+    }
+
+    for (i, j), p in matrix.items():
+        score_str = f"{i}:{j}"
+        if p > best_prob:
+            best_prob = p
+            best_score = score_str
+        outcome = "H" if i > j else ("D" if i == j else "A")
+        if p > best_by_outcome[outcome][1]:
+            best_by_outcome[outcome] = (score_str, p)
+
+    pred_outcome = "H" if home_win > draw and home_win > away_win else (
+        "D" if draw >= home_win and draw >= away_win else "A"
+    )
+    outcome_aligned_score = best_by_outcome[pred_outcome][0]
+
+    # Top3 比分
+    sorted_scores = sorted(matrix.items(), key=lambda x: x[1], reverse=True)
+    top_scores = [
+        {"score": f"{i}:{j}", "probability": round(p, 4)}
+        for (i, j), p in sorted_scores[:3]
+    ]
+
+    return (
+        home_win,
+        draw,
+        away_win,
+        best_score,
+        outcome_aligned_score,
+        top_scores,
+        round(best_prob, 4),
+    )
 
 
 def _stars(home_win: float, draw: float, away_win: float) -> int:
     """根据最可能结果的置信度给出 1-5 星."""
     top = max(home_win, draw, away_win)
     stars = min(MAX_STARS, max(1, int((top - 0.30) * 25)))
+    return stars
+
+
+def _select_primary_secondary(
+    home_win: float,
+    draw: float,
+    away_win: float,
+    recommended_score: str,
+    outcome_aligned_score: str,
+    top_scores: List[dict],
+) -> Tuple[str, str]:
+    """选择首选/次选比分.
+
+    策略:
+    - 若全局最可能比分已与预测赛果方向一致, 则它既是首选; 次选取 Top3 中第二。
+    - 若赛果方向较明确 (最大概率 >= 40%), 首选 outcome_aligned_score, 次选全局最可能比分。
+    - 若赛果胶着, 首选全局最可能比分, 次选 outcome_aligned_score。
+    """
+    if recommended_score == outcome_aligned_score:
+        primary = recommended_score
+        secondary = top_scores[1]["score"] if len(top_scores) > 1 else primary
+        return primary, secondary
+
+    outcome_top = max(home_win, draw, away_win)
+    if outcome_top >= 0.40:
+        primary = outcome_aligned_score
+        secondary = recommended_score
+    else:
+        primary = recommended_score
+        secondary = outcome_aligned_score
+    return primary, secondary
+
+
+def _score_reliability_stars(primary_prob: float, outcome_top_prob: float) -> int:
+    """根据首选比分概率和赛果置信度给出 1-5 星推荐度.
+
+    星级规则:
+    - primary_prob >= 14%: 基础 5 星
+    - primary_prob >= 11%: 基础 4 星
+    - primary_prob >=  8%: 基础 3 星
+    - primary_prob >=  5%: 基础 2 星
+    - 否则 1 星
+    - 若赛果最大概率 < 35%, 降 1 星
+    """
+    if primary_prob >= 0.14:
+        stars = 5
+    elif primary_prob >= 0.11:
+        stars = 4
+    elif primary_prob >= 0.08:
+        stars = 3
+    elif primary_prob >= 0.05:
+        stars = 2
+    else:
+        stars = 1
+
+    if outcome_top_prob < 0.35:
+        stars = max(1, stars - 1)
+
     return stars
 
 
@@ -321,9 +430,14 @@ def _reasons(
     home_lambda: float,
     away_lambda: float,
     home_win: float,
+    draw: float,
+    away_win: float,
     home_form: Optional[int],
     away_form: Optional[int],
     h2h: dict,
+    primary_score: str,
+    secondary_score: str,
+    score_reliability_stars: int,
 ) -> List[str]:
     """生成 3-5 条可解释理由."""
     reasons: List[str] = []
@@ -347,14 +461,23 @@ def _reasons(
     else:
         reasons.append("两队 Elo 积分接近，实力在伯仲之间，胜负取决于临场发挥。")
 
-    # 2) λ 比较
-    if home_lambda > away_lambda + 0.4:
+    # 2) 首选/次选比分 + 预期进球
+    pred_outcome_text = "主队取胜"
+    if draw >= home_win and draw >= away_win:
+        pred_outcome_text = "双方战平"
+    elif away_win > home_win and away_win > draw:
+        pred_outcome_text = "客队取胜"
+
+    score_reason = (
+        f"模型首选比分 {primary_score}（推荐度 {score_reliability_stars} 星），"
+        f"反映{pred_outcome_text}预期；预计 {home.name_zh} 场均 {home_lambda:.2f} 球，"
+        f"{away.name_zh} 场均 {away_lambda:.2f} 球。"
+    )
+    reasons.append(score_reason)
+
+    if primary_score != secondary_score:
         reasons.append(
-            f"模型预计 {home.name_zh} 进攻效率更高（场均 {home_lambda:.2f} 球）。"
-        )
-    elif away_lambda > home_lambda + 0.4:
-        reasons.append(
-            f"模型预计 {away.name_zh} 进攻效率更高（场均 {away_lambda:.2f} 球）。"
+            f"次选比分 {secondary_score} 为另一种较可能结果，可作为参考。"
         )
 
     # 3) B2: 近期状态因子
@@ -378,11 +501,11 @@ def _reasons(
 
     # 5) 结论 / 兜底
     if home_win > 0.5:
-        reasons.append("综合胜率超过 50%，主队略被看好。")
-    elif home_win < 0.25:
-        reasons.append("客队取胜概率较高，主队需放低姿态主打反击。")
+        reasons.append(f"综合胜率超过 50%，主队更被看好；首选 {primary_score}，但足球比赛存在不确定性。")
+    elif away_win > 0.5:
+        reasons.append(f"综合胜率客队占优，首选 {primary_score}，建议关注临场阵容。")
     else:
-        reasons.append("主客场差距有限，结果不确定性较高。")
+        reasons.append(f"主客场差距有限，首选 {primary_score} 概率略高，比赛结果悬念较大。")
 
     # 至少 3 条
     if len(reasons) < 3:
@@ -409,13 +532,35 @@ def predict_match(
         home_lambda, away_lambda, home.recent_form_points, away.recent_form_points
     )
 
-    home_win, draw, away_win, best_score = _predict_score_distribution(home_lambda, away_lambda)
+    (
+        home_win,
+        draw,
+        away_win,
+        recommended_score,
+        outcome_aligned_score,
+        top_scores,
+        score_confidence,
+    ) = _predict_score_distribution(home_lambda, away_lambda)
     stars = _stars(home_win, draw, away_win)
+
+    primary_score, secondary_score = _select_primary_secondary(
+        home_win, draw, away_win, recommended_score, outcome_aligned_score, top_scores
+    )
+
+    # 找到 primary_score 的概率
+    primary_prob = next(
+        (s["probability"] for s in top_scores if s["score"] == primary_score),
+        score_confidence,
+    )
+    score_reliability_stars = _score_reliability_stars(
+        primary_prob, max(home_win, draw, away_win)
+    )
 
     h2h = _query_h2h(db, home, away)
     reasons = _reasons(
-        home, away, home_lambda, away_lambda, home_win,
-        home.recent_form_points, away.recent_form_points, h2h
+        home, away, home_lambda, away_lambda, home_win, draw, away_win,
+        home.recent_form_points, away.recent_form_points, h2h,
+        primary_score, secondary_score, score_reliability_stars,
     )
 
     # F2: 计算可解释性因子贡献
@@ -441,7 +586,13 @@ def predict_match(
         away_win_prob=round(away_win * 100, 1),
         expected_home_goals=round(home_lambda, 2),
         expected_away_goals=round(away_lambda, 2),
-        recommended_score=best_score,
+        recommended_score=recommended_score,
+        outcome_aligned_score=outcome_aligned_score,
+        primary_score=primary_score,
+        secondary_score=secondary_score,
+        top_scores=top_scores,
+        score_confidence=score_confidence,
+        score_reliability_stars=score_reliability_stars,
         stars=stars,
         reasons=reasons,
         h2h_summary=h2h["summary"] or None,

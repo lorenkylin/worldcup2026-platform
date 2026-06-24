@@ -3,7 +3,7 @@
 GET /api/health/sources - 返回 4 源健康度 + 汇总状态
 GET /api/health/sync-status - v0.10 数据新鲜度 (公开,无 admin 鉴权)
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from app.services.data_source_health import get_health_summary, check_all_sources
 from app.services.sync_status import get_status
@@ -12,7 +12,7 @@ router = APIRouter(prefix="/health", tags=["health"])
 
 
 @router.get("/sources")
-def sources_health():
+def sources_health(refresh: bool = Query(False, description="强制跳过缓存，实时探测所有数据源")):
     """数据源健康度 dashboard.
 
     Returns:
@@ -24,7 +24,7 @@ def sources_health():
             "checked_at": ISO timestamp
         }
     """
-    return get_health_summary()
+    return get_health_summary(use_cache=not refresh)
 
 
 @router.get("/sources/{source_id}")

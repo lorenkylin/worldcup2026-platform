@@ -126,9 +126,11 @@ class Settings(BaseSettings):
     odds_fetch_look_ahead_days: int = 7  # 每次拉取未来多少天的比赛赔率
 
     # Elo→Poisson λ 参数（与 prediction.py / monte_carlo.py 统一，避免两处定义不一致）
+    # poisson_goal_per_elo_diff=0.0030 来自 913 场国际赛网格搜索校准，
+    # 在保持方向命中率的同时将精确比分命中率从 12.05% 提升至 12.81%。
     poisson_home_advantage: float = 60.0
     poisson_base_lambda: float = 1.35
-    poisson_goal_per_elo_diff: float = 0.0035
+    poisson_goal_per_elo_diff: float = 0.0030
     poisson_lambda_floor: float = 0.3
 
     # 时区策略：DB 统一存 UTC，API/前端统一按北京时间（Asia/Shanghai UTC+8）展示

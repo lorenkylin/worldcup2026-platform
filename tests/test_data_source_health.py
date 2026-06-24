@@ -141,7 +141,7 @@ class TestHealthSummary:
                  "status": "down", "status_code": None, "latency_ms": 50,
                  "checked_at": "2026-01-01", "error": "DNS"},
             ]
-            summary = get_health_summary()
+            summary = get_health_summary(use_cache=False)
             assert summary["overall"] == "degraded"  # 1 ok + 1 down
             assert summary["summary"] == {"total": 2, "ok": 1, "degraded": 0, "down": 1}
             assert summary["avg_latency_ms"] == 75.0
@@ -153,7 +153,7 @@ class TestHealthSummary:
                 {"id": "s1", "name": "S1", "type": "primary", "url": "u1",
                  "status": "ok", "status_code": 200, "latency_ms": 100, "checked_at": "t"},
             ]
-            summary = get_health_summary()
+            summary = get_health_summary(use_cache=False)
             assert summary["overall"] == "all_ok"
 
     def test_overall_critical(self):
@@ -162,7 +162,7 @@ class TestHealthSummary:
                 {"id": "s1", "name": "S1", "type": "primary", "url": "u1",
                  "status": "down", "status_code": None, "latency_ms": 50, "checked_at": "t", "error": "x"},
             ]
-            summary = get_health_summary()
+            summary = get_health_summary(use_cache=False)
             assert summary["overall"] == "critical"
 
 

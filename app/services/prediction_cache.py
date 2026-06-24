@@ -110,6 +110,12 @@ def set_cached_prediction(
     cache.expected_home_goals = prediction.expected_home_goals
     cache.expected_away_goals = prediction.expected_away_goals
     cache.recommended_score = prediction.recommended_score
+    cache.outcome_aligned_score = prediction.outcome_aligned_score
+    cache.primary_score = prediction.primary_score
+    cache.secondary_score = prediction.secondary_score
+    cache.top_scores = json.dumps(prediction.top_scores, ensure_ascii=False)
+    cache.score_confidence = prediction.score_confidence
+    cache.score_reliability_stars = prediction.score_reliability_stars
     cache.stars = prediction.stars
     cache.reasons = json.dumps(prediction.reasons, ensure_ascii=False)
     cache.generated_at = datetime.now(timezone.utc)

@@ -25,7 +25,8 @@ def test_match_detail_calls_history_comparison_endpoint(page, base_url):
 def test_match_detail_shows_odds_model_history_card(page, base_url):
     """match detail 页应出现 '赔率 vs 模型概率走势' 卡片."""
     page.goto(f"{base_url}/#/match/1", wait_until="domcontentloaded")
-    time.sleep(2)
+    # 等待卡片渲染（含下拉选择器），而非固定 sleep
+    page.wait_for_selector("#odds-model-select", timeout=15000)
 
     # 卡片标题 v0.7.2.3
     title_visible = page.evaluate("""() => {
@@ -38,7 +39,8 @@ def test_match_detail_shows_odds_model_history_card(page, base_url):
 def test_match_detail_model_select_has_three_options(page, base_url):
     """模型下拉有 Elo/Glicko-2/Blend 三个选项."""
     page.goto(f"{base_url}/#/match/1", wait_until="domcontentloaded")
-    time.sleep(2)
+    # 等待下拉选择器稳定渲染
+    page.wait_for_selector("#odds-model-select", timeout=15000)
 
     options = page.evaluate("""() => {
         const sel = document.getElementById('odds-model-select');

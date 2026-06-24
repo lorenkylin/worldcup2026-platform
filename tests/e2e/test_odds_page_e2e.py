@@ -26,8 +26,9 @@ def test_odds_page_shows_model_value_bets_section(page, base_url):
 def test_odds_card_model_dropdown_calls_compare_model(page, base_url):
     """T3: 切换赔率卡模型下拉应触发 /odds/compare-model?model=elo 调用."""
     page.goto(f"{base_url}/#/odds", wait_until="domcontentloaded")
-    # 等待首屏渲染 + 卡片渲染
+    # 等待首屏渲染 + 卡片渲染（模型下拉出现）
     page.wait_for_selector('[data-testid="odds-status-bar"]', timeout=15000)
+    page.wait_for_selector('select.bg-slate-950', timeout=15000)
     # 清空记录后切换
     page.evaluate("() => { window._api_calls = []; }")
     # 找到第一张赔率卡的下拉(select),切换为 elo

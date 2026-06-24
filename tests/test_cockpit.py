@@ -63,7 +63,7 @@ class TestCockpitSummary:
         db_session.commit()
         _add_future_match(db_session, 200, 101, 102, days=1)
 
-        response = client.get("/api/cockpit/summary")
+        response = client.get("/api/cockpit/summary?refresh=1")
         data = response.json()
         ids = [m["match_id"] for m in data["critical_matches"]]
         assert 200 in ids

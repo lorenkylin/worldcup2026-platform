@@ -1,7 +1,7 @@
 """Pydantic 数据模型（请求/响应 schema）."""
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import List, Optional
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, field_serializer
@@ -127,6 +127,17 @@ class PredictionOut(BaseModel):
     expected_home_goals: float
     expected_away_goals: float
     recommended_score: str
+    # v2: 与预测赛果方向一致的推荐比分（解决全局最可能比分与 1X2 方向矛盾）
+    outcome_aligned_score: str = ""
+    # v2.1: 首选/次选比分
+    primary_score: str = ""
+    secondary_score: str = ""
+    # v2: Top3 最可能比分及概率
+    top_scores: List[dict] = []
+    # v2: recommended_score 的概率值
+    score_confidence: float = 0.0
+    # v2.1: 比分推荐度星级（基于首选比分概率 + 赛果置信度）
+    score_reliability_stars: int = 1
     stars: int
     reasons: list[str]
     # B3: H2H 历史交锋（如果有）

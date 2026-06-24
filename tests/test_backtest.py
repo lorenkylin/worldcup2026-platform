@@ -48,10 +48,18 @@ def test_backtest_result_dataclass():
         actual_home_freq=0.45,
         top1_recall=0.5,
         top2_recall=0.9,
+        exact_score_accuracy=0.12,
+        top3_score_recall=0.34,
+        outcome_aligned_accuracy=0.13,
+        primary_score_accuracy=0.10,
+        secondary_score_accuracy=0.20,
     )
     assert report.n_matches == 10
     assert report.accuracy == 0.5
     assert report.brier_score == 0.55
+    assert report.exact_score_accuracy == 0.12
+    assert report.primary_score_accuracy == 0.10
+    assert report.secondary_score_accuracy == 0.20
 
 
 def test_render_markdown_report_contains_key_metrics():
@@ -72,12 +80,21 @@ def test_render_markdown_report_contains_key_metrics():
         actual_home_freq=0.45,
         top1_recall=0.5,
         top2_recall=0.9,
+        exact_score_accuracy=0.12,
+        top3_score_recall=0.34,
+        outcome_aligned_accuracy=0.13,
+        primary_score_accuracy=0.10,
+        secondary_score_accuracy=0.20,
     )
     md = render_markdown_report(report)
     assert "B6 预测模型回测报告" in md
     assert "Brier Score" in md
     assert "准确率" in md
     assert "评估 8" in md  # n_evaluated 显示在总比赛数列
+    assert "精确比分命中" in md
+    assert "首选比分命中" in md
+    assert "次选比分命中" in md
+    assert "Top3 比分召回" in md
 
 
 # =============== 集成测试 ===============

@@ -54,6 +54,19 @@ class PredictionResult:
     actual_outcome: str
     is_correct: bool
     brier_contribution: float
+    # v2 比分推荐指标
+    recommended_score: str
+    outcome_aligned_score: str
+    primary_score: str
+    secondary_score: str
+    top_scores: List[Dict]
+    score_confidence: float
+    score_reliability_stars: int
+    exact_score_hit: bool
+    top3_score_hit: bool
+    outcome_aligned_hit: bool
+    primary_hit: bool
+    secondary_hit: bool
 
 
 @dataclass
@@ -84,6 +97,13 @@ class BacktestReport:
     top1_recall: float  # 实际结果在 argmax
     top2_recall: float  # 实际结果在前 2 名
 
+    # v2 比分推荐准确率
+    exact_score_accuracy: float  # 推荐比分完全命中
+    top3_score_recall: float  # 实际比分在 Top3
+    outcome_aligned_accuracy: float  # outcome_aligned_score 完全命中
+    primary_score_accuracy: float  # primary_score=实际比分
+    secondary_score_accuracy: float  # secondary_score=实际比分
+
     # 详细数据（可选，调试用）
     predictions: List[Dict] = field(default_factory=list)
 
@@ -98,6 +118,8 @@ from app.services.prediction import (
     elo_from_fifa_rank,
     _apply_recent_form,
     _predict_score_distribution,
+    _select_primary_secondary,
+    _score_reliability_stars,
     FALLBACK_ELO_NO_RANK,
 )
 
@@ -140,9 +162,15 @@ def _predict_for_backtest(
     )
 
     # Poisson 预测
-    home_win, draw, away_win, _best_score = _predict_score_distribution(
-        home_lambda, away_lambda
-    )
+    (
+        home_win,
+        draw,
+        away_win,
+        recommended_score,
+        outcome_aligned_score,
+        top_scores,
+        score_confidence,
+    ) = _predict_score_distribution(home_lambda, away_lambda)
 
     # argmax
     probs = {"home": home_win, "draw": draw, "away": away_win}
@@ -155,6 +183,24 @@ def _predict_for_backtest(
         actual = "away"
     else:
         actual = "draw"
+
+    actual_score_str = f"{hist.home_score}:{hist.away_score}"
+    exact_score_hit = recommended_score == actual_score_str
+    top3_score_hit = actual_score_str in [s["score"] for s in top_scores]
+    outcome_aligned_hit = outcome_aligned_score == actual_score_str
+
+    primary_score, secondary_score = _select_primary_secondary(
+        home_win, draw, away_win, recommended_score, outcome_aligned_score, top_scores
+    )
+    primary_prob = next(
+        (s["probability"] for s in top_scores if s["score"] == primary_score),
+        score_confidence,
+    )
+    score_reliability_stars = _score_reliability_stars(
+        primary_prob, max(home_win, draw, away_win)
+    )
+    primary_hit = primary_score == actual_score_str
+    secondary_hit = secondary_score == actual_score_str
 
     # Brier Score contribution
     brier = (
@@ -173,6 +219,18 @@ def _predict_for_backtest(
         actual_outcome=actual,
         is_correct=(predicted == actual),
         brier_contribution=brier,
+        recommended_score=recommended_score,
+        outcome_aligned_score=outcome_aligned_score,
+        primary_score=primary_score,
+        secondary_score=secondary_score,
+        top_scores=top_scores,
+        score_confidence=score_confidence,
+        score_reliability_stars=score_reliability_stars,
+        exact_score_hit=exact_score_hit,
+        top3_score_hit=top3_score_hit,
+        outcome_aligned_hit=outcome_aligned_hit,
+        primary_hit=primary_hit,
+        secondary_hit=secondary_hit,
     )
 
 
@@ -224,6 +282,11 @@ def run_backtest(db: Session, lookback: int = 999) -> BacktestReport:
                     "home": home.name_zh,
                     "away": away.name_zh,
                     "actual_score": f"{hist.home_score}:{hist.away_score}",
+                    "recommended_score": pred.recommended_score,
+                    "outcome_aligned_score": pred.outcome_aligned_score,
+                    "primary_score": pred.primary_score,
+                    "secondary_score": pred.secondary_score,
+                    "score_reliability_stars": pred.score_reliability_stars,
                     "actual": pred.actual_outcome,
                     "pred": pred.predicted_outcome,
                     "p_home": round(pred.home_win_prob, 3),
@@ -252,6 +315,11 @@ def run_backtest(db: Session, lookback: int = 999) -> BacktestReport:
             actual_home_freq=0.0,
             top1_recall=0.0,
             top2_recall=0.0,
+            exact_score_accuracy=0.0,
+            top3_score_recall=0.0,
+            outcome_aligned_accuracy=0.0,
+            primary_score_accuracy=0.0,
+            secondary_score_accuracy=0.0,
             predictions=[],
         )
 
@@ -302,6 +370,13 @@ def run_backtest(db: Session, lookback: int = 999) -> BacktestReport:
     top1 = _topn_recall(1)
     top2 = _topn_recall(2)
 
+    # v2 比分推荐指标
+    exact_score_acc = sum(1 for p in predictions if p.exact_score_hit) / len(predictions)
+    top3_score_rec = sum(1 for p in predictions if p.top3_score_hit) / len(predictions)
+    outcome_aligned_acc = sum(1 for p in predictions if p.outcome_aligned_hit) / len(predictions)
+    primary_score_acc = sum(1 for p in predictions if p.primary_hit) / len(predictions)
+    secondary_score_acc = sum(1 for p in predictions if p.secondary_hit) / len(predictions)
+
     return BacktestReport(
         n_matches=len(hist_matches),
         n_skipped=skipped,
@@ -318,6 +393,11 @@ def run_backtest(db: Session, lookback: int = 999) -> BacktestReport:
         actual_home_freq=actual_home_freq,
         top1_recall=top1,
         top2_recall=top2,
+        exact_score_accuracy=exact_score_acc,
+        top3_score_recall=top3_score_rec,
+        outcome_aligned_accuracy=outcome_aligned_acc,
+        primary_score_accuracy=primary_score_acc,
+        secondary_score_accuracy=secondary_score_acc,
         predictions=detail,
     )
 
@@ -338,6 +418,11 @@ def render_markdown_report(report: BacktestReport) -> str:
 | **Brier Score** | **{report.brier_score:.3f}** | 0=完美，0.667=随机 |
 | **Top-1 召回** | {report.top1_recall * 100:.1f}% | 实际结果在 argmax |
 | **Top-2 召回** | {report.top2_recall * 100:.1f}% | 实际结果在前 2 名 |
+| **精确比分命中** | {report.exact_score_accuracy * 100:.1f}% | 推荐比分=实际比分 |
+| **首选比分命中** | {report.primary_score_accuracy * 100:.1f}% | primary_score=实际比分 |
+| **次选比分命中** | {report.secondary_score_accuracy * 100:.1f}% | secondary_score=实际比分 |
+| **Top3 比分召回** | {report.top3_score_recall * 100:.1f}% | 实际比分在前 3 |
+| **赛果一致比分命中** | {report.outcome_aligned_accuracy * 100:.1f}% | outcome_aligned_score=实际比分 |
 
 ## 📈 分结果准确率
 
@@ -359,13 +444,14 @@ def render_markdown_report(report: BacktestReport) -> str:
 
 ## 📋 部分预测明细（前 30 场 + 关键场次）
 
-| 日期 | 对阵 | 实际比分 | 实际 | 预测 | P(H) | P(D) | P(A) | Brier |
-|------|------|---------|------|------|------|------|------|-------|
+| 日期 | 对阵 | 实际比分 | 首选比分 | 次选比分 | 推荐比分 | 赛果一致比分 | 实际 | 预测 | P(H) | P(D) | P(A) | Brier |
+|------|------|---------|---------|---------|-------------|------|------|------|------|------|-------|-------|
 """
     for p in report.predictions:
         md += (
             f"| {p['stage'][:20]} | {p['home']} vs {p['away']} "
-            f"| {p['actual_score']} | {p['actual']} | {p['pred']} "
+            f"| {p['actual_score']} | {p['primary_score']} | {p['secondary_score']} | {p['recommended_score']} | {p['outcome_aligned_score']} "
+            f"| {p['actual']} | {p['pred']} "
             f"| {p['p_home']:.2f} | {p['p_draw']:.2f} | {p['p_away']:.2f} | {p['brier']:.3f} |\n"
         )
 
@@ -402,6 +488,12 @@ def render_markdown_report(report: BacktestReport) -> str:
 
 # =============== 命令行入口 ===============
 if __name__ == "__main__":
+    import sys
+
+    # Windows 控制台默认 GBK，强制 stdout 用 utf-8 以输出 emoji
+    if sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
+        sys.stdout.reconfigure(encoding="utf-8")
+
     from app.db import SessionLocal
 
     db = SessionLocal()

@@ -3,7 +3,7 @@
 单一聚合端点，为新版总览页提供统计 + 总预览 + 互联互通数据。
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -13,7 +13,10 @@ router = APIRouter(prefix="/cockpit", tags=["总览驾驶舱"])
 
 
 @router.get("/summary")
-def cockpit_summary(db: Session = Depends(get_db)) -> dict:
+def cockpit_summary(
+    db: Session = Depends(get_db),
+    refresh: bool = Query(False, description="强制跳过缓存，重新计算摘要"),
+) -> dict:
     """总览驾驶舱聚合摘要.
 
     返回：
@@ -25,4 +28,4 @@ def cockpit_summary(db: Session = Depends(get_db)) -> dict:
     - market_model_divergence: 市场 vs 模型偏离价值投注
     - elo_top_teams: Elo Top 5
     """
-    return build_cockpit_summary(db)
+    return build_cockpit_summary(db, use_cache=not refresh)

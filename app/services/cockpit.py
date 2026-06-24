@@ -17,6 +17,14 @@ from app.services.elo import predict_match as elo_predict
 from app.services.elo import predict_match_blend, HOME_BONUS
 from app.services import glicko2 as g2_service
 
+import time
+from typing import Any, Dict
+
+
+# 进程内缓存：Cockpit summary 计算重（MC 1000 sims + 外部源健康探测），缓存 5 分钟
+_COCKPIT_CACHE: Dict[str, Any] = {}
+_COCKPIT_CACHE_TTL_SECONDS = 300
+
 
 THRESHOLD_QUALIFIED = 99.0
 THRESHOLD_ELIMINATED = 1.0
@@ -345,11 +353,23 @@ def get_data_health() -> Dict:
     }
 
 
-def build_cockpit_summary(db: Session) -> Dict:
-    """构建总览驾驶舱完整摘要."""
+def build_cockpit_summary(db: Session, use_cache: bool = True) -> Dict:
+    """构建总览驾驶舱完整摘要.
+
+    默认启用 5 分钟进程内缓存，避免每次请求都重算 MC 模拟 + 外部源探测。
+    """
+    now = time.time()
+    if use_cache:
+        cached = _COCKPIT_CACHE.get("summary")
+        if cached and (now - cached.get("_cached_at", 0)) < _COCKPIT_CACHE_TTL_SECONDS:
+            cached_copy = dict(cached)
+            cached_copy["cached"] = True
+            cached_copy["cache_age_seconds"] = round(now - cached_copy.pop("_cached_at"), 2)
+            return cached_copy
+
     advance_odds = simulator.simulate_group_advancement(db, n_sims=1000)
     critical = get_critical_matches(db, advance_odds=advance_odds)
-    return {
+    summary = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "tournament_progress": get_tournament_progress(db),
         "qualification_summary": get_qualification_summary(db, advance_odds=advance_odds),
@@ -358,4 +378,13 @@ def build_cockpit_summary(db: Session) -> Dict:
         "model_consensus": get_model_consensus_highlights(critical),
         "market_model_divergence": get_market_model_divergence(db),
         "elo_top_teams": get_elo_top_teams(db),
+        "cached": False,
+        "cache_age_seconds": 0,
     }
+
+    # 写入缓存
+    cache_entry = dict(summary)
+    cache_entry["_cached_at"] = now
+    _COCKPIT_CACHE["summary"] = cache_entry
+
+    return summary

@@ -202,6 +202,12 @@ class PredictionCache(Base):
     expected_home_goals = Column(Float, default=0.0)
     expected_away_goals = Column(Float, default=0.0)
     recommended_score = Column(String(10), default="")
+    outcome_aligned_score = Column(String(10), default="")
+    primary_score = Column(String(10), default="")
+    secondary_score = Column(String(10), default="")
+    top_scores = Column(Text, default="")  # JSON list
+    score_confidence = Column(Float, default=0.0)
+    score_reliability_stars = Column(Integer, default=1)
     stars = Column(Integer, default=0)
     reasons = Column(Text, default="")
     generated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

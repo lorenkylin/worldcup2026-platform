@@ -45,9 +45,9 @@ def make_match(home: Team, away: Team) -> Match:
 def test_elo_to_lambda_equal_teams_returns_base():
     """两队 Elo 相等时，λ 应接近 BASE_LAMBDA."""
     h, a = elo_to_lambda(1500, 1500)
-    # 主场优势 60 分 = 60 * 0.0035 = 0.21 偏移
+    # 主场优势 60 分 * 2 = 0.36 分差（poisson_goal_per_elo_diff=0.0030）
     assert h > a  # 主队 λ 略高（主场优势）
-    assert h - a == pytest.approx(0.42, abs=0.01)
+    assert h - a == pytest.approx(0.36, abs=0.01)
     assert h > 0.3 and a > 0.3
 
 
@@ -86,15 +86,18 @@ def test_poisson_prob_mode_around_lambda():
 
 # ---------- 比分分布与胜平负 ----------
 
-def test_score_distribution_returns_3_outcomes_and_score():
-    """比分分布应返回 (home_win, draw, away_win, recommended_score)."""
-    h, d, a, best = _predict_score_distribution(1.5, 1.0)
+def test_score_distribution_returns_outcomes_and_scores():
+    """比分分布应返回 (home_win, draw, away_win, recommended_score, outcome_aligned, top_scores, confidence)."""
+    h, d, a, best, outcome_aligned, top_scores, conf = _predict_score_distribution(1.5, 1.0)
     assert 0 < h < 1
     assert 0 < d < 1
     assert 0 < a < 1
     assert ":" in best
+    assert ":" in outcome_aligned
+    assert len(top_scores) == 3
+    assert 0.0 < conf <= 1.0
     total = h + d + a
-    assert 0.95 < total < 1.0
+    assert abs(total - 1.0) < 1e-6
 
 
 def test_score_distribution_higher_home_lambda_increases_home_win():

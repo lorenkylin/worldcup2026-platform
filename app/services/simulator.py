@@ -17,7 +17,6 @@ from sqlalchemy.orm import Session
 
 from app.models import Match, Standing, Team
 from app.services.elo_params import elo_to_lambda
-from app.services.prediction import _predict_score_distribution
 
 
 DIRECT_QUALIFIERS_PER_GROUP = 2

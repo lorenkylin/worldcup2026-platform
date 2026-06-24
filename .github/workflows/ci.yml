@@ -43,10 +43,17 @@ jobs:
         run: |
           pytest tests/ -m "not slow and not e2e" -v --tb=short -p no:cacheprovider
 
-      - name: "跑 alembic 迁移 (干跑 --sql 只生成不执行)"
+      - name: "跑 alembic 迁移 (干跑只验证不执行)"
         run: |
-          # 不执行实际迁移, 只验证迁移脚本可解析
+          # 先创建临时 SQLite DB，再 upgrade head --sql 验证迁移脚本可解析
+          # SQLite batch_alter_table 需要 live connection，因此不能纯 --sql
+          export DATABASE_URL="sqlite:///./tmp_alembic_ci.db"
+          python - <<'PY'
+          from app.db import engine, Base
+          Base.metadata.create_all(bind=engine)
+          PY
           alembic upgrade head --sql 2>&1 | head -50
+          rm -f ./tmp_alembic_ci.db
 
   slow:
     name: 慢测试（walkforward / 模拟 / 大扫描）

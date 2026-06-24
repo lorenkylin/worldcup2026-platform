@@ -149,10 +149,11 @@ def test_admin_score_update_requires_token():
 
 def test_admin_score_update_with_token():
     """带 Token 可成功更新比分."""
+    from app.config import settings
     resp = client.post(
         "/api/admin/matches/1/score",
         json={"home_score": 3, "away_score": 1, "status": "finished", "time_elapsed": "90"},
-        headers={"x-admin-token": "worldcup2026-admin"},  # FastAPI header 区分大小写归一为小写
+        headers={"x-admin-token": settings.admin_token},  # FastAPI header 区分大小写归一为小写
     )
     assert resp.status_code == 200
     assert resp.json()["ok"] is True

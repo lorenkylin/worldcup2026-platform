@@ -165,30 +165,45 @@ class TestPoissonProb:
 
 class TestScoreDistribution:
     def test_probabilities_sum_to_one(self):
-        h, d, a, _ = _predict_score_distribution(1.5, 1.2)
-        assert abs(h + d + a - 1.0) < 0.01
+        h, d, a, *_ = _predict_score_distribution(1.5, 1.2)
+        assert abs(h + d + a - 1.0) < 1e-6
 
     def test_strong_favorite_high_home_win(self):
-        h, d, a, _ = _predict_score_distribution(2.5, 0.7)
+        h, d, a, *_ = _predict_score_distribution(2.5, 0.7)
         assert h > 0.7
         assert a < 0.15
 
     def test_recommended_score_format(self):
-        _, _, _, best = _predict_score_distribution(1.5, 1.2)
+        _, _, _, best, outcome_aligned, top_scores, conf = _predict_score_distribution(1.5, 1.2)
         assert ":" in best
         home, away = best.split(":")
         assert home.isdigit() and away.isdigit()
+        assert ":" in outcome_aligned
+        assert len(top_scores) == 3
+        assert top_scores[0]["probability"] >= top_scores[1]["probability"] >= top_scores[2]["probability"]
+        assert 0.0 < conf <= 1.0
+
+    def test_outcome_aligned_matches_predicted_outcome(self):
+        h, d, a, _, outcome_aligned, _, _ = _predict_score_distribution(2.5, 0.7)
+        pred_outcome = "H" if h > d and h > a else ("D" if d >= h and d >= a else "A")
+        oh, oa = map(int, outcome_aligned.split(":"))
+        aligned_outcome = "H" if oh > oa else ("D" if oh == oa else "A")
+        assert aligned_outcome == pred_outcome
+
+    def test_top_scores_probabilities_sum_less_than_one(self):
+        _, _, _, _, _, top_scores, _ = _predict_score_distribution(1.5, 1.2)
+        assert sum(s["probability"] for s in top_scores) < 1.0
 
 
 # ---------- 星级 ----------
 
 class TestStars:
     def test_strong_favorite_5_stars(self):
-        h, d, a, _ = _predict_score_distribution(2.5, 0.7)
+        h, d, a, *_ = _predict_score_distribution(2.5, 0.7)
         assert _stars(h, d, a) == 5
 
     def test_balanced_match_low_stars(self):
-        h, d, a, _ = _predict_score_distribution(1.4, 1.4)
+        h, d, a, *_ = _predict_score_distribution(1.4, 1.4)
         assert _stars(h, d, a) <= 3
 
 
@@ -202,18 +217,29 @@ class TestReasons:
             fifa_rank=fifa_rank, recent_form_points=form,
         )
 
+    def _call_reasons(self, home, away, hl=1.5, al=1.5, hw=0.4, d=0.3, aw=0.3, home_form=None, away_form=None, h2h=None, primary="2:1", secondary="1:1", score_stars=3):
+        if h2h is None:
+            h2h = {"home_wins": 0, "away_wins": 0, "draws": 0, "sample": 0, "summary": ""}
+        return _reasons(home, away, hl, al, hw, d, aw, home_form, away_form, h2h, primary, secondary, score_stars)
+
     def test_includes_elo_advantage(self):
         home = self._mk_team("巴西", elo=2050)
         away = self._mk_team("巴拉圭", elo=1500)
-        h2h = {"home_wins": 0, "away_wins": 0, "draws": 0, "sample": 0, "summary": ""}
-        reasons = _reasons(home, away, 2.0, 1.0, 0.6, None, None, h2h)
+        reasons = self._call_reasons(home, away, hw=0.6)
         assert any("Elo" in r for r in reasons)
+
+    def test_includes_score_prediction(self):
+        home = self._mk_team("巴西", elo=2050)
+        away = self._mk_team("巴拉圭", elo=1500)
+        reasons = self._call_reasons(home, away, primary="2:1", secondary="1:0", score_stars=4)
+        assert any("首选比分" in r and "2:1" in r for r in reasons)
+        assert any("推荐度" in r and "4 星" in r for r in reasons)
+        assert any("次选比分" in r and "1:0" in r for r in reasons)
 
     def test_includes_recent_form_when_present(self):
         home = self._mk_team("巴西", elo=1800, form=12)
         away = self._mk_team("阿根廷", elo=1800, form=3)
-        h2h = {"home_wins": 0, "away_wins": 0, "draws": 0, "sample": 0, "summary": ""}
-        reasons = _reasons(home, away, 1.5, 1.5, 0.4, 12, 3, h2h)
+        reasons = self._call_reasons(home, away, home_form=12, away_form=3)
         assert any("近 5 场" in r for r in reasons)
 
     def test_includes_h2h_when_data_exists(self):
@@ -223,14 +249,13 @@ class TestReasons:
             "home_wins": 2, "away_wins": 1, "draws": 1, "sample": 4,
             "summary": "近 4 次交锋 巴西2胜1平1负",
         }
-        reasons = _reasons(home, away, 1.5, 1.5, 0.4, None, None, h2h)
+        reasons = self._call_reasons(home, away, h2h=h2h)
         assert any("历史交锋" in r and "巴西" in r for r in reasons)
 
     def test_returns_between_3_and_5_reasons(self):
         home = self._mk_team("巴西", elo=1500)
         away = self._mk_team("韩国", elo=1500)
-        h2h = {"home_wins": 0, "away_wins": 0, "draws": 0, "sample": 0, "summary": ""}
-        reasons = _reasons(home, away, 1.5, 1.5, 0.4, None, None, h2h)
+        reasons = self._call_reasons(home, away)
         assert 3 <= len(reasons) <= 5
 
 
@@ -358,11 +383,21 @@ class TestPredictMatch:
         match = self._mk_match()
         p = predict_match(home, away, match)
         assert p.match_id == 1
-        # Poisson 截断到 7 球可能漏掉 < 1% 质量，且 1 位小数四舍五入误差累加
-        assert abs(p.home_win_prob + p.draw_prob + p.away_win_prob - 100) < 1.5
+        # 概率已归一化，100 附近误差应极小
+        assert abs(p.home_win_prob + p.draw_prob + p.away_win_prob - 100) < 0.1
         assert 1 <= p.stars <= 5
         assert len(p.reasons) >= 3
         assert ":" in p.recommended_score
+        # v2 新字段
+        assert ":" in p.outcome_aligned_score
+        assert len(p.top_scores) == 3
+        assert p.top_scores[0]["probability"] >= p.top_scores[1]["probability"]
+        assert 0.0 < p.score_confidence <= 1.0
+        # v2.1 新字段
+        assert ":" in p.primary_score
+        assert ":" in p.secondary_score
+        assert 1 <= p.score_reliability_stars <= 5
+        assert any("首选比分" in r for r in p.reasons)
 
     def test_predict_match_with_form_data(self):
         """有 form 数据时 λ 调整生效，h2h_summary=None."""

@@ -121,7 +121,7 @@ def test_predict_with_both_form_none():
     assert fb["form"]["applied"] is False
 
     # _reasons 不抛
-    reasons = _reasons(home, away, hl, al, 0.5, None, None, h2h)
+    reasons = _reasons(home, away, hl, al, 0.5, 0.25, 0.25, None, None, h2h, "1:1", "2:1", 3)
     assert isinstance(reasons, list)
     assert 3 <= len(reasons) <= 5
 
@@ -142,8 +142,8 @@ def test_predict_with_one_form_none_one_has_data():
     assert fb["form"]["applied"] is False
 
     # _reasons 不抛
-    reasons = _reasons(home, away, 1.5, 1.2, 0.5,
-                       home.recent_form_points, away.recent_form_points, h2h)
+    reasons = _reasons(home, away, 1.5, 1.2, 0.5, 0.25, 0.25,
+                       home.recent_form_points, away.recent_form_points, h2h, "1:0", "1:1", 4)
     assert isinstance(reasons, list)
     assert len(reasons) >= 3
 

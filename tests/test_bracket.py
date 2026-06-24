@@ -311,9 +311,10 @@ def test_api_admin_bracket_rebuild_with_token(db_session, client):
     _full_seed(db_session, {
         "A": [(9, 3, 0), (6, 2, 1), (3, 1, 2), (0, 0, 3)],
     })
+    from app.config import settings
     response = client.post(
         "/api/admin/bracket/rebuild",
-        headers={"X-Admin-Token": "worldcup2026-admin"},
+        headers={"X-Admin-Token": settings.admin_token},
     )
     assert response.status_code == 200
     data = response.json()

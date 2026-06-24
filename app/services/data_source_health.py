@@ -15,10 +15,15 @@
 import time
 import httpx
 from datetime import datetime, timezone
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
 
 from app.config import settings
 from app.services import sync_status
+
+
+# 进程内缓存：避免每次请求都同步探测所有外部源（ Fly.io / VPS 上易导致 10s+ 延迟）
+_HEALTH_CACHE: Dict[str, Any] = {}
+_HEALTH_CACHE_TTL_SECONDS = 60
 
 
 # 数据源定义
@@ -196,8 +201,20 @@ def check_all_sources() -> List[Dict]:
     return results
 
 
-def get_health_summary() -> Dict:
-    """健康度汇总 + 总体状态."""
+def get_health_summary(use_cache: bool = True) -> Dict:
+    """健康度汇总 + 总体状态.
+
+    默认启用 60s 进程内缓存，避免同步探测多个外部源导致端点响应过慢。
+    """
+    now = time.time()
+    if use_cache:
+        cached = _HEALTH_CACHE.get("summary")
+        if cached and (now - cached.get("_cached_at", 0)) < _HEALTH_CACHE_TTL_SECONDS:
+            cached_copy = dict(cached)
+            cached_copy["cached"] = True
+            cached_copy["cache_age_seconds"] = round(now - cached_copy.pop("_cached_at"), 2)
+            return cached_copy
+
     results = check_all_sources()
     ok = sum(1 for r in results if r["status"] == "ok")
     degraded = sum(1 for r in results if r["status"] in ("degraded", "timeout"))
@@ -217,10 +234,19 @@ def get_health_summary() -> Dict:
     latencies = [r.get("latency_ms", 0) for r in results if r.get("latency_ms")]
     avg_latency = round(sum(latencies) / len(latencies), 1) if latencies else None
 
-    return {
+    summary = {
         "overall": overall,
         "summary": {"total": total, "ok": ok, "degraded": degraded, "down": down},
         "avg_latency_ms": avg_latency,
         "sources": results,
         "checked_at": datetime.now(timezone.utc).isoformat(),
+        "cached": False,
+        "cache_age_seconds": 0,
     }
+
+    # 写入缓存（保留内部时间戳用于 TTL 判断）
+    cache_entry = dict(summary)
+    cache_entry["_cached_at"] = now
+    _HEALTH_CACHE["summary"] = cache_entry
+
+    return summary

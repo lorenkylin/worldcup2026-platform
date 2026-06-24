@@ -14,3 +14,4 @@ beautifulsoup4==4.15.0
 lxml>=5.0.0
 alembic==1.13.3
 playwright==1.59.0
+requests>=2.31.0
