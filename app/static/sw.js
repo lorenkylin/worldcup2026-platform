@@ -9,7 +9,7 @@
  * 缓存版本：wc2026-v6
  */
 
-const CACHE_VERSION = 'wc2026-v6';  // v0.16.2: 前端首选/次选比分展示优化
+const CACHE_VERSION = 'wc2026-v7';  // v0.16.3: 推荐比分 UI 醒目化
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const API_CACHE = `${CACHE_VERSION}-api`;
 
