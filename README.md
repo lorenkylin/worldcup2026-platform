@@ -1,6 +1,9 @@
 # 2026 FIFA World Cup 赛事分析平台 · 工程交付
 
-> ## 🏠 **v0.16.1 — 比分推荐 v2.1 上线 + 全量验收通过（2026-06-24）**
+> ## 🏠 **v0.16.2 — 前端首选/次选比分展示优化（2026-06-24）**
+> 在首页焦点战卡片、比赛详情页 AI 预测区、赛后复盘模块同步展示首选比分 `primary_score` 与次选比分 `secondary_score`，让用户一眼看到模型给出的前两名推荐结果，避免单一推荐比分的局限性。Service Worker 缓存版本保持 `wc2026-v6`，静态资源加 `?v=0.16.2`。
+>
+> ## 🎯 **v0.16.1 — 比分推荐 v2.1 上线 + 全量验收通过（2026-06-24）**
 > 重点强化推荐比分的可靠性：新增首选比分 `primary_score`、次选比分 `secondary_score`、比分推荐度星级 `score_reliability_stars`，并完善推荐原因；全系统 545 单元测试 + 56 E2E 全量通过，服务/数据/API/部署配置验收全部达标。Service Worker 缓存版本升至 `wc2026-v5`，静态资源加 `?v=0.16.1`。
 >
 > ## ✨ **v0.15.0 — 深空玻璃拟态 UI 视觉升级（2026-06-18）**
@@ -47,8 +50,8 @@
 > 直面主人 3 个真问题之 #1 部署/可用性. scheduler 同步状态持久化 JSON, /health 暴露健康度,
 > Cockpit "📡 数据新鲜度" widget 一眼看出 worldcup26.ir 同步是否健康.
 
-> **文档版本**：v0.16.1（**比分推荐 v2.1 上线 + 全量验收通过** —— 首选/次选比分 + 比分推荐度星级 + 完善推荐原因 + API-Football 主源 + worldcup26.ir 备份 + 字段级多源仲裁 + 深空玻璃拟态 UI，2026-06-24）
-> **阶段**：Phase 5 – Ship ✅ **完成**（v0.7.x 模型演进 + 赔率深化 + 缓存 + Adaptive Weight + 数据回填 + 校准实验 4 版 + Cockpit 速览 + 校准 sunset 决策 + **v0.14 多源数据接入 + v0.14.1 数据质量校验层 + v0.14.2 Cockpit 去重 redesign + v0.14.3 Cockpit 入口下线/数据同步稳定性修复/API-Football 预算告警 + v0.14.4 字段级多源仲裁 + v0.15.0 深空玻璃拟态 UI 升级 + v0.16.0 首页重构/国旗/中文优化 + v0.16.1 比分推荐 v2.1**）
+> **文档版本**：v0.16.2（**前端首选/次选比分展示优化** —— 首页焦点战/比赛详情/赛后复盘同步展示 primary/secondary score + 比分推荐 v2.1 + API-Football 主源 + worldcup26.ir 备份 + 字段级多源仲裁 + 深空玻璃拟态 UI，2026-06-24）
+> **阶段**：Phase 5 – Ship ✅ **完成**（v0.7.x 模型演进 + 赔率深化 + 缓存 + Adaptive Weight + 数据回填 + 校准实验 4 版 + Cockpit 速览 + 校准 sunset 决策 + **v0.14 多源数据接入 + v0.14.1 数据质量校验层 + v0.14.2 Cockpit 去重 redesign + v0.14.3 Cockpit 入口下线/数据同步稳定性修复/API-Football 预算告警 + v0.14.4 字段级多源仲裁 + v0.15.0 深空玻璃拟态 UI 升级 + v0.16.0 首页重构/国旗/中文优化 + v0.16.1 比分推荐 v2.1 + v0.16.2 前端首选/次选比分展示优化**）
 > **作用域**：48 强全量赛程 + **API-Football 实时主源** + worldcup26.ir 实时同步 + football-data.org 增强 + 多源回退 + Elo-Poisson v2 + **Glicko-2** + **ModelBlend (Elo + G2 加权)** + **Adaptive Weight (4 段按距上次比赛天数)** + **G2 校准（Platt + Isotonic 双方法，v0.8.1 已 sunset, 代码 git 保留）** + **Walk-forward 1226 场训练集（Hicruben 913 + StatsBomb 313）** + **StatsBomb 双数据源对比** + **Monte Carlo 10000 sims + 缓存层** + 出线模拟器 + Bracket 淘汰赛路线图 + **市场赔率模块 M3（管理员 + value bet + 走势 + 模型 vs 市场对比）** + 手动兜底 + CSV 导出 + 历史交锋详情页 + **准确率 dashboard** + **Cockpit 总览聚合 API `/api/cockpit/summary`**
 
 ---
@@ -389,7 +392,7 @@ alembic revision --autogenerate -m "改了什么"
 
 ---
 
-## 六、API 速查（v0.16.1 共 68+ 端点，含 `/`、`/health`、`/api/*`）
+## 六、API 速查（v0.16.2 共 68+ 端点，含 `/`、`/health`、`/api/*`）
 
 > 完整交互式文档：`DEBUG=true` 时访问 `/api/docs` 或 `/api/redoc`。
 

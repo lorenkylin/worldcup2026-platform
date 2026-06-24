@@ -18,7 +18,7 @@
     html, body { background: #030712; }
     body { font-family: "Inter", "Noto Sans SC", system-ui, sans-serif; }
   </style>
-  <link rel="stylesheet" href="/static/css/styles.css?v=0.16.1">
+  <link rel="stylesheet" href="/static/css/styles.css?v=0.16.2">
   <!-- v0.5.1: Chart.js 用于赔率走势图; CDN 失败时回退到本地 vendor -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" onerror="this.src='/static/vendor/chart.umd.min.js'"></script>
 </head>
@@ -81,7 +81,7 @@
     </div>
   </aside>
 
-  <!-- 底部 Tab（v0.16.1 悬浮胶囊风格） -->
+  <!-- 底部 Tab（v0.16.2 悬浮胶囊风格） -->
   <nav class="fixed bottom-0 left-0 right-0 z-50 px-4 pb-3 pointer-events-none">
     <div class="max-w-2xl mx-auto grid grid-cols-5 tab-bar pointer-events-auto">
       <a href="#/" class="tab-item active"><span class="tab-icon">🏠</span><span class="tab-label">首页</span></a>
@@ -92,7 +92,7 @@
     </div>
   </nav>
 
-  <script src="/static/js/app.js?v=0.16.1"></script>
+  <script src="/static/js/app.js?v=0.16.2"></script>
   <script>
     // 标记数据状态
     fetch('/api/matches/today').then(r => r.ok ? r.json().then(d => {
